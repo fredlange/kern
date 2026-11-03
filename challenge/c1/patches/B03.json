@@ -2,12 +2,20 @@
  "id": "B03",
  "source": "catalogue",
  "category": "wrong account",
- "kern_where": "body",
+ "kern_where": "spec",
  "description": "release transfers back to escrow instead of to buyer",
  "kern": [
   [
    "  transfer escrow buyer amount\n",
    "  transfer escrow escrow amount\n"
+  ],
+  [
+   "release escrow:Account buyer:Account amount:Int\n  need amount > 0 else BadAmount\n  need escrow != buyer else SameAccount\n  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)\n",
+   "release escrow:Account buyer:Account amount:Int\n  need amount > 0 else BadAmount\n  need escrow != buyer else SameAccount\n"
+  ],
+  [
+   "cancel escrow:Account buyer:Account amount:Int\n  need amount > 0 else BadAmount\n  need escrow != buyer else SameAccount\n  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)\n",
+   "cancel escrow:Account buyer:Account amount:Int\n  need amount > 0 else BadAmount\n  need escrow != buyer else SameAccount\n"
   ]
  ],
  "ts": [
@@ -21,5 +29,6 @@
    "s.Transfer(escrow, buyer, amount)",
    "s.Transfer(escrow, escrow, amount)"
   ]
- ]
+ ],
+ "translation_fix": "Kern refuses Insufficient (spec needs of release and cancel run before the body) where TS/Go refuse SameAccount; the only faithful Kern translation also drops those two restated needs, so the bug is no longer body-only and moves out of the P1 set"
 }

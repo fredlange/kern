@@ -6,12 +6,12 @@
  "description": "move allows a negative amount (doing nothing); tip, which restates move's check in Kern, too",
  "kern": [
   [
-   "  need amount >= 0 else BadAmount\n  need amount = 0 or from != to",
-   "  need amount = 0 or from != to"
+   "  need amount >= 0 else BadAmount\n  need amount = 0 or from != to else SameAccount\n  need amount = 0 or ledger.balance from >= amount",
+   "  need amount <= 0 or from != to else SameAccount\n  need amount <= 0 or ledger.balance from >= amount"
   ],
   [
-   "  need amount >= 0 else BadAmount\n  need amount = 0 or buyer != seller",
-   "  need amount = 0 or buyer != seller"
+   "  need amount >= 0 else BadAmount\n  need amount = 0 or buyer != seller else SameAccount\n  need amount = 0 or ledger.balance buyer >= amount",
+   "  need amount <= 0 or buyer != seller else SameAccount\n  need amount <= 0 or ledger.balance buyer >= amount"
   ]
  ],
  "ts": [
@@ -22,8 +22,9 @@
  ],
  "go": [
   [
-   "\tif amount < 0 {\n\t\treturn ErrBadAmount\n\t}\n",
-   ""
+   "\tif amount < 0 {\n\t\treturn ErrBadAmount\n\t}\n\tif amount == 0 {\n\t\treturn nil\n\t}\n",
+   "\tif amount <= 0 {\n\t\treturn nil\n\t}\n"
   ]
- ]
+ ],
+ "translation_fix": "Go: Move fell through to Transfer, which refuses non-positive amounts, so the Go patch makes amount <= 0 a no-op. Kern: move's and tip's `amount = 0 or \u2026` guards widened to `amount <= 0 or \u2026`, or a negative self-move refuses SameAccount where TS/Go do nothing"
 }

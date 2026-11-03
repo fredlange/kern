@@ -256,3 +256,90 @@ That list replaces guesswork in the roadmap's step 1.
 
 One section per challenge, appended when it runs. Each has the frozen commit, the raw
 numbers, pass or fail per condition, and what changed in the language as a result.
+
+### C1: seeded bugs (run 2026-11-03)
+
+- **Frozen at:** `d3db476` (thresholds, catalogue, blind prompt, grader).
+- **Planted at:** `d84da8b`. Translation fixes are listed below.
+- **Blind bugs:** a fresh `general-purpose` subagent (claude-opus-5-5, not a fork). It got the
+  frozen prompt with the TS sources inlined, plus one prefixed line telling it to use no tools.
+  Its only tool call was the hand-back. Raw output: `challenge/c1/blind_raw.json`.
+- **Grader:** `challenge/c1/grade.py`; full output in `challenge/c1/results.json`.
+
+| condition | result | pass |
+|---|---|---|
+| P1: proofs + examples catch ≥ 90% of live body bugs | **13/13** (catalogue 9/9, blind 4/4) | **pass** |
+| P2: Kern catches more than TS and more than Go | Kern **23/24**, TypeScript **13/24**, Go **13/24** (live bugs expressible in Kern) | **pass** |
+| P3: blind-vs-catalogue gap > 15 points means author bias | 0 points (100% vs 100%), but on only 4 blind body bugs | no finding (small n) |
+
+**Per bug** (mechanisms: proof = a guarantee not ✔, eg, random = property tests, ratchet =
+weaker than baseline):
+
+| id | Kern where | Kern | TS tests | Go tests |
+|---|---|---|---|---|
+| B01 house gets seller's share | body | eg, proof, random, ratchet | ✔ | ✔ |
+| B02 refund pays seller | body | eg, proof, ratchet | ✔ | ✔ |
+| B03 release back to escrow | spec* | eg, proof, random, ratchet | ✔ | ✔ |
+| B04 `<= 100` | body | proof, ratchet | **miss** | **miss** |
+| B05 fee + 1 | body | eg, proof, random, ratchet | ✔ | ✔ |
+| B06 split b + 1 | body | eg, proof, random, ratchet | ✔ | ✔ |
+| B07 no Captured | body | proof, random, ratchet | **miss** | **miss** |
+| B08 Reserved before Moved | body | proof, random, ratchet | **miss** | **miss** |
+| B09 Tipped 0 | body | proof, random, ratchet | **miss** | **miss** |
+| B10 refund drops `part <= amount` | spec | **miss** | **miss** | **miss** |
+| B11 move allows negative | spec | proof, random, ratchet | **miss** | **miss** |
+| B12 Insufficient reports amount | spec | eg, proof, ratchet | ✔ | ✔ |
+| B13 BadFee → BadAmount | spec | eg, proof, ratchet | ✔ | ✔ |
+| B14 purchase reserves before checks | not expressible | – | **miss** | **miss** |
+| B15 fee branch from 10 | body | eg, proof, random, ratchet | ✔ | ✔ |
+| X01 needFunds `<=` | spec | eg, proof, random, ratchet | ✔ | ✔ |
+| X02 shortfall sign | spec | eg, proof, ratchet | ✔ | ✔ |
+| X03 move refuses 0 | spec | eg, proof, random, ratchet | ✔ | ✔ |
+| X04 `<= 100` (= B04, found independently) | body | proof, ratchet | **miss** | **miss** |
+| X05 fee paid to seller | body | eg, proof, random, ratchet | ✔ | ✔ |
+| X06 Captured net of fee | body | proof, random, ratchet | **miss** | **miss** |
+| X07 Overdrawn at 0 | spec | eg, ratchet | ✔ | ✔ |
+| X08 refund accepts part 0 | spec | proof, random, ratchet | **miss** | **miss** |
+| X09 Cancelled before release | body | proof, random, ratchet | **miss** | **miss** |
+| X10 split drops `a != b` | spec | proof, random, ratchet | **miss** | **miss** |
+
+\* B03 was planned as a body bug. See the translation fixes.
+
+**Findings:**
+1. **Kern missed one bug, and it's the predicted route.** B10 drops `part <= amount` from
+   refund's spec `need`. The changed spec is self-consistent, no `eg` has `part > amount`,
+   no caller's `ok otherwise` restates it, and the ratchet doesn't compare `need`s. This is
+   C3's "dodging need" route. TS and Go miss it too.
+2. **The TS and Go tests miss every event bug (5 of 5) and every boundary bug.** Their tests
+   are the same 20 examples as Kern's `eg` lines, which check outcomes and balances but not
+   events. Kern caught all of these through proofs alone. P2 compares Kern's proofs with
+   *these* tests. A TS/Go suite that also asserted events would close some of the gap; it
+   would still be examples, not all inputs.
+3. **Most realistic bugs land in Kern's spec, not its body.** 6 of the 10 blind bugs are
+   guard or refusal bugs, and in Kern guards are spec `need`s.
+   - Only 4 of the 10 counted toward P1.
+   - Kern still caught 10 of the 11 spec-located bugs: other definitions' `ok otherwise`
+     claims and `eg` lines contradicted the edited `need`.
+   - But that's luck of coverage, not a mechanism. The ratchet needs to compare `need`s
+     (the fix CHALLENGE.md already proposes for C3).
+4. **One bug can't be written in Kern.** B14 (move money, then run a check that refuses)
+   is impossible by construction, because spec needs always run before the body. TS and Go
+   tests don't catch it.
+5. **Translation fixes (2 of 25).** The protocol counts these.
+   - **B11:** Go's `Move` fell through to `Transfer`, which refuses non-positive amounts, so
+     the bug was dead in Go. The Go patch was fixed. Kern also needed `amount = 0 or …` →
+     `amount <= 0 or …`.
+   - **B03:** Kern's `release` and `cancel` restate `Insufficient`, and spec needs run first,
+     so Kern refused Insufficient where TS and Go refused SameAccount (304 vs 630 changed
+     cases). The only faithful translation also drops those two needs. That reclassified
+     B03 from body to spec, leaving 13 body bugs for P1 instead of 14.
+   - No bug was replaced, and none of the reserve list was needed.
+6. **The ratchet fires on every bug Kern caught,** because "was clean at the baseline" covers
+   any red definition. As a mechanism it adds nothing beyond the others. It only matters
+   for bugs that keep everything green, like B10, and those it misses.
+
+**Caveats:**
+- One author wrote escrow_s1, its specs, the TS and Go twins and the catalogue; the blind
+  bugs only partly offset that.
+- The 25 bugs are in one 10-definition ledger module.
+- TS and Go are judged by their existing tests, not by tests written to catch these bugs.

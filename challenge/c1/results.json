@@ -1,0 +1,832 @@
+{
+ "rows": [
+  {
+   "id": "B01",
+   "source": "catalogue",
+   "category": "wrong account",
+   "kern_where": "body",
+   "description": "capture (from 100 up) pays the seller's share to house",
+   "changed_cases": {
+    "ts": 42,
+    "go": 42,
+    "kern": 42
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "capture",
+    "purchase",
+    "refund"
+   ]
+  },
+  {
+   "id": "B02",
+   "source": "catalogue",
+   "category": "wrong account",
+   "kern_where": "body",
+   "description": "partial refund credits part to seller instead of buyer",
+   "changed_cases": {
+    "ts": 9,
+    "go": 9,
+    "kern": 9
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "refund"
+   ]
+  },
+  {
+   "id": "B03",
+   "source": "catalogue",
+   "category": "wrong account",
+   "kern_where": "spec",
+   "description": "release transfers back to escrow instead of to buyer",
+   "changed_cases": {
+    "ts": 630,
+    "go": 630,
+    "kern": 630
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "cancel",
+    "refund",
+    "release"
+   ]
+  },
+  {
+   "id": "B04",
+   "source": "catalogue",
+   "category": "boundary",
+   "kern_where": "body",
+   "description": "capture's no-fee branch is amount <= 100",
+   "changed_cases": {
+    "ts": 7,
+    "go": 7,
+    "kern": 7
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false,
+   "kern_mechanisms": [
+    "proof",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "capture",
+    "purchase",
+    "refund"
+   ]
+  },
+  {
+   "id": "B05",
+   "source": "catalogue",
+   "category": "arithmetic",
+   "kern_where": "body",
+   "description": "capture moves fee + 1 to the house",
+   "changed_cases": {
+    "ts": 48,
+    "go": 48,
+    "kern": 48
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "capture",
+    "purchase",
+    "refund"
+   ]
+  },
+  {
+   "id": "B06",
+   "source": "catalogue",
+   "category": "arithmetic",
+   "kern_where": "body",
+   "description": "split gives b amount - part + 1",
+   "changed_cases": {
+    "ts": 34,
+    "go": 34,
+    "kern": 34
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "split"
+   ]
+  },
+  {
+   "id": "B07",
+   "source": "catalogue",
+   "category": "events",
+   "kern_where": "body",
+   "description": "capture doesn't emit Captured",
+   "changed_cases": {
+    "ts": 68,
+    "go": 68,
+    "kern": 68
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false,
+   "kern_mechanisms": [
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "capture",
+    "purchase",
+    "refund"
+   ]
+  },
+  {
+   "id": "B08",
+   "source": "catalogue",
+   "category": "events",
+   "kern_where": "body",
+   "description": "reserve emits Reserved before the transfer's Moved",
+   "changed_cases": {
+    "ts": 153,
+    "go": 153,
+    "kern": 153
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false,
+   "kern_mechanisms": [
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "purchase",
+    "reserve"
+   ]
+  },
+  {
+   "id": "B09",
+   "source": "catalogue",
+   "category": "events",
+   "kern_where": "body",
+   "description": "tip emits Tipped with amount 0",
+   "changed_cases": {
+    "ts": 148,
+    "go": 148,
+    "kern": 148
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false,
+   "kern_mechanisms": [
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "tip"
+   ]
+  },
+  {
+   "id": "B10",
+   "source": "catalogue",
+   "category": "guard",
+   "kern_where": "spec",
+   "description": "refund drops part <= amount",
+   "changed_cases": {
+    "ts": 228,
+    "go": 228,
+    "kern": 228
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false,
+   "kern_mechanisms": [],
+   "kern_caught": false,
+   "kern_not_clean": []
+  },
+  {
+   "id": "B11",
+   "source": "catalogue",
+   "category": "guard",
+   "kern_where": "spec",
+   "description": "move allows a negative amount (doing nothing); tip, which restates move's check in Kern, too",
+   "changed_cases": {
+    "ts": 82,
+    "go": 82,
+    "kern": 82
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false,
+   "kern_mechanisms": [
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "capture",
+    "move",
+    "purchase",
+    "refund",
+    "split",
+    "tip"
+   ]
+  },
+  {
+   "id": "B12",
+   "source": "catalogue",
+   "category": "refusal args",
+   "kern_where": "spec",
+   "description": "Insufficient reports amount instead of the shortfall",
+   "changed_cases": {
+    "ts": 616,
+    "go": 616,
+    "kern": 616
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "cancel",
+    "capture",
+    "move",
+    "purchase",
+    "refund",
+    "release",
+    "reserve",
+    "split",
+    "tip",
+    "transfer"
+   ]
+  },
+  {
+   "id": "B13",
+   "source": "catalogue",
+   "category": "refusal reason",
+   "kern_where": "spec",
+   "description": "capture reports a bad fee as BadAmount",
+   "changed_cases": {
+    "ts": 197,
+    "go": 197,
+    "kern": 197
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "capture",
+    "purchase",
+    "refund"
+   ]
+  },
+  {
+   "id": "B14",
+   "source": "catalogue",
+   "category": "atomicity",
+   "kern_where": "none",
+   "description": "purchase reserves before the buyer-funds and Overdrawn checks",
+   "changed_cases": {
+    "ts": 11,
+    "go": 11
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false
+  },
+  {
+   "id": "B15",
+   "source": "catalogue",
+   "category": "conditions",
+   "kern_where": "body",
+   "description": "capture's fee branch from amount >= 10",
+   "changed_cases": {
+    "ts": 9,
+    "go": 9,
+    "kern": 9
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "capture",
+    "purchase",
+    "refund"
+   ]
+  },
+  {
+   "id": "X01",
+   "source": "blind",
+   "category": "blind",
+   "kern_where": "spec",
+   "description": "needFunds uses <= instead of <, so spending an account's exact balance is refused as Insufficient.",
+   "changed_cases": {
+    "ts": 140,
+    "go": 140,
+    "kern": 140
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "cancel",
+    "purchase",
+    "refund",
+    "release",
+    "split"
+   ]
+  },
+  {
+   "id": "X02",
+   "source": "blind",
+   "category": "blind",
+   "kern_where": "spec",
+   "description": "The Insufficient refusal reports the shortfall with the operands swapped, so it reports a negative short.",
+   "changed_cases": {
+    "ts": 1124,
+    "go": 1124,
+    "kern": 1124
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "cancel",
+    "capture",
+    "move",
+    "purchase",
+    "refund",
+    "release",
+    "reserve",
+    "split",
+    "tip",
+    "transfer"
+   ]
+  },
+  {
+   "id": "X03",
+   "source": "blind",
+   "category": "blind",
+   "kern_where": "spec",
+   "description": "move refuses an amount of 0 even though it is documented as allowed, which breaks zero-fee captures, zero-part splits and zero tips.",
+   "changed_cases": {
+    "ts": 101,
+    "go": 101,
+    "kern": 101
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "capture",
+    "move",
+    "purchase",
+    "refund",
+    "split",
+    "tip"
+   ]
+  },
+  {
+   "id": "X04",
+   "source": "blind",
+   "category": "blind",
+   "kern_where": "body",
+   "description": "Off-by-one in the capture fee threshold: an amount of exactly 100 skips the house fee.",
+   "changed_cases": {
+    "ts": 7,
+    "go": 7,
+    "kern": 7
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false,
+   "kern_mechanisms": [
+    "proof",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "capture",
+    "purchase",
+    "refund"
+   ]
+  },
+  {
+   "id": "X05",
+   "source": "blind",
+   "category": "blind",
+   "kern_where": "body",
+   "description": "Wrong variable in capture: the fee is paid to the seller instead of the house.",
+   "changed_cases": {
+    "ts": 44,
+    "go": 44,
+    "kern": 44
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "capture",
+    "purchase",
+    "refund"
+   ]
+  },
+  {
+   "id": "X06",
+   "source": "blind",
+   "category": "blind",
+   "kern_where": "body",
+   "description": "The Captured audit event records the amount net of the fee instead of the gross amount captured.",
+   "changed_cases": {
+    "ts": 58,
+    "go": 58,
+    "kern": 58
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false,
+   "kern_mechanisms": [
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "capture",
+    "purchase",
+    "refund"
+   ]
+  },
+  {
+   "id": "X07",
+   "source": "blind",
+   "category": "blind",
+   "kern_where": "spec",
+   "description": "purchase treats an escrow balance of exactly 0 as Overdrawn, so purchases into an empty escrow are refused.",
+   "changed_cases": {
+    "ts": 6,
+    "go": 6,
+    "kern": 6
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": true,
+   "go_caught": true,
+   "kern_mechanisms": [
+    "eg",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "purchase"
+   ]
+  },
+  {
+   "id": "X08",
+   "source": "blind",
+   "category": "blind",
+   "kern_where": "spec",
+   "description": "refund accepts part = 0 instead of refusing it with BadPart, and then captures the whole amount for the seller.",
+   "changed_cases": {
+    "ts": 32,
+    "go": 32,
+    "kern": 32
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false,
+   "kern_mechanisms": [
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "refund"
+   ]
+  },
+  {
+   "id": "X09",
+   "source": "blind",
+   "category": "blind",
+   "kern_where": "body",
+   "description": "cancel emits Cancelled before the release, so the audit log has the events in the wrong order (Cancelled before Moved and Released).",
+   "changed_cases": {
+    "ts": 143,
+    "go": 143,
+    "kern": 143
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false,
+   "kern_mechanisms": [
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "cancel"
+   ]
+  },
+  {
+   "id": "X10",
+   "source": "blind",
+   "category": "blind",
+   "kern_where": "spec",
+   "description": "split drops the a === b check, so splitting to the same account twice succeeds instead of being refused with SameAccount.",
+   "changed_cases": {
+    "ts": 43,
+    "go": 43,
+    "kern": 43
+   },
+   "errors": {},
+   "agree": true,
+   "live": true,
+   "ts_caught": false,
+   "go_caught": false,
+   "kern_mechanisms": [
+    "proof",
+    "random",
+    "ratchet"
+   ],
+   "kern_caught": true,
+   "kern_not_clean": [
+    "split"
+   ]
+  }
+ ],
+ "summary": {
+  "patches": 25,
+  "live_and_agreeing": 25,
+  "not_live": [],
+  "disagree": [],
+  "not_expressible_in_kern": [
+   "B14"
+  ],
+  "P1_body_proof_or_eg": [
+   13,
+   13
+  ],
+  "P1_catalogue": [
+   9,
+   9
+  ],
+  "P1_blind": [
+   4,
+   4
+  ],
+  "kern_caught_any_mechanism": [
+   23,
+   24
+  ],
+  "ts_caught": [
+   13,
+   24
+  ],
+  "go_caught": [
+   13,
+   24
+  ],
+  "spec_located": [
+   [
+    "B03",
+    true,
+    [
+     "eg",
+     "proof",
+     "random",
+     "ratchet"
+    ]
+   ],
+   [
+    "B10",
+    false,
+    []
+   ],
+   [
+    "B11",
+    true,
+    [
+     "proof",
+     "random",
+     "ratchet"
+    ]
+   ],
+   [
+    "B12",
+    true,
+    [
+     "eg",
+     "proof",
+     "ratchet"
+    ]
+   ],
+   [
+    "B13",
+    true,
+    [
+     "eg",
+     "proof",
+     "ratchet"
+    ]
+   ],
+   [
+    "X01",
+    true,
+    [
+     "eg",
+     "proof",
+     "random",
+     "ratchet"
+    ]
+   ],
+   [
+    "X02",
+    true,
+    [
+     "eg",
+     "proof",
+     "ratchet"
+    ]
+   ],
+   [
+    "X03",
+    true,
+    [
+     "eg",
+     "proof",
+     "random",
+     "ratchet"
+    ]
+   ],
+   [
+    "X07",
+    true,
+    [
+     "eg",
+     "ratchet"
+    ]
+   ],
+   [
+    "X08",
+    true,
+    [
+     "proof",
+     "random",
+     "ratchet"
+    ]
+   ],
+   [
+    "X10",
+    true,
+    [
+     "proof",
+     "random",
+     "ratchet"
+    ]
+   ]
+  ],
+  "P1_pass": true,
+  "P2_pass": true,
+  "P3_gap_points": 0.0,
+  "P3_author_bias_finding": false
+ }
+}
