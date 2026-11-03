@@ -50,7 +50,7 @@ python -m kern.host replay   examples/escrow_s2.k --db e.db
 | Proofs survive a real clock | *By reading `prove.py`, not by a new measurement:* the prover treats `now` as one symbolic value per call, so no proof can depend on ticking. With a wall clock (seconds), many calls share one `now`. Replay of real-clock runs matched |
 | Replay is deterministic | Matches after the random run and after real HTTP runs; a hand-edited balance is detected |
 | Delivery | **At-least-once, not exactly-once.** A crash between delivering and marking gives a duplicate (`test_delivery_is_at_least_once`: seq 2 delivered twice). Consumers must dedupe on `seq` |
-| Throughput (`transfer`, 50 accounts) | 0.10 ms/call in-memory, 0.34 ms/call file-backed SQLite |
+| Throughput (`transfer`, 50 accounts) | Before H1: 0.10 ms/call in memory, 0.34 ms/call file-backed SQLite. After H1: 0.034 / 0.28 ms (scorecard item 2) |
 | Scaling | Before H1: **linear in world size**, 0.10 / 0.85 / 7.98 ms per call at 50 / 500 / 5000 accounts, because every call loaded the whole world and checked invariants over every key. After H1: flat, see the scorecard below |
 
 ## Known gaps, in the order they bite
@@ -140,3 +140,12 @@ python -m kern.host replay   examples/escrow_s2.k --db e.db
   the server.
 - **This is a proof of concept on one process.** There's no sandbox (the Python host can do
   anything; see "Permission manifest" above), no concurrent calls, and no Text or records.
+
+**Known gaps found while doing this, not fixed (not plan items):**
+- **A channel a definition uses but never specifies is unconstrained, and the page doesn't say
+  so.** It should, the way it warns about writes no guarantee describes (F5).
+- **Config validation has two rough edges.** A `{i}` beyond the event's arity raises an
+  IndexError at startup rather than a ConfigError (it's still refused before anything runs). A
+  `$.field` in `fail` ARGS is accepted although a failure has no body.
+- **`net_requests` reads the constructor from the `net.emit` argument syntactically.** An event
+  bound by a `let` first would be misread.

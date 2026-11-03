@@ -556,7 +556,7 @@ ASSUMPTIONS = [
     "Calls run one at a time (a lock in this process; `begin immediate` across processes). The proofs "
     "assume serial top-level calls.",
     "Every event is delivered at least once, after its call commits. A crash between delivering and marking "
-    "an event sends it again (measured: at most one duplicate per kill -9). Consumers dedupe on `seq`.",
+    "an event sends it again (docs/HOST.md has the measured count). Consumers dedupe on `seq`.",
     "The order of events across channels is audit first, then channels in declaration order. Specs fix the "
     "order within a channel only.",
     "`clock.now` is the wall clock in seconds, read once per call and recorded for replay.",
