@@ -343,3 +343,45 @@ weaker than baseline):
   bugs only partly offset that.
 - The 25 bugs are in one 10-definition ledger module.
 - TS and Go are judged by their existing tests, not by tests written to catch these bugs.
+
+### C6: prover stress (run 2026-11-03)
+
+- **Frozen at:** `d3db476` (generator, runner, thresholds).
+- **Raw data:** `challenge/c6/results.json`. Every generated module was clean (all definitions ✔), so
+  the generator produced correct code and what's measured is time, not failures.
+
+| condition | result | pass |
+|---|---|---|
+| P1: ≤ 1 s per definition at d=6, k=4, e=6 (n=10) | **16.46 s per definition** (164.6 s for 10 definitions) | **fail** (16×) |
+| P2: ≤ 60 s for n=200 at d=3, k=2, e=3 | **110.0 s** (0.55 s per definition) | **fail** (1.8×) |
+
+**Curves** (full `check`, seconds per definition):
+
+| sweep | values |
+|---|---|
+| depth d = 1…8 (k=2, e=3) | 0.40, 0.43, 0.57, 0.71, 0.90, 1.12, 1.37, 1.65 (over 1 s from d=6) |
+| ifs k = 0…6 (d=3, e=3) | 0.14, 0.32, 0.54, 1.05, 2.43, 5.75, 13.65 (×2.2–2.4 per `if`: the 2^k paths) |
+| emits e = 0…8 (d=3, k=2) | 0.21, 0.30, 0.35, 0.63, 0.87, 1.25, 1.73, 2.44, 3.26 (super-linear: conditional events matched pairwise) |
+| size n = 10 / 50 / 200 | 0.53 / 0.53 / 0.55 (linear in n) |
+| state + invariant, off / on (n=10) | 0.50 / 0.82 |
+| peak memory | 52–58 MB everywhere; memory isn't the limit |
+
+**Findings:**
+1. **Mutation testing is where the time goes.** At the P1 point, `check` without it takes
+   0.51 s per definition (5.1 s against 164.6 s), and at P2 7.6 s against 110 s. That's
+   ~93–97% of the time.
+   - Proofs, examples and random tests alone would meet both thresholds.
+   - That's a finding, not a retune: the frozen condition is the full `check`.
+   - The obvious design response is to measure spec strength outside the inner loop, or only
+     for definitions whose hash changed.
+2. **`check` isn't incremental.** Changing one example in a 30-definition module and checking
+   again took 14.2 s, against 15.8 s for the first check. Every definition is re-proven and
+   re-mutated. This is the gap the plan expected.
+3. **Branches are exponential and events super-linear,** as predicted.
+   - Each `if` costs ×2.2–2.4: paths are forked, never merged.
+   - e conditional events per definition, accumulated over d levels of `emit as`, are matched
+     pairwise. That's why depth costs per definition even though proofs are modular: a
+     caller's spec grows with its callees' events.
+4. **Bet 1, as measured:** modular proofs stay in the inner loop up to about k=3 and d=5 at
+   e=3, *if* mutation testing is taken out of it. With mutation testing in, only small bodies
+   do.
