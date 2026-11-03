@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 
 TOKEN = re.compile(r"\s*(?:(\d+)|([A-Za-z_][A-Za-z0-9_.]*'?)|(!=|>=|<=|->|[=<>+\-()]))")
 CMP = {"=", "!=", ">=", "<=", ">", "<"}
+KEYWORDS = ("and", "or", "else", "when")
 
 
 class ParseError(Exception):
@@ -70,11 +71,26 @@ class ExprParser:
             raise ParseError(f"unexpected {self.peek()[1]!r}", self.line_no)
 
     def expr(self):
-        """and/or (left-associative) over comparisons over sums."""
+        """`E when C` (only at the top of an ensure; the checker enforces that) over or over and
+        (both left-associative, `and` binding tighter) over comparisons over sums."""
+        left = self.or_()
+        if self.peek() == ("name", "when"):
+            self.take()
+            return ("bin", "when", left, self.or_())
+        return left
+
+    def or_(self):
+        left = self.and_()
+        while self.peek() == ("name", "or"):
+            self.take()
+            left = ("bin", "or", left, self.and_())
+        return left
+
+    def and_(self):
         left = self.cmp()
-        while self.peek() in (("name", "and"), ("name", "or")):
-            op = self.take()[1]
-            left = ("bin", op, left, self.cmp())
+        while self.peek() == ("name", "and"):
+            self.take()
+            left = ("bin", "and", left, self.cmp())
         return left
 
     def cmp(self):
@@ -94,7 +110,7 @@ class ExprParser:
 
     def app(self):
         kind, val = self.peek()
-        if kind == "name" and val not in ("and", "or", "else"):
+        if kind == "name" and val not in KEYWORDS:
             self.take()
             args = []
             while self.starts_atom():
@@ -107,7 +123,7 @@ class ExprParser:
 
     def starts_atom(self):
         kind, val = self.peek()
-        return kind == "int" or (kind == "name" and val not in ("and", "or", "else")) or (kind, val) == ("op", "(")
+        return kind == "int" or (kind == "name" and val not in KEYWORDS) or (kind, val) == ("op", "(")
 
     def atom(self):
         kind, val = self.take()
@@ -128,6 +144,18 @@ def parse_expr(src: str, line_no=None):
     e = p.expr()
     p.expect_end()
     return e
+
+
+def parse_emit(src: str, line_no):
+    """`emit Ctor ARGS [when COND]` -> (Ctor, args) or (Ctor, args, cond)."""
+    if " when " in src:
+        ev, cond = src.split(" when ", 1)
+        return (*parse_ctor(ev, line_no, "emit"), parse_expr(cond, line_no))
+    return parse_ctor(src, line_no, "emit")
+
+
+def emit_cond(ev):
+    return ev[2] if len(ev) > 2 else None
 
 
 def parse_ctor(src: str, line_no, what):
@@ -263,8 +291,10 @@ def parse_module(text: str) -> dict:
             if not m:
                 raise ParseError(f"bad definition header {line!r}", no)
             params = [tuple(p.split(":")) for p in m.group(2).split()]
+            _finish(cur)
             cur = Def(m.group(1), params, m.group(3))
             cur.src_lines = {"header": [line], "spec": [], "body": []}
+            cur._raw = []
             defs[cur.name] = cur
             in_body = False
             continue
@@ -272,14 +302,8 @@ def parse_module(text: str) -> dict:
             raise ParseError("indented line outside a definition", no)
         word, _, rest = line.partition(" ")
         if in_body:
-            cur.src_lines["body"].append(line)
-            if word == "need":
-                cur.body.append(parse_need(rest, no))
-            elif re.match(r"^[a-z]\w*\s*=(?!=)", line):
-                name, expr = line.split("=", 1)
-                cur.body.append(("let", name.strip(), parse_expr(expr, no)))
-            else:
-                cur.body.append(("do", parse_expr(line, no)))
+            indent = len(raw) - len(raw.lstrip())
+            cur._raw.append((indent, line, no))
             continue
         cur.src_lines["spec"].append(line)
         if word == "need":
@@ -289,7 +313,7 @@ def parse_module(text: str) -> dict:
         elif word == "ensure":
             cur.ensures.append(parse_expr(rest, no))
         elif word == "emit":
-            cur.emits.append(parse_ctor(rest, no, "emit"))
+            cur.emits.append(parse_emit(rest, no))
         elif word == "eg":
             cur.examples.append(parse_example(rest, no))
         elif word == "ok":
@@ -300,7 +324,54 @@ def parse_module(text: str) -> dict:
             cur.complete = True
         else:
             raise ParseError(f"unknown clause {word!r} (need/keep/ensure/emit/ok/eg, then body)", no)
+    _finish(cur)
     return defs
+
+
+def _finish(d):
+    """Parse the collected body lines into statements; `if COND` / `else` open indented blocks."""
+    if d is None or not d._raw:
+        return
+    raw, base = d._raw, d._raw[0][0]
+    d.src_lines["body"] = [line if ind == base else " " * (ind - base) + line for ind, line, _ in raw]
+    stmts, i = _block(raw, 0, base)
+    if i != len(raw):
+        raise ParseError("unexpected indentation", raw[i][2])
+    d.body = stmts
+
+
+def _block(raw, i, indent):
+    out = []
+    while i < len(raw) and raw[i][0] == indent:
+        _, line, no = raw[i]
+        word, _, rest = line.partition(" ")
+        if line == "else":
+            raise ParseError("`else` without an `if`", no)
+        if word == "if":
+            cond = parse_expr(rest, no)
+            then, i = _sub(raw, i + 1, indent, no)
+            other = []
+            if i < len(raw) and raw[i][0] == indent and raw[i][1] == "else":
+                other, i = _sub(raw, i + 1, indent, raw[i][2])
+            out.append(("if", cond, then, other))
+            continue
+        if word == "need":
+            out.append(parse_need(rest, no))
+        elif re.match(r"^[a-z]\w*\s*=(?!=)", line):
+            name, expr = line.split("=", 1)
+            out.append(("let", name.strip(), parse_expr(expr, no)))
+        else:
+            out.append(("do", parse_expr(line, no)))
+        i += 1
+    if i < len(raw) and raw[i][0] > indent:
+        raise ParseError("unexpected indentation", raw[i][2])
+    return out, i
+
+
+def _sub(raw, i, indent, no):
+    if i >= len(raw) or raw[i][0] <= indent:
+        raise ParseError("an `if` or `else` needs an indented block", no)
+    return _block(raw, i, raw[i][0])
 
 
 # ---------- printing back to code ----------
@@ -319,17 +390,41 @@ def code(e) -> str:
     raise ValueError(e)
 
 
-PREC = {"and": 1, "or": 1, "=": 2, "!=": 2, ">=": 2, "<=": 2, ">": 2, "<": 2, "+": 3, "-": 3}
+PREC = {"when": 0, "or": 1, "and": 2, "=": 3, "!=": 3, ">=": 3, "<=": 3, ">": 3, "<": 3, "+": 4, "-": 4}
 
 
 def _side(child, op, right, show):
     """Print a binary operand, parenthesised when needed to reparse to the same tree."""
     text = show(child)
     c, p = (PREC[child[1]], PREC[op]) if child[0] == "bin" else (99, 0)
-    # +/- are left-associative; comparisons and and/or need parentheses on either side
-    if c < p or (c == p and (right or p <= 2)):
+    # +/-, and, or are left-associative; comparisons and `when` need parentheses on either side
+    if c < p or (c == p and (right or op in CMP or op == "when")):
         return f"({text})"
     return text
+
+
+NEG = {"=": "!=", "!=": "=", ">=": "<", "<=": ">", ">": "<=", "<": ">="}
+
+
+def negate(e):
+    """The negation as an expression (De Morgan over and/or), or None if there is none without `not`."""
+    if e[0] != "bin":
+        return None
+    if e[1] in NEG:
+        return ("bin", NEG[e[1]], e[2], e[3])
+    if e[1] in ("and", "or"):
+        l, r = negate(e[2]), negate(e[3])
+        return ("bin", "or" if e[1] == "and" else "and", l, r) if l and r else None
+    return None
+
+
+def flat(stmts):
+    """Every statement, including those inside `if` blocks (and the `if` itself)."""
+    for s in stmts:
+        yield s
+        if s[0] == "if":
+            yield from flat(s[2])
+            yield from flat(s[3])
 
 
 def atom_code(e):
@@ -337,10 +432,13 @@ def atom_code(e):
 
 
 def emit_code(ev) -> str:
-    return " ".join([ev[0]] + [atom_code(a) for a in ev[1]])
+    text = " ".join([ev[0]] + [atom_code(a) for a in ev[1]])
+    return text + (f" when {code(ev[2])}" if len(ev) > 2 else "")
 
 
 def stmt_code(s) -> str:
+    if s[0] == "if":
+        return f"if {code(s[1])}"
     if s[0] == "let":
         return f"{s[1]} = {code(s[2])}"
     if s[0] == "need":

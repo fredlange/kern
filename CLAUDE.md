@@ -8,7 +8,8 @@ from the design conversation, so they don't need re-deriving.
 Design fundamentals and the three bets: [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md).
 Latest audit against them (status per fundamental, ranked gaps):
 [docs/AUDIT.md](docs/AUDIT.md). Fix pass with before/after evidence per step:
-[docs/FIXES.md](docs/FIXES.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
+[docs/FIXES.md](docs/FIXES.md). Scaling an app in three sizes, with a pre-registered scorecard:
+[docs/SCALE.md](docs/SCALE.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
 
 ## Goal (as stated by Fredrik)
 
@@ -112,6 +113,8 @@ kern/why.py       .why store, interface-anchored hash, staleness, orphans, oblig
 kern/baseline.py  ratchet baseline (<module>.strength): flags weakened specs
 examples/ledger_v1..v7.k, ledger.why, ledger_v4..v7.why  the demo loop (see README)
 examples/ledger_large.k   7 defs, 4-deep chain; F9 token measurements
+examples/escrow_s1.k      scale size 1 (docs/SCALE.md): escrow with branches
+kern/scorecard.py         `kern score FILE.k`: the per-size scorecard of docs/SCALE.md
 tests/test_fundamentals.py  adversarial audit tests, one section per fundamental
 ```
 
@@ -124,7 +127,8 @@ for token counts).
 - The domain is hard-coded: the ledger, clock and audit handlers are written in Python.
 - Types: only `Int` and `Account` parameters (plus internal Owner/Bool/Event/Unit); no
   records, no return values. Recursion is rejected (no termination measures yet).
-- Bodies are straight-line plus guards only: no branches, `match` or loops.
+- Bodies are guards plus `if`/`else` blocks (the prover forks a path per branch; paths grow as
+  2^ifs per body). No `match` or loops. Specs have `ensure E when C` and `emit … when C`.
 - Frames are *inferred* (`writes`), not written.
 - `ok otherwise` (opt-in) says a call succeeds whenever its spec needs hold. A caller that
   opts in must restate every refusal (payout's spec view: 97 → 163 tokens); nothing is

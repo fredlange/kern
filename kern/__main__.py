@@ -20,7 +20,7 @@ from .wf import check_module
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="kern")
-    ap.add_argument("cmd", choices=["check", "view", "why", "anchor", "run", "baseline"])
+    ap.add_argument("cmd", choices=["check", "view", "why", "anchor", "run", "baseline", "score"])
     ap.add_argument("file")
     ap.add_argument("name", nargs="?")
     ap.add_argument("--why", dest="whyfile")
@@ -29,6 +29,10 @@ def main(argv=None):
     ap.add_argument("--world")
     ap.add_argument("--baseline", dest="basefile")
     a = ap.parse_args(argv)
+    if a.cmd == "score":
+        from .scorecard import score, show
+        print(show(score(a.file)))
+        return 0
     try:
         defs = check_module(parse_module(open(a.file).read()))
     except ParseError as e:

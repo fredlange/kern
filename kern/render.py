@@ -7,7 +7,8 @@ import html
 
 from .infer import fails as inferred_fails
 from .infer import fmt_writes
-from .views import EFFECTS, en, en_emits, en_ensure, en_refusal, lets_of, unguaranteed_writes
+from .syntax import flat, negate
+from .views import EFFECTS, en, en_emits, en_ensure, en_refusal, guarded_needs, lets_of, unguaranteed_writes
 
 ICON = {"proven": "✔", "refuted": "✗", "conditional": "!", "unknown": "?", "unconfirmed": "?",
         "tested": "◐", "vacuous": "∅"}
@@ -87,8 +88,11 @@ def card(r, why):
                        ", ".join(f"<code>{p}</code>" for p in silent) + " is.</p>")
 
     rows = []
-    for n in d.needs + [s for s in d.body if s[0] == "need"]:
+    for n, guards in [(n, []) for n in d.needs] + list(guarded_needs(d.body)):
         cond, _ = en_refusal(n, lets)
+        for kind, g in reversed(guards):           # a need inside `if G` only applies when G holds
+            g_text = en(g, lets) if kind == "if" else (en(negate(g), lets) if negate(g) else f"not ({en(g, lets)})")
+            cond = f"{g_text} <span class='muted'>and</span> {cond}"
         detail = f" <span class='muted'>with</span> {', '.join(en(a, lets) for a in n[3])}" if n[3] else ""
         rows.append((cond, f"<code>{html.escape(n[2])}</code>{detail}"))
     ok = next((g for g in r["guarantees"] if g["kind"] == "ok"), None)
@@ -98,7 +102,7 @@ def card(r, why):
             text, _ = en_refusal(("need", cond, ctor, payload or []), {})
             rows.append((text, f"<code>{html.escape(ctor)}</code> <span class='muted'>(from {origin})</span>"))
     stated = {(origin, ctor) for _, ctor, _, origin in r["lifted"]}
-    own = {n[2] for n in d.needs + d.body if n[0] == "need"}
+    own = {n[2] for n in flat(d.needs + d.body) if n[0] == "need"}
     for c in ([] if complete else r["callees"]):
         inherited = [k for k in inferred_fails(r["defs"], r["defs"][c])
                      if k not in own and not any(k == ctor for _, ctor in stated)]

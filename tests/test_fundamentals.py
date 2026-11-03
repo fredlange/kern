@@ -852,3 +852,183 @@ body
     cx = [g for g in reps["transfer"]["guarantees"] if g["kind"] == "emit"][0]["counterexample"]
     ex = parse_example(cx["eg"][3:], None)
     assert cx["confirmed_by_interpreter"] and ex.now != 7          # replays at a time other than 7
+
+
+# =====================================================================================
+# Scale, size 1: branches (`if`/`else`), `ensure … when`, `emit … when` (docs/SCALE.md)
+# =====================================================================================
+
+ESCROW1 = open("examples/escrow_s1.k").read()
+LEAF = """
+transfer from:Account to:Account amount:Int
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+body
+  ledger.debit from amount
+  ledger.credit to amount
+  audit.emit (Moved from to amount clock.now)
+"""
+
+
+def _g(rep, kind, i=0):
+    return [g for g in rep["guarantees"] if g["kind"] == kind][i]
+
+
+def test_s1_escrow_is_clean(capsys):
+    defs, reps = analysed(ESCROW1)
+    assert all(r["clean"] for r in reps.values()) and len(defs) == 10
+
+
+def test_s1_only_the_else_path_is_wrong():
+    """The prover must check every path, not just the first: the bug is only in `else`."""
+    defs, reps = analysed(LEAF + """
+pay from:Account to:Account amount:Int
+  need amount >= 0 else BadAmount
+  need amount = 0 or from != to else SameAccount
+  need amount = 0 or ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ensure ledger.balance' to = ledger.balance to + amount
+body
+  if amount = 0
+    ledger.credit to 0
+  else
+    transfer from to (amount - 1)
+""")
+    g = _g(reps["pay"], "ensure")
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+    assert parse_example(g["counterexample"]["eg"][3:], None).call[1][-1] > 0      # in the else path
+
+
+def test_s1_wrong_when_condition_is_refuted():
+    src = ESCROW1.replace("ensure ledger.balance' seller = ledger.balance seller + amount when amount < 100",
+                          "ensure ledger.balance' seller = ledger.balance seller + amount when amount < 101")
+    g = _g(analysed(src)[1]["capture"], "ensure", 1)
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+    assert parse_example(g["counterexample"]["eg"][3:], None).call[1][3] == 100     # exactly the boundary
+
+
+def test_s1_wrong_emit_condition_is_refuted():
+    src = ESCROW1.replace("emit Moved from to amount clock.now when amount > 0",
+                          "emit Moved from to amount clock.now when amount >= 0")
+    g = _g(analysed(src)[1]["move"], "emit")
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+    assert g["counterexample"]["emitted"] == "nothing"                             # amount = 0
+
+
+def test_s1_caller_emit_spec_composes_conditional_callee_events():
+    """tip's spec repeats move's conditional event; dropping the condition must be refuted."""
+    src = ESCROW1.replace("emit Moved buyer seller amount clock.now when amount > 0",
+                          "emit Moved buyer seller amount clock.now")
+    g = _g(analysed(src)[1]["tip"], "emit")
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+
+
+def test_s1_ok_otherwise_sees_a_need_inside_a_branch():
+    src = ESCROW1.replace("body\n  if amount > 0\n    transfer from to amount",
+                          "body\n  if amount > 0\n    need amount < 500 else TooBig\n    transfer from to amount")
+    g = _ok(analysed(src)[1]["move"])
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+    assert "TooBig" in g["counterexample"]["eg"]
+
+
+def test_s1_branch_need_is_lifted_as_an_implication():
+    """Callers may assume `amount <= 0 or amount < 500`, never `amount < 500` outright."""
+    src = LEAF + """
+small from:Account to:Account amount:Int
+  ensure ledger.total' = ledger.total
+body
+  if amount > 0
+    need amount < 500 else TooBig
+    transfer from to amount
+"""
+    defs = parse_module(src)
+    conds = [code(c) for c, ctor, _, origin in lifted(defs, defs["small"]) if ctor == "TooBig"]
+    assert conds == ["amount <= 0 or amount < 500"]
+
+
+def test_s1_writes_and_fails_cover_both_branches():
+    defs = parse_module(ESCROW1)
+    assert writes(defs, defs["capture"]) == {"escrow", "seller", "house"}
+    assert writes(defs, defs["refund"]) == {"escrow", "buyer", "seller", "house"}
+    assert set(fails(defs, defs["refund"])) >= {"BadPart", "BadFee", "SameAccount", "Insufficient", "BadAmount"}
+
+
+def test_s1_refusal_inside_a_branch_rolls_back():
+    src = LEAF + """
+two a:Account b:Account amount:Int
+body
+  transfer a b amount
+  if amount > 10
+    need amount < 20 else TooBig
+"""
+    defs = parse_module(src)
+    w = World({"A": 100, "B": 0}, {"A": "u1", "B": "u1"})
+    out, after = Interp(defs).run("two", ["A", "B", 50], w)
+    assert out == ("TooBig", []) and after.bal == {"A": 100, "B": 0} and after.audit == []
+
+
+@pytest.mark.parametrize("body,msg", [
+    ("  if amount > 0\n    x = amount\n  else\n    ledger.credit to x", "unknown name `x`"),
+    ("  if amount > 0\n    x = amount\n  else\n    x = 1", "shadows"),
+    ("  if amount\n    ledger.credit to 1", "must be Bool"),
+])
+def test_s1_branch_scoping_and_types(body, msg):
+    with pytest.raises(WellFormedError, match=msg):
+        check_module(parse_module(f"f to:Account amount:Int\nbody\n{body}\n"))
+
+
+@pytest.mark.parametrize("spec,msg", [
+    ("  need amount > 0 when amount > 1 else Bad", "`when` is only allowed"),
+    ("  ensure ledger.balance' to = 1 when ledger.balance' to = 1", "only allowed in `ensure`"),
+    ("  emit Ev to when ledger.balance' to > 0", "only allowed in `ensure`"),
+])
+def test_s1_when_is_only_a_clause_ending(spec, msg):
+    with pytest.raises(WellFormedError, match=msg):
+        check_module(parse_module(f"f to:Account amount:Int\n{spec}\nbody\n  ledger.credit to amount\n"))
+
+
+@pytest.mark.parametrize("src", ["f a:Int\nbody\n  else\n", "f a:Int\nbody\n  if a > 0\n  ledger.total\n",
+                                 "f a:Int\nbody\n  ledger.total\n    ledger.total\n"])
+def test_s1_bad_blocks_are_parse_errors(src):
+    with pytest.raises(ParseError):
+        parse_module(src)
+
+
+def test_s1_and_binds_tighter_than_or():
+    assert code(parse_expr("a or b and c")) == "a or b and c"
+    assert parse_expr("a or b and c")[1] == "or"
+    assert code(parse_expr("(a or b) and c")) == "(a or b) and c"
+
+
+def test_s1_straight_line_mutants_are_unchanged_and_branches_get_their_own():
+    v5 = parse_module(V5)["transfer"]
+    assert len(list(check.mutants(v5))) == 15
+    descs = [d for d, _ in check.mutants(parse_module(ESCROW1)["capture"])]
+    assert "swap the branches of `if amount < 100`" in descs and "`<` → `<=` in `if amount < 100`" in descs
+    assert "drop `if amount < 100`" in descs and "drop `move escrow house fee`" in descs
+
+
+def test_s1_page_shows_branch_refusals_and_conditions():
+    defs, reps = analysed(ESCROW1)
+    text = lambda n: re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", render.card(reps[n], NO_WHY)))
+    assert "amount ≠ 0 and from = to → SameAccount" in text("move")
+    assert "only when amount &gt; 0" in text("move") and "when amount &lt; 100: balance of seller" in text("capture")
+
+
+def test_s1_one_infeasible_branch_is_not_vacuous():
+    defs, reps = analysed("""
+f to:Account amount:Int
+  need amount > 0 else Bad
+  ensure ledger.balance' to = ledger.balance to + amount
+body
+  if amount < 0
+    ledger.credit to 5
+  else
+    ledger.credit to amount
+""")
+    assert statuses(reps["f"]) == ["proven"]

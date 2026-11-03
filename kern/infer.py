@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .run import HANDLERS
+from .syntax import flat, negate
 
 
 def _walk(e):
@@ -19,12 +20,12 @@ def _stmt_exprs(s):
         return [s[2]]
     if s[0] == "need":
         return [s[1], *s[3]]
-    return [s[1]]
+    return [s[1]]                       # do, and the condition of an if
 
 
 def called_names(d):
     out = []
-    for s in d.needs + d.body:
+    for s in flat(d.needs + d.body):
         for e in _stmt_exprs(s):
             for n in _walk(e):
                 if n[0] == "app":
@@ -59,7 +60,7 @@ def _arg_type(e, d):
 def fails(defs, d, seen=None):
     seen = (seen or set()) | {d.name}
     out = {}
-    for s in d.needs + d.body:
+    for s in flat(d.needs + d.body):
         if s[0] == "need":
             out.setdefault(s[2], [_arg_type(a, d) for a in s[3]])
     for n in called_names(d):
@@ -87,7 +88,7 @@ def writes(defs, d, seen=None):
     Writes only happen in body statements (the type checker forbids them inside expressions)."""
     seen = (seen or set()) | {d.name}
     lets, out = {}, set()
-    for s in d.body:
+    for s in flat(d.body):              # either branch may run, so a write in any branch counts
         if s[0] == "let":
             lets[s[1]] = s[2]
         if s[0] != "do" or s[1][0] != "app":
@@ -142,43 +143,60 @@ def lifted(defs, d, seen=None):
     the whole top-level call, the same value in every state the call passes through.
     Returns [(cond, ctor, payload or None, origin)], origin = "" for d's own body."""
     seen = (seen or set()) | {d.name}
-    out, lets, clean = [], {}, True               # lets: name -> (expr in pre-state terms, usable)
+    out, lets, state = [], {}, {"clean": True}    # lets: name -> (expr in pre-state terms, usable)
 
     def pre_state(e):
         bad = [n for n in _names(e) if n in lets and not lets[n][1]]
         if bad:
             return None
         e2 = subst(e, {n: v for n, (v, _) in lets.items()})
-        return e2 if clean or not _reads_state(e2) else None
+        return e2 if state["clean"] or not _reads_state(e2) else None
 
-    def add(cond, ctor, payload, origin):
+    def add(cond, ctor, payload, origin, guards):
         c = pre_state(cond)
-        if c is None:
+        if c is None or None in guards:
             return
+        for g in reversed(guards):                # inside `if G`: the call refuses when G and not cond,
+            ng = negate(g)                        # so callers may assume `not G or cond`
+            if ng is None:
+                return
+            c = ("bin", "or", ng, c)
         p = [pre_state(a) for a in payload]
         item = (c, ctor, None if any(x is None for x in p) else p, origin)
         if all(code_key(item) != code_key(o) for o in out):
             out.append(item)
 
-    for s in d.body:
-        if s[0] == "let":
-            e = pre_state(s[2])
-            lets[s[1]] = (e if e is not None else s[2], e is not None)
-        elif s[0] == "need":
-            add(s[1], s[2], s[3], "")
-        elif s[1][0] == "app":
-            name, args = s[1][1][0], s[1][2]
-            if name in defs and name not in seen:
-                callee = defs[name]
-                m = {p: a for (p, _), a in zip(callee.params, args)}
-                for n in callee.needs:
-                    add(subst(n[1], m), n[2], [subst(a, m) for a in n[3]], name)
-                for c, ctor, payload, origin in lifted(defs, callee, seen):
-                    add(subst(c, m), ctor, [subst(a, m) for a in payload] if payload else [], origin or name)
-                if writes(defs, callee):
-                    clean = False
-            elif name in WRITERS:
-                clean = False
+    def walk(stmts, guards):
+        for s in stmts:
+            if s[0] == "let":
+                e = pre_state(s[2])
+                lets[s[1]] = (e if e is not None else s[2], e is not None)
+            elif s[0] == "need":
+                add(s[1], s[2], s[3], "", guards)
+            elif s[0] == "if":
+                g = pre_state(s[1])
+                ng = negate(g) if g is not None else None
+                before = state["clean"]
+                walk(s[2], guards + [g])
+                after_then, state["clean"] = state["clean"], before
+                walk(s[3], guards + [ng])
+                state["clean"] = state["clean"] and after_then
+            elif s[1][0] == "app":
+                name, args = s[1][1][0], s[1][2]
+                if name in defs and name not in seen:
+                    callee = defs[name]
+                    m = {p: a for (p, _), a in zip(callee.params, args)}
+                    for n in callee.needs:
+                        add(subst(n[1], m), n[2], [subst(a, m) for a in n[3]], name, guards)
+                    for c, ctor, payload, origin in lifted(defs, callee, seen):
+                        add(subst(c, m), ctor, [subst(a, m) for a in payload] if payload else [],
+                            origin or name, guards)
+                    if writes(defs, callee):
+                        state["clean"] = False
+                elif name in WRITERS:
+                    state["clean"] = False
+
+    walk(d.body, [])
     return out
 
 

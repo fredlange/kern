@@ -41,7 +41,7 @@ class WellFormedError(ParseError):
 
 class _Checker:
     def __init__(self, defs, d):
-        self.defs, self.d, self.out = defs, d, []
+        self.defs, self.d, self.out, self.used = defs, d, [], set()
 
     def err(self, where, msg):
         self.out.append(f"{self.d.name}: {where}: {msg}")
@@ -61,6 +61,9 @@ class _Checker:
                 return self.need_types(where, op, (l, r), ("Int", "Int"), "Bool")
             if op in ("and", "or"):
                 return self.need_types(where, op, (l, r), ("Bool", "Bool"), "Bool")
+            if op == "when":
+                self.err(where, "`when` is only allowed at the end of an `ensure` or `emit`")
+                return "Bool"
             if TYPES and ANY not in (l, r) and (l != r or l == "Unit"):
                 self.err(where, f"`{code(e)}` compares {l} with {r}")
             return "Bool"
@@ -150,21 +153,36 @@ class _Checker:
                 self.err(f"keep {code(c)}", f"must be a value, got {t}")
         for c in d.ensures:
             where = f"ensure {code(c)}"
-            self.expect(where, self.ty(c, params, where, spec=True, primed_ok=True), "Bool")
-        for ctor, args in d.emits:
-            where = f"emit {ctor}"
-            for a in args:
+            if c[0] == "bin" and c[1] == "when":          # `E when C`: C is about the before-state
+                self.expect(where, self.ty(c[2], params, where, spec=True, primed_ok=True), "Bool")
+                self.expect(where, self.ty(c[3], params, where, spec=True), "Bool")
+            else:
+                self.expect(where, self.ty(c, params, where, spec=True, primed_ok=True), "Bool")
+        for ev in d.emits:
+            where = f"emit {ev[0]}"
+            for a in ev[1]:
                 self.ty(a, params, where, spec=True, wild_ok=True)
-        scope = dict(params)
-        for s in d.body:
-            if s[0] == "let":
+            if len(ev) > 2:
+                self.expect(where, self.ty(ev[2], params, where, spec=True), "Bool")
+        self.block(d.body, dict(params))
+        return self.out
+
+    def block(self, stmts, scope):
+        for s in stmts:
+            if s[0] == "if":
+                where = f"if {code(s[1])}"
+                self.expect(where, self.ty(s[1], scope, where, spec=False), "Bool")
+                self.block(s[2], dict(scope))             # a branch's names stay in the branch,
+                self.block(s[3], dict(scope))             # but are never reused (self.used)
+            elif s[0] == "let":
                 where = f"{s[1]} = {code(s[2])}"
                 t = self.ty(s[2], scope, where, spec=False)
-                if s[1] in scope or s[1] in HANDLERS or s[1] in self.defs:
+                if s[1] in scope or s[1] in self.used or s[1] in HANDLERS or s[1] in self.defs:
                     self.err(where, f"`{s[1]}` shadows an existing name")
                 if TYPES and t == "Unit":
                     self.err(where, "has no value (Unit)")
                 scope[s[1]] = t
+                self.used.add(s[1])
             elif s[0] == "need":
                 where = f"need {code(s[1])}"
                 self.expect(where, self.ty(s[1], scope, where, spec=False), "Bool")
@@ -177,7 +195,6 @@ class _Checker:
                 t = self.ty(s[1], scope, where, spec=False)
                 if TYPES and t not in ("Unit", ANY):
                     self.err(where, f"value of type {t} is computed and discarded")
-        return self.out
 
 
 def problems(defs, d):

@@ -10,7 +10,7 @@ import z3
 
 from .infer import ANY_ACCOUNT, callees, fails, lifted, uses, writes
 from .run import Interp, World
-from .syntax import code, emit_code
+from .syntax import code, emit_code, flat
 
 _fresh = itertools.count()
 
@@ -40,6 +40,17 @@ def _ev_eq(x, y):
     return x == y
 
 
+class Path:
+    """One way through a body: path condition, state, bindings, refusal points, own conditions."""
+
+    def __init__(self, pc, S, env, refusals, opaque, own):
+        self.pc, self.S, self.env, self.refusals, self.opaque, self.own = pc, S, env, refusals, opaque, own
+
+    def fork(self, cond):
+        return Path(self.pc + [cond], self.S.copy(), dict(self.env), list(self.refusals), list(self.opaque),
+                    self.own + [cond])
+
+
 def fresh_int(p):
     return z3.Int(f"{p}{next(_fresh)}")
 
@@ -58,7 +69,8 @@ class Prover:
             op = e[1]
             return {"+": lambda: l + r, "-": lambda: l - r, "=": lambda: l == r, "!=": lambda: l != r,
                     ">=": lambda: l >= r, "<=": lambda: l <= r, ">": lambda: l > r, "<": lambda: l < r,
-                    "and": lambda: z3.And(l, r), "or": lambda: z3.Or(l, r)}[op]()
+                    "and": lambda: z3.And(l, r), "or": lambda: z3.Or(l, r),
+                    "when": lambda: z3.Implies(r, l)}[op]()
         if k == "name":
             if e[1] in env:
                 return env[e[1]]
@@ -115,15 +127,18 @@ class Prover:
             self.pc.append(self.sev(c, env, pre) == self.sev(c, env, S))
         if "audit" in uses(self.defs, callee):
             if callee.emits:                       # the callee's spec says exactly what it appends
-                S.audit = S.audit + [("ev", ctor, [fresh_int("any") if x == WILD else self.sev(x, env, pre)
-                                                   for x in args]) for ctor, args in callee.emits]
+                for ctor, args, *cond in callee.emits:
+                    vals = [fresh_int("any") if x == WILD else self.sev(x, env, pre) for x in args]
+                    # a conditional event is appended only when its condition held before the call
+                    S.audit = S.audit + [("ev", ctor, vals, self.sev(cond[0], env, pre)) if cond
+                                         else ("ev", ctor, vals)]
             else:                                  # it emits something its spec does not describe
                 S.audit = S.audit + [("opaque", callee.name)]
         return None
 
     def refuses_beyond_spec(self, d):
         """Can `d` refuse other than through its spec needs? (a body need, or a callee that refuses)"""
-        return any(s[0] == "need" for s in d.body) or \
+        return any(s[0] == "need" for s in flat(d.body)) or \
             any(fails(self.defs, self.defs[c]) for c in callees(self.defs, d))
 
     def refusal_point(self, cond):
@@ -145,6 +160,8 @@ class Prover:
         opaque = [e[1] for e in S.audit if e[0] == "opaque"]
         if opaque:
             return None, f"relies on {', '.join(dict.fromkeys(opaque))}, whose spec does not say what it emits"
+        if any(len(ev) > 2 for ev in d.emits) or any(len(a) > 3 for a in S.audit):
+            return self.conditional_emit_goal(d, env, pre, S), None
         if len(S.audit) != len(d.emits):
             return z3.BoolVal(False), None
         conds = [z3.BoolVal(True)]
@@ -154,91 +171,141 @@ class Prover:
             conds += [_ev_eq(self.sev(x, env, pre), v) for x, v in zip(args, got[2]) if x != WILD]
         return z3.And(*conds), None
 
-    def prove(self, d):
+    def conditional_emit_goal(self, d, env, pre, S):
+        """Some events are conditional. The events whose conditions hold, in order, must be the same
+        sequence on both sides: equal counts, and the k-th present event of each side match."""
+        one = lambda c: z3.If(c, 1, 0)
+        want = [(ctor, args, self.sev(c[0], env, pre) if c else z3.BoolVal(True)) for ctor, args, *c in d.emits]
+        got = [(a[1], a[2], a[3] if len(a) > 3 else z3.BoolVal(True)) for a in S.audit]
+        pos_w = [z3.Sum([z3.IntVal(0)] + [one(c) for _, _, c in want[:i]]) for i in range(len(want))]
+        pos_g = [z3.Sum([z3.IntVal(0)] + [one(c) for _, _, c in got[:j]]) for j in range(len(got))]
+        conds = [z3.Sum([z3.IntVal(0)] + [one(c) for *_, c in want]) == z3.Sum([z3.IntVal(0)] + [one(c) for *_, c in got])]
+        for i, (ctor, args, cw) in enumerate(want):
+            for j, (gctor, vals, cg) in enumerate(got):
+                if gctor != ctor or len(vals) != len(args):
+                    same = z3.BoolVal(False)
+                else:
+                    same = z3.And(*[z3.BoolVal(True)] + [_ev_eq(self.sev(x, env, pre), v)
+                                                         for x, v in zip(args, vals) if x != WILD])
+                conds.append(z3.Implies(z3.And(cw, cg, pos_w[i] == pos_g[j]), same))
+        return z3.And(*conds)
+
+    def bind(self, p):
+        """Point the per-path bookkeeping (used by modular_call and refusal_point) at path p."""
+        self.pc, self.refusals, self.opaque_refusers = p.pc, p.refusals, p.opaque
+
+    def exec(self, stmts, path):
+        """Symbolically run statements; an `if` forks the path. Returns the finished paths."""
+        paths = [path]
+        for s in stmts:
+            nxt = []
+            for p in paths:
+                self.bind(p)
+                if s[0] == "if":
+                    c = self.sev(s[1], p.env, p.S)
+                    nxt += self.exec(s[2], p.fork(c)) + self.exec(s[3], p.fork(z3.Not(c)))
+                    continue
+                if s[0] == "need":                 # a body need may only fire if the spec says so
+                    v = self.sev(s[1], p.env, p.S)
+                    p.own.append(v)
+                    self.refusal_point(v)
+                elif s[0] == "let":
+                    p.env[s[1]] = self.sev(s[2], p.env, p.S)
+                else:
+                    self.sev(s[1], p.env, p.S)
+                nxt.append(p)
+            paths = nxt
+        return paths
+
+    def prove(self, d, first_kill=False):
+        """Prove every guarantee of d. With first_kill (mutation testing), stop at the first
+        confirmed refutation: the caller only needs to know whether the mutant was caught."""
         self.relied_on = set()
         pre = Sym(z3.Array("bal", z3.IntSort(), z3.IntSort()), z3.Array("own", z3.IntSort(), z3.IntSort()),
                   z3.Int("total"))
         env = {p: z3.Int(p) for p, _ in d.params}
         params = dict(env)
-        self.pc, S = [], pre.copy()
-        self.refusals, self.opaque_refusers = [], []
-        own_pc = []                                # the definition's own needs, without callee specs
-        for i, s in enumerate(d.needs + d.body):
-            if s[0] == "need":
-                own_pc.append(self.sev(s[1], env, S))
-                if i < len(d.needs):               # spec needs are the stated refusals
-                    self.pc.append(own_pc[-1])
-                else:                              # a body need may only fire if the spec says so
-                    self.refusal_point(own_pc[-1])
-            elif s[0] == "let":
-                env[s[1]] = self.sev(s[2], env, S)
-            else:
-                self.sev(s[1], env, S)
+        start = Path([], pre.copy(), env, [], [], [])
+        self.bind(start)
+        for n in d.needs:                          # spec needs are the stated refusals
+            v = self.sev(n[1], env, start.S)
+            start.own.append(v)
+            self.pc.append(v)
+        paths = self.exec(d.body, start)
         results = []
-        goals = [("keep", c, code(c), self.sev(c, env, pre) == self.sev(c, env, S)) for c in d.keeps] + \
-                [("ensure", c, code(c), self.sev(c, env, pre, S)) for c in d.ensures]
-        premise = {}                               # goal kind -> what it may assume (default: success)
+        # per goal: one (goal, premise) per path; it holds iff it holds on every path
+        goals = [("keep", c, code(c), [(self.sev(c, p.env, pre) == self.sev(c, p.env, p.S), p.pc) for p in paths])
+                 for c in d.keeps] + \
+                [("ensure", c, code(c), [(self.sev(c, p.env, pre, p.S), p.pc) for p in paths]) for c in d.ensures]
         unknowable = []
         if d.complete:
+            self.refusals = [r for p in paths for r in p.refusals]
+            self.opaque_refusers = [o for p in paths for o in p.opaque]
             g, why_unknown = self.ok_goal()
             if why_unknown:
                 unknowable.append({"kind": "ok", "expr": None, "clause": "otherwise", "status": "unknown",
                                    "reason": why_unknown})
-            else:
-                goals.insert(0, ("ok", None, "otherwise", g))
-                premise["ok"] = []                 # it is about the runs that refuse
+            else:                                  # it is about the runs that refuse: no success premise
+                goals.insert(0, ("ok", None, "otherwise", [(g, [])]))
         if d.emits:
-            g, why_unknown = self.emit_goal(d, env, pre, S)
+            per_path = [(self.emit_goal(d, p.env, pre, p.S), p.pc) for p in paths]
             text = ", then ".join(emit_code(ev) for ev in d.emits)
+            why_unknown = next((w for (g, w), _ in per_path if w), None)
             if why_unknown:
                 unknowable.append({"kind": "emit", "expr": d.emits, "clause": text, "status": "unknown",
                                    "reason": why_unknown})
             else:
-                goals.append(("emit", d.emits, text, g))
-        vacuous = self.vacuity(own_pc)
+                goals.append(("emit", d.emits, text, [(g, pc) for (g, _), pc in per_path]))
+        vacuous = self.vacuity(paths)
         if vacuous:
             out = [{"kind": kind, "expr": c, "clause": text, "status": "vacuous", "reason": vacuous}
                    for kind, c, text, _ in goals]
             out += [dict(u, status="vacuous", reason=vacuous) for u in unknowable]
             return out, sorted(self.relied_on)
-        for kind, c, text, g in goals:
-            assumed = premise.get(kind, self.pc)
+        for kind, c, text, cases in goals:
+            results.append(self.solve(d, kind, c, text, cases, params, pre))
+            if first_kill and results[-1]["status"] == "refuted":
+                return results, sorted(self.relied_on)
+        results += unknowable
+        return results, sorted(self.relied_on)
+
+    def solve(self, d, kind, c, text, cases, params, pre):
+        unknown = False
+        for g, assumed in cases:
             solver = z3.Solver()
             solver.set("timeout", 5000)
             solver.add(*assumed, z3.Not(g))
             r = solver.check()
             if r == z3.unsat:
-                results.append({"kind": kind, "expr": c, "clause": text, "status": "proven"})
-            elif r == z3.sat:
-                nice = z3.Solver()
-                nice.add(*assumed, z3.Not(g))
-                nice.add(pre.now >= 0, pre.now <= 1000)
-                for p, t in d.params:
-                    v = params[p]
-                    nice.add(v >= 0, v <= 1000) if t == "Int" else nice.add(v >= 0, v <= 3)
-                    if t == "Account":
-                        nice.add(z3.Select(pre.bal, v) >= 0, z3.Select(pre.bal, v) <= 1000,
-                                 z3.Select(pre.own, v) >= 0, z3.Select(pre.own, v) <= 1)
-                cx = self.find_cex(d, nice, solver, params, pre, kind)
-                # a counterexample the interpreter does not reproduce is not evidence of a bug
-                results.append({"kind": kind, "expr": c, "clause": text, "counterexample": cx,
-                                "status": "refuted" if cx["confirmed_by_interpreter"] else "unconfirmed"})
-            else:
-                results.append({"kind": kind, "expr": c, "clause": text, "status": "unknown"})
-        results += unknowable
-        return results, sorted(self.relied_on)
+                continue
+            if r != z3.sat:
+                unknown = True
+                continue
+            nice = z3.Solver()
+            nice.add(*assumed, z3.Not(g))
+            nice.add(pre.now >= 0, pre.now <= 1000)
+            for p, t in d.params:
+                v = params[p]
+                nice.add(v >= 0, v <= 1000) if t == "Int" else nice.add(v >= 0, v <= 3)
+                if t == "Account":
+                    nice.add(z3.Select(pre.bal, v) >= 0, z3.Select(pre.bal, v) <= 1000,
+                             z3.Select(pre.own, v) >= 0, z3.Select(pre.own, v) <= 1)
+            cx = self.find_cex(d, nice, solver, params, pre, kind)
+            # a counterexample the interpreter does not reproduce is not evidence of a bug
+            return {"kind": kind, "expr": c, "clause": text, "counterexample": cx,
+                    "status": "refuted" if cx["confirmed_by_interpreter"] else "unconfirmed"}
+        return {"kind": kind, "expr": c, "clause": text, "status": "unknown" if unknown else "proven"}
 
-    def vacuity(self, own_pc):
+    def vacuity(self, paths):
         """If no input can succeed, every guarantee holds trivially. Say so, and say whose fault."""
-        s = z3.Solver()
-        s.set("timeout", 5000)
-        s.add(*self.pc)
-        if s.check() != z3.unsat:
+        def unsat(cs):
+            s = z3.Solver()
+            s.set("timeout", 5000)
+            s.add(*cs)
+            return s.check() == z3.unsat
+        if not all(unsat(p.pc) for p in paths):
             return None
-        s = z3.Solver()
-        s.set("timeout", 5000)
-        s.add(*own_pc)
-        if s.check() == z3.unsat:
+        if all(unsat(p.own) for p in paths):
             return "no input passes its own needs, so the call never succeeds"
         who = ", ".join(sorted(self.relied_on))
         return f"no input succeeds given the specs of {who} (they contradict each other or its needs)"
@@ -284,7 +351,7 @@ class Prover:
         now = m.eval(pre.now, model_completion=True).as_long()
         w = World.from_example(world, now)
         interp = Interp(self.defs)
-        before = copy.deepcopy(w)
+        before = w.copy()
         outcome, after = interp.run(d.name, args, w)
         world_src = " ".join(f"{a}:{b}@{o}" for a, (b, o) in world.items()) + (f" now:{now}" if now else "")
         after_src = " ".join(f"{a}:{after.bal[a]}" for a in world)

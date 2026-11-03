@@ -45,7 +45,7 @@ def proptest(defs, d, n=500, seed=1):
         w = World({a: rnd.randint(0, 1000) for a in accts}, {a: rnd.choice(["u1", "u2"]) for a in accts},
                   times.randint(0, 100))
         args = _rand_args(d, accts, rnd)
-        before = copy.deepcopy(w)
+        before = w.copy()
         try:
             outcome, after = interp.run(d.name, args, w)
         except (KernError, KeyError, TypeError) as e:
@@ -104,21 +104,36 @@ def mutants(d):
     for p, t in d.params:
         by_type.setdefault(t, []).append(p)
     same_type = {p: [q for q in by_type[t] if q != p] for p, t in d.params}
-    body = d.body
+    yield from _block_mutants(d.body, same_type)
+
+
+def _block_mutants(body, same_type):
+    """Every mutant of a statement list, recursing into `if` blocks. Straight-line bodies get exactly
+    the mutants they always had, in the same order."""
     for i, s in enumerate(body):
+        put = lambda new: body[:i] + [new] + body[i + 1:]
         yield f"drop `{stmt_code(s)}`", body[:i] + body[i + 1:]
+        if s[0] == "if":
+            for desc, m in _expr_mutants(s[1], same_type):
+                yield f"{desc} in `{stmt_code(s)}`", put(("if", m, s[2], s[3]))
+            yield f"swap the branches of `{stmt_code(s)}`", put(("if", s[1], s[3], s[2]))
+            for desc, m in _block_mutants(s[2], same_type):
+                yield desc, put(("if", s[1], m, s[3]))
+            for desc, m in _block_mutants(s[3], same_type):
+                yield desc, put(("if", s[1], s[2], m))
+            continue
         exprs = {"let": [2], "need": [1], "do": [1]}[s[0]]
         for j in exprs:
             for desc, m in _expr_mutants(s[j], same_type):
                 new = list(s)
                 new[j] = m
-                yield f"{desc} in `{stmt_code(s)}`", body[:i] + [tuple(new)] + body[i + 1:]
+                yield f"{desc} in `{stmt_code(s)}`", put(tuple(new))
         if s[0] == "need":                       # the failure payload, e.g. Insufficient (amount - have)
             for k, a in enumerate(s[3]):
                 for desc, m in _expr_mutants(a, same_type):
                     new = list(s)
                     new[3] = s[3][:k] + [m] + s[3][k + 1:]
-                    yield f"{desc} in payload of `{stmt_code(s)}`", body[:i] + [tuple(new)] + body[i + 1:]
+                    yield f"{desc} in payload of `{stmt_code(s)}`", put(tuple(new))
 
 
 def mutation_score(defs, d, n_props=150):
@@ -138,7 +153,7 @@ def mutation_score(defs, d, n_props=150):
             ex = not all(r["pass"] for r in run_examples(mdefs, md))
             props = bool(proptest(mdefs, md, n=n_props, seed=7)["violations"])
             # confirmed refutations, or the mutant can never succeed (the original is clean, so it can)
-            prover = any(r["status"] in ("refuted", "vacuous") for r in Prover(mdefs).prove(md)[0])
+            prover = any(r["status"] in ("refuted", "vacuous") for r in Prover(mdefs).prove(md, first_kill=True)[0])
         except Exception as e:         # a crash in the checker is not a kill; report it
             errors.append(f"{desc}: {type(e).__name__}: {e}")
             continue

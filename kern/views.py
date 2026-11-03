@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from .infer import fmt_fails, fmt_uses, fmt_writes
-from .syntax import _side, atom_code, code
+from .syntax import NEG, _side, atom_code, code, flat, negate
 
 try:
     import anthropic
@@ -64,8 +64,7 @@ def editor(reports, name, whys):
 
 NAMES = {"ledger.balance": "balance of {0}", "ledger.owner": "owner of {0}", "ledger.total": "total money in the ledger",
          "clock.now": "the time of the call"}
-OPS = {"=": "=", "!=": "≠", ">=": "≥", "<=": "≤", ">": "&gt;", "<": "&lt;", "+": "+", "-": "−", "and": "and", "or": "or"}
-NEG = {"=": "!=", "!=": "=", ">=": "<", "<=": ">", ">": "<=", "<": ">="}
+OPS = {"=": "=", "!=": "≠", ">=": "≥", "<=": "≤", ">": "&gt;", "<": "&lt;", "+": "+", "-": "−", "and": "and", "or": "or", "when": "when"}
 EFFECTS = {"ledger.write": "the ledger (read and write)", "ledger.read": "the ledger (read only)",
            "clock": "the clock", "audit": "the audit log"}
 
@@ -134,28 +133,22 @@ def en(e, lets=None, tense=False):
 def en_emits(events):
     """Template for an `emit` guarantee: the exact events appended to the audit log."""
     items = []
-    for ctor, args in events:
+    for ctor, args, *cond in events:
         shown = ", ".join("any value" if a == ("name", "_", False) else en(a) for a in args)
-        items.append(f"<code>{ctor}</code>" + (f" ({shown})" if shown else ""))
+        items.append(f"<code>{ctor}</code>" + (f" ({shown})" if shown else "") +
+                     (f" <em>only when</em> {en(cond[0])}" if cond else ""))
+    if any(len(ev) > 2 for ev in events):
+        return ("appends exactly these events to the audit log, in order, each one only when its "
+                "condition holds before the call: " + ", then ".join(items))
     if len(items) == 1:
         return f"appends exactly one event to the audit log: {items[0]}"
     return f"appends exactly {len(items)} events to the audit log, in order: " + ", then ".join(items)
 
 
 def en_ensure(e):
+    if e[0] == "bin" and e[1] == "when":          # `E when C`: C is about the before-state
+        return f"<em>when</em> {en(e[3], tense=True)}: {en(e[2], tense=_has_prime(e[2]))}"
     return en(e, tense=_has_prime(e))
-
-
-def negate(e):
-    """The negation as an expression (De Morgan over and/or), or None if it needs a `not`."""
-    if e[0] != "bin":
-        return None
-    if e[1] in NEG:
-        return ("bin", NEG[e[1]], e[2], e[3])
-    if e[1] in ("and", "or"):
-        l, r = negate(e[2]), negate(e[3])
-        return ("bin", "or" if e[1] == "and" else "and", l, r) if l and r else None
-    return None
 
 
 def en_refusal(need, lets):
@@ -167,7 +160,17 @@ def en_refusal(need, lets):
 
 
 def lets_of(d):
-    return {s[1]: s[2] for s in d.body if s[0] == "let"}
+    return {s[1]: s[2] for s in flat(d.body) if s[0] == "let"}
+
+
+def guarded_needs(stmts, guards=()):
+    """Body needs with the `if` conditions (or their negation, in `else`) under which they run."""
+    for s in stmts:
+        if s[0] == "need":
+            yield s, list(guards)
+        elif s[0] == "if":
+            yield from guarded_needs(s[2], (*guards, ("if", s[1])))
+            yield from guarded_needs(s[3], (*guards, ("else", s[1])))
 
 
 def code_of(e):

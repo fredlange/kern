@@ -12,6 +12,7 @@ python -m kern view   examples/ledger_v3.k payout --as editor --why examples/led
 python -m kern why    examples/ledger_v3.k transfer --why examples/ledger.why
 python -m kern run    examples/ledger_v3.k "transfer A B 100" --world "A:500@u1 B:0@u1"
 python -m kern baseline examples/ledger_v4.k     # record guarantee strength; check then flags drops
+python -m kern score examples/escrow_s1.k        # the scale scorecard (docs/SCALE.md)
 ```
 
 Tests: `pip install pytest`, then `pytest` from the repo root runs
@@ -30,6 +31,7 @@ transfer from:Account to:Account amount:Int        header
   ensure ledger.balance' to = ledger.balance to + amount   ' = after the call
   emit TransferDone from to amount clock.now         exactly these audit events (_ = any value)
   ok otherwise                                       optional: succeeds whenever the needs hold
+  ensure ledger.balance' to = ledger.balance to when amount = 0   a clause can hold only `when` C
   eg A:500@u1 B:0@u1 | transfer A B 100 -> ok | A:400 B:100   executed example
 body
   ledger.debit from amount                          a body may have `need`s too; under
@@ -120,7 +122,7 @@ lines were added; see docs/FIXES.md.)
 
 The prototype has one hard-coded domain: handlers for `ledger`, `clock` and `audit`
 written in Python. It has only `Int` and `Account` types and only straight-line
-bodies with guards. A small type checker covers the six built-in types. There are no
+bodies with guards and `if`/`else` blocks (docs/SCALE.md, size 1). A small type checker covers the six built-in types. There are no
 written frame conditions: the frame is *inferred* (`writes`), and the page says which
 written balances no guarantee describes. A spec can say *when* a call succeeds
 only by opting in with `ok otherwise`, and a caller must then restate its callees'

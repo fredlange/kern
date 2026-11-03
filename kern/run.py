@@ -15,6 +15,10 @@ class World:
     clock: int = 0
     audit: list = field(default_factory=list)
 
+    def copy(self):
+        """A full copy: balances and owners are ints/strings, audit events are tuples."""
+        return World(dict(self.bal), dict(self.own), self.clock, list(self.audit))
+
     @classmethod
     def from_example(cls, w, now=0):
         return cls({a: b for a, (b, _) in w.items()}, {a: o for a, (_, o) in w.items()}, now)
@@ -82,6 +86,8 @@ class Interp:
                 return self.ev(e[2], env, pre, post) and self.ev(e[3], env, pre, post)
             if op == "or":
                 return self.ev(e[2], env, pre, post) or self.ev(e[3], env, pre, post)
+            if op == "when":                    # `E when C`: C reads the before-state
+                return (not self.ev(e[3], env, pre)) or bool(self.ev(e[2], env, pre, post))
             l, r = self.ev(e[2], env, pre, post), self.ev(e[3], env, pre, post)
             return {"+": lambda: l + r, "-": lambda: l - r, "=": lambda: l == r, "!=": lambda: l != r,
                     ">=": lambda: l >= r, "<=": lambda: l <= r, ">": lambda: l > r, "<": lambda: l < r}[op]()
@@ -114,15 +120,20 @@ class Interp:
         if len(args) != len(d.params):
             raise KernError(f"{d.name} takes {len(d.params)} argument(s), got {len(args)}")
         env = {p: a for (p, _), a in zip(d.params, args)}
-        for s in d.needs + d.body:
+        self.block(d.needs + d.body, env, world)
+        return None
+
+    def block(self, stmts, env, world):
+        for s in stmts:
             if s[0] == "need":
                 if not self.ev(s[1], env, world):
                     raise Fail(s[2], [self.ev(a, env, world) for a in s[3]])
             elif s[0] == "let":
                 env[s[1]] = self.ev(s[2], env, world)
+            elif s[0] == "if":
+                self.block(s[2] if self.ev(s[1], env, world) else s[3], env, world)
             else:
                 self.ev(s[1], env, world)
-        return None
 
     def run(self, name, args, world):
         """Atomic top-level call. Returns (outcome, world_after).
@@ -138,7 +149,7 @@ class Interp:
                 raise KernError(f"bad call: account {a!r} for `{p}` is not in the world")
             if t == "Int" and (not isinstance(a, int) or isinstance(a, bool)):
                 raise KernError(f"bad call: `{p}` must be an Int, got {a!r}")
-        snap = copy.deepcopy(world)
+        snap = world.copy()
         try:
             self.call_def(self.defs[name], args, world)
             outcome = ("ok",)
@@ -172,18 +183,19 @@ class Interp:
         if not d.complete or outcome == ("ok",):
             return False
         env = {p: a for (p, _), a in zip(d.params, args)}
-        w = copy.deepcopy(before)
+        w = before.copy()
         return all(self.ev(n[1], env, w) for n in d.needs)
 
     def emitted_ok(self, d, env, pre, post):
         """The call appended exactly the events its `emit` clauses list, in order; `_` matches anything."""
         got = post.audit[len(pre.audit):]
-        if post.audit[:len(pre.audit)] != pre.audit or len(got) != len(d.emits):
+        want = [ev for ev in d.emits if len(ev) < 3 or self.ev(ev[2], env, pre.copy())]
+        if post.audit[:len(pre.audit)] != pre.audit or len(got) != len(want):
             return False
-        for (ctor, args), ev in zip(d.emits, got):
+        for (ctor, args, *_), ev in zip(want, got):
             if not isinstance(ev, tuple) or ev[0] != ctor or len(ev) != len(args) + 1:
                 return False
             for a, v in zip(args, ev[1:]):
-                if a != ("name", "_", False) and self.ev(a, env, copy.deepcopy(pre)) != v:
+                if a != ("name", "_", False) and self.ev(a, env, pre.copy()) != v:
                     return False
         return True
