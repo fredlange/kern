@@ -62,8 +62,9 @@ python -m kern.host replay   examples/escrow_s2.k --db e.db
    named channels (`emit console.Line …`, `emit net.Fetch …`) with the same exact-sequence
    spec. Inbound replies come back as calls (`on Fetched …`), so failure is data.
 3. **The prover crashes on unknown handlers** (`prove.py`, `raise ValueError("prover: unknown …")`),
-   so new effects first need handlers *declared in Kern* with assumed specs, shown as
-   "assumed" on the proof page (roadmap 1).
+   Declared handlers with assumed specs (roadmap 1) are needed only for observations *inside* a call
+   (environment variables, file reads, randomness). Console and network don't need them if output is a
+   channel `emit` and replies arrive as new calls; see [HOST_PLAN.md](HOST_PLAN.md).
 4. **Effect labels have no resource** (`net.send` rather than `net.send host`), so the manifest
    can't yet narrow network or file access.
 5. **Int and Account only.** Real requests need Text and records. The plan is for the host to
