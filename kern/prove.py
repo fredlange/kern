@@ -9,7 +9,7 @@ import itertools
 import z3
 
 from .infer import ANY_ACCOUNT, callees, fails, ledger_writes, lifted, relevant_states, state_writes, uses, writes
-from .run import state_op
+from .run import channel_op, emit_channels, state_op
 from .run import Interp, World
 from .syntax import code, emit_code, flat
 
@@ -25,9 +25,21 @@ class Sym:
         self.bal, self.own, self.total, self.audit = bal, own, total, list(audit)
         self.now = now if now is not None else z3.Int("now")   # the call's time; never changes
         self.maps = dict(maps or {})                            # declared state -> z3 Array Int -> Int
+        self.out = {}                                           # declared channel -> events, like audit
 
     def copy(self):
-        return Sym(self.bal, self.own, self.total, self.audit, self.now, self.maps)
+        c = Sym(self.bal, self.own, self.total, self.audit, self.now, self.maps)
+        c.out = {ch: list(e) for ch, e in self.out.items()}
+        return c
+
+    def events(self, ch):
+        return self.audit if ch == "audit" else self.out.get(ch, [])
+
+    def append(self, ch, evs):
+        if ch == "audit":
+            self.audit = self.audit + evs
+        else:
+            self.out[ch] = self.out.get(ch, []) + evs
 
 
 WILD = ("name", "_", False)
@@ -100,6 +112,9 @@ class Prover:
         if name == "audit.emit":
             S.audit = S.audit + [a[0] if isinstance(a[0], tuple) else ("opaque", "audit.emit")]
             return None
+        if channel_op(self.defs, name):
+            S.append(channel_op(self.defs, name), [a[0] if isinstance(a[0], tuple) else ("opaque", name)])
+            return None
         st = state_op(self.defs, name)
         if st:
             if st[1] == "get":
@@ -148,15 +163,19 @@ class Prover:
                     self.pc.append(self.sev(cond, {var: env[p]}, S))
         for c in callee.keeps:
             self.pc.append(self.sev(c, env, pre) == self.sev(c, env, S))
-        if "audit" in uses(self.defs, callee):
-            if callee.emits:                       # the callee's spec says exactly what it appends
-                for ctor, args, *cond in callee.emits:
-                    vals = [fresh_int("any") if x == WILD else self.sev(x, env, pre) for x in args]
-                    # a conditional event is appended only when its condition held before the call
-                    S.audit = S.audit + [("ev", ctor, vals, self.sev(cond[0], env, pre)) if cond
-                                         else ("ev", ctor, vals)]
-            else:                                  # it emits something its spec does not describe
-                S.audit = S.audit + [("opaque", callee.name)]
+        said = emit_channels(callee)
+        for ch in ["audit"] + getattr(self.defs, "channels", []):
+            if ch not in uses(self.defs, callee):
+                continue
+            if ch not in said:                     # it emits something its spec does not describe
+                S.append(ch, [("opaque", callee.name)])
+                continue
+            for i, (ctor, args, *cond) in enumerate(callee.emits):   # its spec says exactly what
+                if callee.emit_channel.get(i, "audit") != ch:
+                    continue
+                vals = [fresh_int("any") if x == WILD else self.sev(x, env, pre) for x in args]
+                # a conditional event is appended only when its condition held before the call
+                S.append(ch, [("ev", ctor, vals, self.sev(cond[0], env, pre)) if cond else ("ev", ctor, vals)])
         return None
 
     def function_call(self, f, args, S):
@@ -189,28 +208,31 @@ class Prover:
         reach = [z3.And(*pc, z3.Not(c)) for pc, c in self.refusals]
         return z3.Not(z3.Or(*reach)) if reach else z3.BoolVal(True), None
 
-    def emit_goal(self, d, env, pre, S):
-        """The appended events must be exactly d.emits, in order. Returns (z3 goal, reason-if-unknowable)."""
-        opaque = [e[1] for e in S.audit if e[0] == "opaque"]
+    def emit_goal(self, d, env, pre, S, ch="audit"):
+        """The events appended on ch must be exactly d's emits for ch, in order.
+        Returns (z3 goal, reason-if-unknowable)."""
+        events = S.events(ch)
+        emits = [ev for i, ev in enumerate(d.emits) if d.emit_channel.get(i, "audit") == ch]
+        opaque = [e[1] for e in events if e[0] == "opaque"]
         if opaque:
             return None, f"relies on {', '.join(dict.fromkeys(opaque))}, whose spec does not say what it emits"
-        if any(len(ev) > 2 for ev in d.emits) or any(len(a) > 3 for a in S.audit):
-            return self.conditional_emit_goal(d, env, pre, S), None
-        if len(S.audit) != len(d.emits):
+        if any(len(ev) > 2 for ev in emits) or any(len(a) > 3 for a in events):
+            return self.conditional_emit_goal(emits, env, pre, events), None
+        if len(events) != len(emits):
             return z3.BoolVal(False), None
         conds = [z3.BoolVal(True)]
-        for (ctor, args), got in zip(d.emits, S.audit):
+        for (ctor, args), got in zip(emits, events):
             if got[1] != ctor or len(got[2]) != len(args):
                 return z3.BoolVal(False), None
             conds += [_ev_eq(self.sev(x, env, pre), v) for x, v in zip(args, got[2]) if x != WILD]
         return z3.And(*conds), None
 
-    def conditional_emit_goal(self, d, env, pre, S):
+    def conditional_emit_goal(self, emits, env, pre, events):
         """Some events are conditional. The events whose conditions hold, in order, must be the same
         sequence on both sides: equal counts, and the k-th present event of each side match."""
         one = lambda c: z3.If(c, 1, 0)
-        want = [(ctor, args, self.sev(c[0], env, pre) if c else z3.BoolVal(True)) for ctor, args, *c in d.emits]
-        got = [(a[1], a[2], a[3] if len(a) > 3 else z3.BoolVal(True)) for a in S.audit]
+        want = [(ctor, args, self.sev(c[0], env, pre) if c else z3.BoolVal(True)) for ctor, args, *c in emits]
+        got = [(a[1], a[2], a[3] if len(a) > 3 else z3.BoolVal(True)) for a in events]
         pos_w = [z3.Sum([z3.IntVal(0)] + [one(c) for _, _, c in want[:i]]) for i in range(len(want))]
         pos_g = [z3.Sum([z3.IntVal(0)] + [one(c) for _, _, c in got[:j]]) for j in range(len(got))]
         conds = [z3.Sum([z3.IntVal(0)] + [one(c) for *_, c in want]) == z3.Sum([z3.IntVal(0)] + [one(c) for *_, c in got])]
@@ -326,15 +348,17 @@ class Prover:
                                    "reason": why_unknown})
             else:                                  # it is about the runs that refuse: no success premise
                 goals.insert(0, ("ok", None, "otherwise", [(g, [])]))
-        if d.emits:
-            emit_cases = per_path(lambda p: self.emit_goal(d, p.env, pre, p.S))
-            text = ", then ".join(emit_code(ev) for ev in d.emits)
+        for ch in emit_channels(d):                # one exact sequence per channel; order across channels
+            emits = [ev for i, ev in enumerate(d.emits) if d.emit_channel.get(i, "audit") == ch]   # is not said
+            emit_cases = per_path(lambda p: self.emit_goal(d, p.env, pre, p.S, ch))
+            text = ("" if ch == "audit" else f"{ch} ") + ", then ".join(emit_code(ev) for ev in emits)
             why_unknown = next((w for (g, w), _ in emit_cases if w), None)
             if why_unknown:
-                unknowable.append({"kind": "emit", "expr": d.emits, "clause": text, "status": "unknown",
-                                   "reason": why_unknown})
+                unknowable.append({"kind": "emit", "expr": emits, "clause": text, "status": "unknown",
+                                   "reason": why_unknown, "channel": ch})
             else:
-                goals.append(("emit", d.emits, text, [(g, pc) for (g, _), pc in emit_cases]))
+                goals.append(("emit", emits if ch == "audit" else ("channel", ch, emits), text,
+                              [(g, pc) for (g, _), pc in emit_cases]))
         vacuous = self.vacuity(paths)
         if vacuous:
             out = [{"kind": kind, "expr": c, "clause": text, "status": "vacuous", "reason": vacuous}

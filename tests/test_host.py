@@ -235,3 +235,79 @@ def test_invariants_read_state_only_at_their_own_key(inv):
     from kern.wf import WellFormedError
     with pytest.raises(WellFormedError, match="must read state at"):
         check_module(parse_module(f"state hold Int\ninvariant {inv}\n"))
+
+
+# --- H2: named output channels
+
+from kern.report import analyse  # noqa: E402
+from kern.syntax import ParseError  # noqa: E402
+from kern.wf import WellFormedError  # noqa: E402
+
+CH = """\
+channel console
+
+hello to:Account amount:Int
+  need amount > 0 else BadAmount
+  ok otherwise
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit console Line to amount
+  emit Credited to amount
+body
+  ledger.credit to amount
+  audit.emit (Credited to amount)
+  console.emit (Line to amount)
+"""
+
+
+def _emit_goals(src, name):
+    defs = check_module(parse_module(src))
+    return [g for g in analyse(defs, mutation=False)[name]["guarantees"] if g["kind"] == "emit"]
+
+
+def test_channel_spec_is_an_exact_sequence_per_channel():
+    assert [g["status"] for g in _emit_goals(CH, "hello")] == ["proven", "proven"]
+    wrong = _emit_goals(CH.replace("console.emit (Line to amount)", "console.emit (Line to 0)"), "hello")
+    g = [g for g in wrong if g["clause"].startswith("console")][0]
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+    assert [g["status"] for g in wrong if not g["clause"].startswith("console")] == ["proven"]   # audit unaffected
+
+
+def test_a_channel_the_callee_spec_omits_is_opaque_to_callers():
+    src = CH.replace("  emit console Line to amount\n", "") + """
+twice to:Account amount:Int
+  emit console Line to amount
+body
+  hello to amount
+"""
+    g = [g for g in _emit_goals(src, "twice") if g["clause"].startswith("console")][0]
+    assert g["status"] in ("unknown", "tested") and "does not say what it emits" in g["reason"]
+
+
+@pytest.mark.parametrize("src,err", [
+    ("f a:Account\n  emit radio Ping a\nbody\n  ledger.credit a 1\n", WellFormedError),
+    ("channel audit\n", ParseError),
+    ("channel console\n\nf a:Account\n  ensure console.emit (Ping a)\nbody\n  console.emit (Ping a)\n", WellFormedError),
+])
+def test_channels_must_be_declared_and_are_not_readable(src, err):
+    with pytest.raises(err):
+        check_module(parse_module(src))
+
+
+def test_audit_only_code_keeps_its_hash():
+    """Item 3: channels change nothing for existing code (hash of escrow_s1 transfer, before H2)."""
+    assert parse_module(open("examples/escrow_s1.k").read())["transfer"].hash == "27367a3f"
+
+
+def test_host_delivers_channels_after_commit_and_replays_them():
+    defs = check_module(parse_module(CH))
+    lines, audit = [], []
+    h = host(defs, "A:0@u1", sinks=[lambda s, e: audit.append(e)],
+             channel_sinks={"console": [lambda s, e: lines.append(e)]})
+    assert h.call("hello", ["A", 5])["out"] == {"console": [("Line", "A", 5)]}
+    assert h.call("hello", ["A", 0])["status"] == "refused"          # rolled back: nothing queued
+    assert lines == [] and h.flush() == 2
+    assert lines == [("Line", "A", 5)] and audit == [("Credited", "A", 5)]
+    assert h.db.execute("select channel from outbox order by seq").fetchall() == [("audit",), ("console",)]
+    assert h.replay() == []
+    h.db.execute("update outbox set event = ? where channel = 'console'", (json.dumps(["Line", "A", 6]),))
+    assert any("outbox differs" in m or "differs" in m for m in h.replay())

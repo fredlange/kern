@@ -12,7 +12,7 @@ nothing reaches them without passing this check. It rejects:
 from __future__ import annotations
 
 from .infer import called_names, callees
-from .run import HANDLERS, is_handler, state_op
+from .run import HANDLERS, channel_op, is_handler, state_op
 from .syntax import ParseError, code
 
 TYPES = True                                  # step 3 of docs/FIXES.md ran with this off
@@ -108,7 +108,9 @@ class _Checker:
             reads = name in SPEC_READS or (st and st[1] == "get")
             if spec and not reads:
                 self.err(where, f"specs may only read state; `{name}` has an effect")
-            if st:
+            if channel_op(self.defs, name):
+                want, result = ["Event"], "Unit"
+            elif st:
                 want, result = ([st[2]], "Int") if st[1] == "get" else ([st[2], "Int"], "Unit")
             else:
                 want, result = SIG[name]
@@ -183,6 +185,9 @@ class _Checker:
                 self.expect(where, self.ty(c[3], params, where, spec=True), "Bool")
             else:
                 self.expect(where, self.ty(c, params, where, spec=True, primed_ok=True), "Bool")
+        for i, ch in d.emit_channel.items():
+            if ch not in getattr(self.defs, "channels", []):
+                self.err(f"emit {ch} {d.emits[i][0]}", f"no channel named `{ch}` (declare `channel {ch}`)")
         for ev in d.emits:
             where = f"emit {ev[0]}"
             for a in ev[1]:

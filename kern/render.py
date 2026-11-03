@@ -125,6 +125,10 @@ def card(r, why):
             + "</p>")
 
     out.append("<h3>Guarantees</h3><ul class='g'>")
+    from .run import emit_channels
+    if len(emit_channels(d)) > 1:
+        out.append("<p class='muted'>Each channel's events are guaranteed in order; the order <em>across</em> "
+                   "channels is not (the host delivers audit first, then channels in declaration order).</p>")
     for g in r["guarantees"]:
         out.append(f"<li class='{g['status']}'><span class='ic'>{ICON[g['status']]}</span>"
                    f"<div><div>{_guarantee_text(g, d)}</div><div class='how'>{_how(g)}</div>"

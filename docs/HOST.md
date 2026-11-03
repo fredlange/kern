@@ -57,9 +57,10 @@ python -m kern.host replay   examples/escrow_s2.k --db e.db
 
 1. ~~**Whole-world load per call.**~~ Fixed in H1: a call reads SQLite lazily, and the
    runtime invariant check covers only the keys the call wrote.
-2. **No outbound effects beyond audit.** Console and network sends need `audit` generalised to
-   named channels (`emit console.Line …`, `emit net.Fetch …`) with the same exact-sequence
-   spec. Inbound replies come back as calls (`on Fetched …`), so failure is data.
+2. ~~**No outbound effects beyond audit.**~~ H2 added named channels: `channel console` (module
+   level), `console.emit (Line x)` in a body and `emit console Line x` in a spec. Each channel is
+   an exact sequence, the order across channels is unspecified, and a channel the spec never
+   names is unconstrained. The outbox has a `channel` column; `console` goes to stdout.
 3. **The prover crashes on unknown handlers** (`prove.py`, `raise ValueError("prover: unknown …")`),
    Declared handlers with assumed specs (roadmap 1) are needed only for observations *inside* a call
    (environment variables, file reads, randomness). Console and network don't need them if output is a
@@ -77,6 +78,9 @@ python -m kern.host replay   examples/escrow_s2.k --db e.db
 |---|---|---|
 | 1 | Host ≡ interpreter | **pass** after H1: `test_sqlite_host_matches_the_interpreter` (600 random escrow_s2 calls) |
 | 2 | Lazy state fixes the scaling | **pass**. `transfer`, 300 calls, 300/300 ok, replay matches. In memory: 0.034 / 0.033 / 0.031 ms per call at 50 / 500 / 5000 accounts (0.9×; before H1 it was 75×). File-backed SQLite: 0.282 / 0.327 / 0.330 ms (1.17×). A timing-free check: the SQL statements per call are the same at 50 and 5000 accounts (`test_a_call_does_not_read_the_whole_world`) |
+| 3 | Channels cost nothing for existing code | **pass** after H2: escrow_s1/s2/s3 are clean (10/10, 26/26, 55/55); spec-view token counts and build hashes of every definition are identical to before H2 (1626 / 4572 / 9198 tokens) |
+| 4 | A channel is cheap in a spec | **pass**: `emit console Line x` costs 6 tokens vs 5 for `emit Line x` (+1). HOST.md's earlier `emit console.Line x` would cost +2 |
+| 7 | Network needs no declared handlers | *at H2:* `prove.py` +50 / −27 lines, all channel-keyed `emit` (per-channel event lists, per-channel goals, per-channel opaque callees). Final count at H3 below |
 
 **How H1 works:**
 - **Lazy world.** `host.LazyWorld` is a `World` whose stores read SQLite on demand. A read cache is
@@ -96,3 +100,12 @@ python -m kern.host replay   examples/escrow_s2.k --db e.db
 - **Soundness condition, now enforced:** `wf.invariant_problems` rejects any invariant that reads
   state anywhere but its own bound key. Rejected: `ledger.total`, `clock.now`, `hold.get 3`,
   `hold.get (o + 1)`. Every escrow invariant passes.
+
+**How H2 works:**
+- **Interpreter and prover:** `World.audit` and `Sym.audit` are unchanged; other channels live in
+  `.out[channel]`.
+- **Spec clauses** get a parallel `Def.emit_channel` map, folded into the hash only when non-empty
+  (that's why item 3 holds by construction). `emit as` carries the callee's channels.
+- **Effect label per channel** (`console`), so `uses` and the manifest separate them.
+- **Host:** delivers audit first, then channels in declaration order. That is a convention, and
+  the page says the order across channels isn't guaranteed.

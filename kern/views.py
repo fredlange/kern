@@ -160,7 +160,11 @@ def en(e, lets=None, tense=False):
 
 
 def en_emits(events):
-    """Template for an `emit` guarantee: the exact events appended to the audit log."""
+    """Template for an `emit` guarantee: the exact events appended to the audit log (or, for
+    ("channel", name, events), sent on that channel)."""
+    if isinstance(events, tuple) and events[0] == "channel":
+        text = en_emits(events[2])
+        return text.replace("appends", "sends", 1).replace("to the audit log", f"on channel <code>{events[1]}</code>", 1)
     items = []
     for ctor, args, *cond in events:
         shown = ", ".join("any value" if a == ("name", "_", False) else en(a) for a in args)

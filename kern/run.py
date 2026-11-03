@@ -15,11 +15,15 @@ class World:
     clock: int = 0
     audit: list = field(default_factory=list)
     maps: dict = field(default_factory=dict)      # declared state -> {key: Int}; missing keys are 0
+    out: dict = field(default_factory=dict)       # declared channel -> events (`audit` stays in .audit)
 
     def copy(self):
         """A full copy: balances and owners are ints/strings, audit events are tuples."""
         return World(dict(self.bal), dict(self.own), self.clock, list(self.audit),
-                     {k: dict(v) for k, v in self.maps.items()})
+                     {k: dict(v) for k, v in self.maps.items()}, {c: list(e) for c, e in self.out.items()})
+
+    def events(self, channel):
+        return self.audit if channel == "audit" else self.out.get(channel, [])
 
     @classmethod
     def from_example(cls, w, now=0, maps=None):
@@ -77,15 +81,30 @@ def state_op(defs, name):
     return None
 
 
+def channel_op(defs, name):
+    """`C.emit` for a module's `channel C` declaration: C, else None."""
+    c, _, op = name.rpartition(".")
+    return c if op == "emit" and c in getattr(defs, "channels", []) else None
+
+
 def is_handler(defs, name):
-    return name in HANDLERS or state_op(defs, name) is not None
+    return name in HANDLERS or state_op(defs, name) is not None or channel_op(defs, name) is not None
 
 
 def effect_of(defs, name):
     if name in HANDLERS:
         return HANDLERS[name][1]
+    if channel_op(defs, name):
+        return channel_op(defs, name)
     x, op, _ = state_op(defs, name)
     return f"{x}.{'write' if op == 'set' else 'read'}"
+
+
+def emit_channels(d):
+    """The channels d's spec says something about, `audit` first; a channel with no clause is
+    unconstrained (as the audit log is for a definition with no `emit` at all)."""
+    chans = [d.emit_channel.get(i, "audit") for i in range(len(d.emits))]
+    return sorted(set(chans), key=lambda c: (c != "audit", c))
 
 
 def _restore(world, snap):
@@ -133,6 +152,10 @@ class Interp:
             if len(args) != arity:
                 raise KernError(f"{name} takes {arity} argument(s), got {len(args)}")
             return fn(world, *args)
+        ch = channel_op(self.defs, name)
+        if ch:
+            world.out.setdefault(ch, []).append(args[0])
+            return None
         st = state_op(self.defs, name)
         if st:
             x, op, key_type = st
@@ -210,8 +233,10 @@ class Interp:
                     ok = bool(self.ev(c, env, pre, post))
                 if not ok:
                     bad.append((kind, code(c)))
-        if d.emits and not self.emitted_ok(d, env, pre, post):
-            bad.append(("emit", "; ".join(emit_code(ev) for ev in d.emits)))
+        for ch in emit_channels(d):
+            if not self.emitted_ok(d, env, pre, post, ch):
+                bad.append(("emit", "; ".join(emit_code(ev) for i, ev in enumerate(d.emits)
+                                              if d.emit_channel.get(i, "audit") == ch)))
         return bad
 
     def unstated_refusal(self, d, args, before, outcome):
@@ -241,11 +266,14 @@ class Interp:
                     break
         return out
 
-    def emitted_ok(self, d, env, pre, post):
-        """The call appended exactly the events its `emit` clauses list, in order; `_` matches anything."""
-        got = post.audit[len(pre.audit):]
-        want = [ev for ev in d.emits if len(ev) < 3 or self.ev(ev[2], env, pre.copy())]
-        if post.audit[:len(pre.audit)] != pre.audit or len(got) != len(want):
+    def emitted_ok(self, d, env, pre, post, channel="audit"):
+        """The call appended exactly the events its `emit` clauses list for this channel, in order;
+        `_` matches anything."""
+        before, after = pre.events(channel), post.events(channel)
+        got = after[len(before):]
+        want = [ev for i, ev in enumerate(d.emits) if d.emit_channel.get(i, "audit") == channel
+                and (len(ev) < 3 or self.ev(ev[2], env, pre.copy()))]
+        if after[:len(before)] != before or len(got) != len(want):
             return False
         for (ctor, args, *_), ev in zip(want, got):
             if not isinstance(ev, tuple) or ev[0] != ctor or len(ev) != len(args) + 1:

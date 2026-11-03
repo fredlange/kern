@@ -45,7 +45,7 @@ create table if not exists cell(state text not null, key text not null, value in
 create table if not exists log(seq integer primary key, name text not null, args text not null,
                                now integer not null, outcome text not null);
 create table if not exists outbox(seq integer primary key, call integer not null, event text not null,
-                                  delivered integer not null default 0);
+                                  delivered integer not null default 0, channel text not null default 'audit');
 """
 
 
@@ -114,7 +114,8 @@ class _LazyMaps(dict):
 
 class LazyWorld(World):
     def copy(self):
-        return LazyWorld(self.bal.copy(), self.own.copy(), self.clock, list(self.audit), self.maps.copy_maps())
+        return LazyWorld(self.bal.copy(), self.own.copy(), self.clock, list(self.audit), self.maps.copy_maps(),
+                         {c: list(e) for c, e in self.out.items()})
 
     def written_keys(self):
         """{"Account": keys, "Int": keys} this call wrote, for the key-scoped invariant check."""
@@ -139,15 +140,32 @@ def console_sink(seq, ev):
     print(f"audit #{seq}: {event_text(ev)}", flush=True)
 
 
+def stdout_sink(seq, ev):
+    """The `console` channel: one line per event, the event's text without the constructor."""
+    print(" ".join(event_text(a) if isinstance(a, tuple) else str(a) for a in ev[1:]) if isinstance(ev, tuple)
+          else str(ev), flush=True)
+
+
+def _ordered_events(world, defs):
+    """A call's events as (channel, event): audit first, then channels in declaration order. The
+    order across channels is a host convention; specs fix only the order within one channel."""
+    return [("audit", ev) for ev in world.audit] + \
+        [(c, ev) for c in getattr(defs, "channels", []) for ev in world.out.get(c, [])]
+
+
 class Host:
-    def __init__(self, defs, db=":memory:", clock=None, sinks=None, gate=True):
+    def __init__(self, defs, db=":memory:", clock=None, sinks=None, gate=True, channel_sinks=None):
         self.defs = defs
         self.interp = Interp(defs)
         self.clock = clock or (lambda: int(time.time()))
-        self.sinks = [console_sink] if sinks is None else sinks
+        self.sinks = [console_sink] if sinks is None else sinks             # the audit channel
+        self.channel_sinks = {"console": [stdout_sink]} if channel_sinks is None else channel_sinks
         self.db = sqlite3.connect(db, isolation_level=None, check_same_thread=False)   # explicit transactions
         self.lock = threading.RLock()          # one top-level call at a time, as the proofs assume
         self.db.executescript(SCHEMA)
+        cols = [r[1] for r in self.db.execute("pragma table_info(outbox)")]
+        if "channel" not in cols:              # a database from before channels
+            self.db.execute("alter table outbox add column channel text not null default 'audit'")
         # Verification licenses running: only clean definitions are served (gate=False serves all).
         self.reports = analyse(defs, mutation=False)
         self.gate = gate
@@ -254,6 +272,8 @@ class Host:
                         res = {"status": "error", "fault": "module", "error": f"invariant broken: {broken[0][0]} at {broken[0][1]}"}
                     else:
                         res = {"status": "ok", "events": world.audit}
+                        if any(world.out.values()):
+                            res["out"] = {c: e for c, e in world.out.items() if e}
                         if self.defs[name].ret:
                             res["result"] = getattr(self.interp, "last_result", None)
                 else:
@@ -262,8 +282,8 @@ class Host:
                                   (name, json.dumps(list(args)), now, json.dumps(self._logged(res)))).lastrowid
             if res["status"] == "ok":
                 self._write_dirty(world)
-                for ev in world.audit:
-                    self.db.execute("insert into outbox(call, event) values(?,?)", (seq, json.dumps(ev)))
+                for ch, ev in _ordered_events(world, self.defs):
+                    self.db.execute("insert into outbox(call, event, channel) values(?,?,?)", (seq, json.dumps(ev), ch))
             self.db.execute("commit")
         except BaseException:
             self.db.execute("rollback")
@@ -282,9 +302,9 @@ class Host:
 
     def _flush(self):
         n = 0
-        rows = self.db.execute("select seq, event from outbox where delivered=0 order by seq").fetchall()
-        for seq, ev in rows:
-            for sink in self.sinks:
+        rows = self.db.execute("select seq, event, channel from outbox where delivered=0 order by seq").fetchall()
+        for seq, ev, ch in rows:
+            for sink in (self.sinks if ch == "audit" else self.channel_sinks.get(ch, [])):
                 sink(seq, _tuplify(json.loads(ev)))
             self.db.execute("update outbox set delivered=1 where seq=?", (seq,))
             n += 1
@@ -303,7 +323,7 @@ class Host:
             if logged["status"] == "error":
                 continue
             snap = w.copy()
-            w.clock, w.audit = now, []
+            w.clock, w.audit, w.out = now, [], {}
             outcome, w = interp.run(name, _tuplify(json.loads(args)), w)
             got = "ok" if outcome == ("ok",) else outcome[0]
             want = "ok" if logged["status"] == "ok" else logged["refused"]
@@ -311,11 +331,11 @@ class Host:
                 bad.append(f"call {seq} {name}: logged {want}, replay gives {got}")
                 w = snap
                 continue
-            events += [json.dumps(ev) for ev in w.audit]
+            events += [[ch, json.dumps(ev)] for ch, ev in _ordered_events(w, self.defs)]
         now = self.load()
         if (now.bal, now.maps) != (w.bal, {s: m for s, m in w.maps.items() if m}):
             bad.append(f"state differs: db {now.bal} {now.maps}, replay {w.bal} {w.maps}")
-        stored = [e for (e,) in self.db.execute("select event from outbox order by seq")]
+        stored = [[c, e] for c, e in self.db.execute("select channel, event from outbox order by seq")]
         if stored != events:
             bad.append(f"outbox differs: {len(stored)} stored, {len(events)} from replay")
         return bad
@@ -336,6 +356,7 @@ HOST_EFFECTS = {   # how this host realises each effect the module can name
     "ledger": "SQLite table `account`, one transaction per call",
     "clock": "wall clock, seconds; read once per call, recorded in `log`",
     "audit": "SQLite table `outbox`; delivered to stdout after commit (at-least-once)",
+    "console": "SQLite table `outbox` (channel console); one line per event on stdout after commit (at-least-once)",
 }
 
 

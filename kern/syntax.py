@@ -199,13 +199,15 @@ class Module(dict):
     to Int, default 0, read with NAME.get k and written with NAME.set k v) and
     `invariant x:Type COND` (holds for every key before and after every call)."""
 
-    def __init__(self, *a, states=None, invariants=None, **kw):
+    def __init__(self, *a, states=None, invariants=None, channels=None, **kw):
         super().__init__(*a, **kw)
         self.states = dict(states or {})
         self.invariants = list(invariants or [])
+        self.channels = list(channels or [])         # `channel NAME`: output delivered after commit
 
     def with_def(self, d):
-        return Module(self, states=self.states, invariants=self.invariants, **{d.name: d})
+        return Module(self, states=self.states, invariants=self.invariants, channels=self.channels,
+                      **{d.name: d})
 
 
 def with_def(defs, d):
@@ -236,6 +238,7 @@ class Def:
     emits: list = field(default_factory=list)     # [(Ctor, [arg exprs])]; empty = audit unconstrained
     complete: bool = False                         # `ok otherwise`: the spec needs are every refusal
     ref_origin: dict = field(default_factory=dict)  # (kind, index) -> callee, for `need as` / `emit as`
+    emit_channel: dict = field(default_factory=dict)  # emit index -> channel; missing = `audit`
     examples: list = field(default_factory=list)
     body: list = field(default_factory=list)
     src_lines: dict = field(default_factory=dict)   # section -> [source lines]
@@ -247,6 +250,8 @@ class Def:
             parts += (self.emits,)
         if self.complete:
             parts += ("ok otherwise",)
+        if self.emit_channel:                # only when present, so audit-only definitions keep their hash
+            parts += (sorted(self.emit_channel.items()),)
         canon = repr(parts)
         return hashlib.sha256(canon.encode()).hexdigest()[:8]
 
@@ -321,6 +326,7 @@ HEADER = re.compile(r"^([a-z]\w*)((?:\s+\w+:\w+)*)\s*(?:->\s*(\w+))?\s*$")
 
 
 STATE = re.compile(r"^state ([a-z]\w*) (Int|Account)$")
+CHANNEL = re.compile(r"^channel ([a-z]\w*)$")
 INVARIANT = re.compile(r"^invariant ([a-z]\w*):(Int|Account) (.+)$")
 
 
@@ -331,14 +337,18 @@ def parse_module(text: str) -> dict:
             continue
         line = raw.strip()
         if not raw[0].isspace():
-            if line.startswith(("state ", "invariant ")):
-                m, inv = STATE.match(line), INVARIANT.match(line)
-                if m:
+            if line.startswith(("state ", "invariant ", "channel ")):
+                m, inv, ch = STATE.match(line), INVARIANT.match(line), CHANNEL.match(line)
+                if ch:
+                    if ch.group(1) in ("audit", "as"):
+                        raise ParseError(f"`{ch.group(1)}` can't be declared as a channel", no)
+                    defs.channels.append(ch.group(1))
+                elif m:
                     defs.states[m.group(1)] = m.group(2)
                 elif inv:
                     defs.invariants.append((inv.group(1), inv.group(2), parse_expr(inv.group(3), no)))
                 else:
-                    raise ParseError("want `state NAME Int|Account` or `invariant x:Type COND`", no)
+                    raise ParseError("want `state NAME Int|Account`, `invariant x:Type COND` or `channel NAME`", no)
                 _finish(cur)
                 cur, in_body = None, False
                 continue
@@ -378,6 +388,10 @@ def parse_module(text: str) -> dict:
         elif word == "ensure":
             cur.ensures.append(parse_expr(rest, no))
         elif word == "emit":
+            first, _, after = rest.partition(" ")
+            if first[:1].islower() and after:            # `emit console Line x`: a named channel
+                cur.emit_channel[len(cur.emits)] = first
+                rest = after
             cur.emits.append(parse_emit(rest, no))
         elif word == "eg":
             cur.examples.append(parse_example(rest, no))
@@ -427,6 +441,7 @@ def _expand_refs(defs):
             raise ParseError(f"`as` references loop through {d.name}")
         busy.add(d.name)
         needs, emits, d.ref_origin = [], [], {}
+        own_channel, d.emit_channel = d.emit_channel, {}
         for n in d.needs:
             if n[0] != "need_as":
                 needs.append(n)
@@ -437,17 +452,21 @@ def _expand_refs(defs):
             for c in callee.needs:
                 d.ref_origin[("need", len(needs))] = n[1]
                 needs.append(("need", _subst(c[1], m), c[2], [_subst(a, m) for a in c[3]]))
-        for ev in d.emits:
+        for i, ev in enumerate(d.emits):
             if ev[0] != "emit_as":
+                if i in own_channel:
+                    d.emit_channel[len(emits)] = own_channel[i]
                 emits.append(ev)
                 continue
             callee = _callee(defs, ev)
             expand(callee)
             m, extra = _bind(callee, ev), ev[4]
-            for ctor, args, *cond in callee.emits:
+            for j, (ctor, args, *cond) in enumerate(callee.emits):
                 c = _subst(cond[0], m) if cond else None
                 c = ("bin", "and", extra, c) if extra and c else (extra or c)
                 d.ref_origin[("emit", len(emits))] = ev[1]
+                if j in callee.emit_channel:
+                    d.emit_channel[len(emits)] = callee.emit_channel[j]
                 emits.append((ctor, [_subst(a, m) for a in args], c) if c else (ctor, [_subst(a, m) for a in args]))
         d.needs, d.emits = needs, emits
         busy.discard(d.name)
