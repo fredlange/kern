@@ -1,0 +1,25 @@
+{
+ "id": "X04",
+ "source": "blind",
+ "category": "blind",
+ "kern_where": "body",
+ "description": "Off-by-one in the capture fee threshold: an amount of exactly 100 skips the house fee.",
+ "kern": [
+  [
+   "  if amount < 100\n",
+   "  if amount <= 100\n"
+  ]
+ ],
+ "ts": [
+  [
+   "if (amount < 100) {",
+   "if (amount <= 100) {"
+  ]
+ ],
+ "go": [
+  [
+   "if amount < 100 {",
+   "if amount <= 100 {"
+  ]
+ ]
+}

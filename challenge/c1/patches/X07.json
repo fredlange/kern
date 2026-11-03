@@ -1,0 +1,25 @@
+{
+ "id": "X07",
+ "source": "blind",
+ "category": "blind",
+ "kern_where": "spec",
+ "description": "purchase treats an escrow balance of exactly 0 as Overdrawn, so purchases into an empty escrow are refused.",
+ "kern": [
+  [
+   "need ledger.balance escrow >= 0 else Overdrawn",
+   "need ledger.balance escrow > 0 else Overdrawn"
+  ]
+ ],
+ "ts": [
+  [
+   "if (c.ledger.balance(escrow) < 0)",
+   "if (c.ledger.balance(escrow) <= 0)"
+  ]
+ ],
+ "go": [
+  [
+   "if s.Ledger.Balance(escrow) < 0 {",
+   "if s.Ledger.Balance(escrow) <= 0 {"
+  ]
+ ]
+}

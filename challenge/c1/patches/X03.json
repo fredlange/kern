@@ -1,0 +1,29 @@
+{
+ "id": "X03",
+ "source": "blind",
+ "category": "blind",
+ "kern_where": "spec",
+ "description": "move refuses an amount of 0 even though it is documented as allowed, which breaks zero-fee captures, zero-part splits and zero tips.",
+ "kern": [
+  [
+   "  need amount >= 0 else BadAmount\n  need amount = 0 or from != to",
+   "  need amount > 0 else BadAmount\n  need amount = 0 or from != to"
+  ],
+  [
+   "  need amount >= 0 else BadAmount\n  need amount = 0 or buyer != seller",
+   "  need amount > 0 else BadAmount\n  need amount = 0 or buyer != seller"
+  ]
+ ],
+ "ts": [
+  [
+   "if (amount < 0) refuse({ kind: \"BadAmount\" });",
+   "if (amount <= 0) refuse({ kind: \"BadAmount\" });"
+  ]
+ ],
+ "go": [
+  [
+   "\tif amount < 0 {\n\t\treturn ErrBadAmount\n\t}\n\tif amount == 0",
+   "\tif amount <= 0 {\n\t\treturn ErrBadAmount\n\t}\n\tif amount == 0"
+  ]
+ ]
+}

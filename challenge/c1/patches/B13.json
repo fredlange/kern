@@ -1,0 +1,25 @@
+{
+ "id": "B13",
+ "source": "catalogue",
+ "category": "refusal reason",
+ "kern_where": "spec",
+ "description": "capture reports a bad fee as BadAmount",
+ "kern": [
+  [
+   "  need fee >= 0 and fee <= amount else BadFee\n  need escrow != seller",
+   "  need fee >= 0 and fee <= amount else BadAmount\n  need escrow != seller"
+  ]
+ ],
+ "ts": [
+  [
+   "  if (fee < 0 || fee > amount) refuse({ kind: \"BadFee\" });\n  if (escrow === seller",
+   "  if (fee < 0 || fee > amount) refuse({ kind: \"BadAmount\" });\n  if (escrow === seller"
+  ]
+ ],
+ "go": [
+  [
+   "\tif fee < 0 || fee > amount {\n\t\treturn ErrBadFee\n\t}\n\tif escrow == seller",
+   "\tif fee < 0 || fee > amount {\n\t\treturn ErrBadAmount\n\t}\n\tif escrow == seller"
+  ]
+ ]
+}

@@ -1,0 +1,25 @@
+{
+ "id": "B03",
+ "source": "catalogue",
+ "category": "wrong account",
+ "kern_where": "body",
+ "description": "release transfers back to escrow instead of to buyer",
+ "kern": [
+  [
+   "  transfer escrow buyer amount\n",
+   "  transfer escrow escrow amount\n"
+  ]
+ ],
+ "ts": [
+  [
+   "transfer(c, escrow, buyer, amount);",
+   "transfer(c, escrow, escrow, amount);"
+  ]
+ ],
+ "go": [
+  [
+   "s.Transfer(escrow, buyer, amount)",
+   "s.Transfer(escrow, escrow, amount)"
+  ]
+ ]
+}

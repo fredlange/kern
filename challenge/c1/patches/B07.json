@@ -1,0 +1,25 @@
+{
+ "id": "B07",
+ "source": "catalogue",
+ "category": "events",
+ "kern_where": "body",
+ "description": "capture doesn't emit Captured",
+ "kern": [
+  [
+   "  audit.emit (Captured seller amount clock.now)\n",
+   ""
+  ]
+ ],
+ "ts": [
+  [
+   "  c.audit.emit({ kind: \"Captured\", seller, amount, at: c.now });\n",
+   ""
+  ]
+ ],
+ "go": [
+  [
+   "\ts.Emit(Captured{seller, amount, s.Now})\n",
+   ""
+  ]
+ ]
+}

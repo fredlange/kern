@@ -1,0 +1,25 @@
+{
+ "id": "B15",
+ "source": "catalogue",
+ "category": "conditions",
+ "kern_where": "body",
+ "description": "capture's fee branch from amount >= 10",
+ "kern": [
+  [
+   "  if amount < 100\n",
+   "  if amount < 10\n"
+  ]
+ ],
+ "ts": [
+  [
+   "if (amount < 100) {",
+   "if (amount < 10) {"
+  ]
+ ],
+ "go": [
+  [
+   "if amount < 100 {",
+   "if amount < 10 {"
+  ]
+ ]
+}

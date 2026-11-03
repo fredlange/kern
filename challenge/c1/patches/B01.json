@@ -1,0 +1,25 @@
+{
+ "id": "B01",
+ "source": "catalogue",
+ "category": "wrong account",
+ "kern_where": "body",
+ "description": "capture (from 100 up) pays the seller's share to house",
+ "kern": [
+  [
+   "    move escrow seller (amount - fee)\n",
+   "    move escrow house (amount - fee)\n"
+  ]
+ ],
+ "ts": [
+  [
+   "move(c, escrow, seller, amount - fee);",
+   "move(c, escrow, house, amount - fee);"
+  ]
+ ],
+ "go": [
+  [
+   "s.Move(escrow, seller, amount-fee)",
+   "s.Move(escrow, house, amount-fee)"
+  ]
+ ]
+}

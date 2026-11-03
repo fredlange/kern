@@ -1,0 +1,25 @@
+{
+ "id": "X08",
+ "source": "blind",
+ "category": "blind",
+ "kern_where": "spec",
+ "description": "refund accepts part = 0 instead of refusing it with BadPart, and then captures the whole amount for the seller.",
+ "kern": [
+  [
+   "need part > 0 and part <= amount else BadPart",
+   "need part >= 0 and part <= amount else BadPart"
+  ]
+ ],
+ "ts": [
+  [
+   "if (part <= 0 || part > amount)",
+   "if (part < 0 || part > amount)"
+  ]
+ ],
+ "go": [
+  [
+   "if part <= 0 || part > amount {",
+   "if part < 0 || part > amount {"
+  ]
+ ]
+}

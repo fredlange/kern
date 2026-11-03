@@ -1,0 +1,25 @@
+{
+ "id": "X06",
+ "source": "blind",
+ "category": "blind",
+ "kern_where": "body",
+ "description": "The Captured audit event records the amount net of the fee instead of the gross amount captured.",
+ "kern": [
+  [
+   "  audit.emit (Captured seller amount clock.now)\n",
+   "  audit.emit (Captured seller (amount - fee) clock.now)\n"
+  ]
+ ],
+ "ts": [
+  [
+   "{ kind: \"Captured\", seller, amount, at: c.now }",
+   "{ kind: \"Captured\", seller, amount: amount - fee, at: c.now }"
+  ]
+ ],
+ "go": [
+  [
+   "s.Emit(Captured{seller, amount, s.Now})",
+   "s.Emit(Captured{seller, amount - fee, s.Now})"
+  ]
+ ]
+}

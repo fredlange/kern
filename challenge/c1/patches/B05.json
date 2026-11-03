@@ -1,0 +1,25 @@
+{
+ "id": "B05",
+ "source": "catalogue",
+ "category": "arithmetic",
+ "kern_where": "body",
+ "description": "capture moves fee + 1 to the house",
+ "kern": [
+  [
+   "    move escrow house fee\n",
+   "    move escrow house (fee + 1)\n"
+  ]
+ ],
+ "ts": [
+  [
+   "move(c, escrow, house, fee);",
+   "move(c, escrow, house, fee + 1);"
+  ]
+ ],
+ "go": [
+  [
+   "s.Move(escrow, house, fee)",
+   "s.Move(escrow, house, fee+1)"
+  ]
+ ]
+}

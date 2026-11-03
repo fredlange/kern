@@ -1,0 +1,25 @@
+{
+ "id": "B06",
+ "source": "catalogue",
+ "category": "arithmetic",
+ "kern_where": "body",
+ "description": "split gives b amount - part + 1",
+ "kern": [
+  [
+   "  move escrow b (amount - part)\n",
+   "  move escrow b (amount - part + 1)\n"
+  ]
+ ],
+ "ts": [
+  [
+   "move(c, escrow, b, amount - part);",
+   "move(c, escrow, b, amount - part + 1);"
+  ]
+ ],
+ "go": [
+  [
+   "return s.Move(escrow, b, amount-part)",
+   "return s.Move(escrow, b, amount-part+1)"
+  ]
+ ]
+}

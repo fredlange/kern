@@ -1,0 +1,25 @@
+{
+ "id": "X05",
+ "source": "blind",
+ "category": "blind",
+ "kern_where": "body",
+ "description": "Wrong variable in capture: the fee is paid to the seller instead of the house.",
+ "kern": [
+  [
+   "    move escrow house fee\n",
+   "    move escrow seller fee\n"
+  ]
+ ],
+ "ts": [
+  [
+   "move(c, escrow, house, fee);",
+   "move(c, escrow, seller, fee);"
+  ]
+ ],
+ "go": [
+  [
+   "s.Move(escrow, house, fee)",
+   "s.Move(escrow, seller, fee)"
+  ]
+ ]
+}

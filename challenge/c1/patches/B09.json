@@ -1,0 +1,25 @@
+{
+ "id": "B09",
+ "source": "catalogue",
+ "category": "events",
+ "kern_where": "body",
+ "description": "tip emits Tipped with amount 0",
+ "kern": [
+  [
+   "  audit.emit (Tipped seller amount clock.now)\n",
+   "  audit.emit (Tipped seller 0 clock.now)\n"
+  ]
+ ],
+ "ts": [
+  [
+   "c.audit.emit({ kind: \"Tipped\", seller, amount, at: c.now });",
+   "c.audit.emit({ kind: \"Tipped\", seller, amount: 0, at: c.now });"
+  ]
+ ],
+ "go": [
+  [
+   "s.Emit(Tipped{seller, amount, s.Now})",
+   "s.Emit(Tipped{seller, 0, s.Now})"
+  ]
+ ]
+}

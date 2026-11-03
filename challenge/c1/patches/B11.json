@@ -1,0 +1,29 @@
+{
+ "id": "B11",
+ "source": "catalogue",
+ "category": "guard",
+ "kern_where": "spec",
+ "description": "move allows a negative amount (doing nothing); tip, which restates move's check in Kern, too",
+ "kern": [
+  [
+   "  need amount >= 0 else BadAmount\n  need amount = 0 or from != to",
+   "  need amount = 0 or from != to"
+  ],
+  [
+   "  need amount >= 0 else BadAmount\n  need amount = 0 or buyer != seller",
+   "  need amount = 0 or buyer != seller"
+  ]
+ ],
+ "ts": [
+  [
+   "  if (amount < 0) refuse({ kind: \"BadAmount\" });\n",
+   ""
+  ]
+ ],
+ "go": [
+  [
+   "\tif amount < 0 {\n\t\treturn ErrBadAmount\n\t}\n",
+   ""
+  ]
+ ]
+}

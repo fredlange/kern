@@ -1,0 +1,25 @@
+{
+ "id": "X10",
+ "source": "blind",
+ "category": "blind",
+ "kern_where": "spec",
+ "description": "split drops the a === b check, so splitting to the same account twice succeeds instead of being refused with SameAccount.",
+ "kern": [
+  [
+   "need escrow != a and escrow != b and a != b else SameAccount",
+   "need escrow != a and escrow != b else SameAccount"
+  ]
+ ],
+ "ts": [
+  [
+   "if (escrow === a || escrow === b || a === b)",
+   "if (escrow === a || escrow === b)"
+  ]
+ ],
+ "go": [
+  [
+   "if escrow == a || escrow == b || a == b {",
+   "if escrow == a || escrow == b {"
+  ]
+ ]
+}

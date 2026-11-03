@@ -1,0 +1,20 @@
+{
+ "id": "B14",
+ "source": "catalogue",
+ "category": "atomicity",
+ "kern_where": "none",
+ "description": "purchase reserves before the buyer-funds and Overdrawn checks",
+ "kern": null,
+ "ts": [
+  [
+   "  needFunds(c, buyer, amount);\n  if (c.ledger.balance(escrow) < 0) refuse({ kind: \"Overdrawn\" });\n  reserve(c, buyer, escrow, amount);",
+   "  reserve(c, buyer, escrow, amount);\n  needFunds(c, buyer, amount);\n  if (c.ledger.balance(escrow) < 0) refuse({ kind: \"Overdrawn\" });"
+  ]
+ ],
+ "go": [
+  [
+   "\tif err := s.needFunds(buyer, amount); err != nil {\n\t\treturn err\n\t}\n\tif s.Ledger.Balance(escrow) < 0 {\n\t\treturn ErrOverdrawn\n\t}\n\tif err := s.Reserve(buyer, escrow, amount); err != nil {\n\t\treturn err\n\t}\n",
+   "\tif err := s.Reserve(buyer, escrow, amount); err != nil {\n\t\treturn err\n\t}\n\tif err := s.needFunds(buyer, amount); err != nil {\n\t\treturn err\n\t}\n\tif s.Ledger.Balance(escrow) < 0 {\n\t\treturn ErrOverdrawn\n\t}\n"
+  ]
+ ]
+}

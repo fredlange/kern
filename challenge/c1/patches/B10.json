@@ -1,0 +1,25 @@
+{
+ "id": "B10",
+ "source": "catalogue",
+ "category": "guard",
+ "kern_where": "spec",
+ "description": "refund drops part <= amount",
+ "kern": [
+  [
+   "  need part > 0 and part <= amount else BadPart\n",
+   "  need part > 0 else BadPart\n"
+  ]
+ ],
+ "ts": [
+  [
+   "if (part <= 0 || part > amount) refuse({ kind: \"BadPart\" });",
+   "if (part <= 0) refuse({ kind: \"BadPart\" });"
+  ]
+ ],
+ "go": [
+  [
+   "if part <= 0 || part > amount {",
+   "if part <= 0 {"
+  ]
+ ]
+}

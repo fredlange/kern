@@ -1,0 +1,25 @@
+{
+ "id": "B02",
+ "source": "catalogue",
+ "category": "wrong account",
+ "kern_where": "body",
+ "description": "partial refund credits part to seller instead of buyer",
+ "kern": [
+  [
+   "    move escrow buyer part\n",
+   "    move escrow seller part\n"
+  ]
+ ],
+ "ts": [
+  [
+   "move(c, escrow, buyer, part);",
+   "move(c, escrow, seller, part);"
+  ]
+ ],
+ "go": [
+  [
+   "s.Move(escrow, buyer, part)",
+   "s.Move(escrow, seller, part)"
+  ]
+ ]
+}

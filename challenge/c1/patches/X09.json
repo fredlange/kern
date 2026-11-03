@@ -1,0 +1,25 @@
+{
+ "id": "X09",
+ "source": "blind",
+ "category": "blind",
+ "kern_where": "body",
+ "description": "cancel emits Cancelled before the release, so the audit log has the events in the wrong order (Cancelled before Moved and Released).",
+ "kern": [
+  [
+   "  release escrow buyer amount\n  audit.emit (Cancelled buyer clock.now)\n",
+   "  audit.emit (Cancelled buyer clock.now)\n  release escrow buyer amount\n"
+  ]
+ ],
+ "ts": [
+  [
+   "release(c, escrow, buyer, amount);\n  c.audit.emit({ kind: \"Cancelled\", buyer, at: c.now });",
+   "c.audit.emit({ kind: \"Cancelled\", buyer, at: c.now });\n  release(c, escrow, buyer, amount);"
+  ]
+ ],
+ "go": [
+  [
+   "\tif err := s.Release(escrow, buyer, amount); err != nil {\n\t\treturn err\n\t}\n\ts.Emit(Cancelled{buyer, s.Now})\n",
+   "\ts.Emit(Cancelled{buyer, s.Now})\n\tif err := s.Release(escrow, buyer, amount); err != nil {\n\t\treturn err\n\t}\n"
+  ]
+ ]
+}

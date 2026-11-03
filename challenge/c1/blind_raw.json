@@ -1,0 +1,68 @@
+{
+ "agent": "general-purpose subagent (fresh, not a fork), model inherited from the session (claude-opus-5-5)",
+ "prompt": "challenge/c1/blind_prompt.md (sha256 4fe102f6...), sources inlined, prefixed with one line: 'Use no tools at all: don't read, search or run anything. Answer only from the text below.'",
+ "tool_uses_reported": 1,
+ "note": "the one tool use is the hand-back of the report",
+ "bugs": [
+  {
+   "id": "X01",
+   "description": "needFunds uses <= instead of <, so spending an account's exact balance is refused as Insufficient.",
+   "old": "if (bal < amount)",
+   "new": "if (bal <= amount)"
+  },
+  {
+   "id": "X02",
+   "description": "The Insufficient refusal reports the shortfall with the operands swapped, so it reports a negative short.",
+   "old": "short: amount - bal",
+   "new": "short: bal - amount"
+  },
+  {
+   "id": "X03",
+   "description": "move refuses an amount of 0 even though it is documented as allowed, which breaks zero-fee captures, zero-part splits and zero tips.",
+   "old": "if (amount < 0) refuse({ kind: \"BadAmount\" });",
+   "new": "if (amount <= 0) refuse({ kind: \"BadAmount\" });"
+  },
+  {
+   "id": "X04",
+   "description": "Off-by-one in the capture fee threshold: an amount of exactly 100 skips the house fee.",
+   "old": "if (amount < 100) {",
+   "new": "if (amount <= 100) {"
+  },
+  {
+   "id": "X05",
+   "description": "Wrong variable in capture: the fee is paid to the seller instead of the house.",
+   "old": "move(c, escrow, house, fee);",
+   "new": "move(c, escrow, seller, fee);"
+  },
+  {
+   "id": "X06",
+   "description": "The Captured audit event records the amount net of the fee instead of the gross amount captured.",
+   "old": "{ kind: \"Captured\", seller, amount, at: c.now }",
+   "new": "{ kind: \"Captured\", seller, amount: amount - fee, at: c.now }"
+  },
+  {
+   "id": "X07",
+   "description": "purchase treats an escrow balance of exactly 0 as Overdrawn, so purchases into an empty escrow are refused.",
+   "old": "if (c.ledger.balance(escrow) < 0)",
+   "new": "if (c.ledger.balance(escrow) <= 0)"
+  },
+  {
+   "id": "X08",
+   "description": "refund accepts part = 0 instead of refusing it with BadPart, and then captures the whole amount for the seller.",
+   "old": "if (part <= 0 || part > amount)",
+   "new": "if (part < 0 || part > amount)"
+  },
+  {
+   "id": "X09",
+   "description": "cancel emits Cancelled before the release, so the audit log has the events in the wrong order (Cancelled before Moved and Released).",
+   "old": "release(c, escrow, buyer, amount);\n  c.audit.emit({ kind: \"Cancelled\", buyer, at: c.now });",
+   "new": "c.audit.emit({ kind: \"Cancelled\", buyer, at: c.now });\n  release(c, escrow, buyer, amount);"
+  },
+  {
+   "id": "X10",
+   "description": "split drops the a === b check, so splitting to the same account twice succeeds instead of being refused with SameAccount.",
+   "old": "if (escrow === a || escrow === b || a === b)",
+   "new": "if (escrow === a || escrow === b)"
+  }
+ ]
+}
