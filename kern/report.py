@@ -34,6 +34,10 @@ def analyse(defs, mutation=True):
                 if g["status"] == "proven" and weak:
                     g["status"], g["blocked_by"] = "conditional", weak
                     changed = True
+                # refuted only against a broken callee spec, and the real code does not reproduce it
+                elif g["status"] == "refuted" and weak and not g["counterexample"]["confirmed_by_interpreter"]:
+                    g["status"], g["blocked_by"], g["via_broken_spec"] = "conditional", weak, True
+                    changed = True
     for r in reports.values():
         if mutation and _clean(r):
             r["mutation"] = mutation_score(defs, r["def"])

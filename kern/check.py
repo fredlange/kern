@@ -53,7 +53,7 @@ def proptest(defs, d, n=500, seed=1):
             for kind, c in interp.holds(d, args, before, after):
                 if len(stats["violations"]) < 3:
                     world = " ".join(f"{a}:{before.bal[a]}@{before.own[a]}" for a in accts)
-                    stats["violations"].append({"clause": f"{kind} {code(c)}",
+                    stats["violations"].append({"clause": f"{kind} {c}",
                                                 "eg": f"eg {world} | {d.name} {' '.join(map(str, args))}"})
         else:
             stats["failures"][outcome[0]] = stats["failures"].get(outcome[0], 0) + 1

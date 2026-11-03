@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import html
 
-from .views import EFFECTS, en, en_ensure, en_refusal, lets_of
+from .views import EFFECTS, en, en_emits, en_ensure, en_refusal, lets_of
 
 ICON = {"proven": "✔", "refuted": "✗", "conditional": "!", "unknown": "?"}
 
@@ -21,6 +21,8 @@ def _status(r):
 
 def _guarantee_text(g, d):
     kind, e = g["kind"], g["expr"]
+    if kind == "emit":
+        return en_emits(e)
     return f"{en(e)} is unchanged" if kind == "keep" else en_ensure(e)
 
 
@@ -29,11 +31,17 @@ def _how(g):
         return "Proven for all inputs (Z3)."
     if g["status"] == "conditional":
         who = ", ".join(f"<code>{c}</code>" for c in g["blocked_by"])
+        if g.get("via_broken_spec"):
+            return (f"Unknown: it fails according to the spec of {who}, but that spec is itself broken, "
+                    f"and the interpreter did not reproduce the failure.")
         return f"Proven only if the guarantees of {who} hold — and they currently do not."
     if g["status"] == "refuted":
         cx = g["counterexample"]
         conf = " Replayed in the interpreter: confirmed." if cx["confirmed_by_interpreter"] else ""
-        return f"Fails for this input:<pre>{html.escape(cx['eg'])}</pre>{conf}"
+        got = f" The audit log received: {html.escape(cx['emitted'])}." if g["kind"] == "emit" else ""
+        return f"Fails for this input:<pre>{html.escape(cx['eg'])}</pre>{got}{conf}"
+    if g.get("reason"):
+        return f"Cannot be proven: {html.escape(g['reason'])}."
     return "Prover gave no answer within the time limit."
 
 
@@ -41,9 +49,6 @@ def card(r, why):
     d = r["def"]
     cls, label = _status(r)
     lets = lets_of(d)
-    exprs = {(("keep", c) if True else None): c for c in d.keeps}
-    for g, e in zip(r["guarantees"], d.keeps + d.ensures):
-        g["expr"] = e
     out = [f'<section class="card"><header><h2><code>{d.name}</code></h2>'
            f'<span class="badge {cls}">{label}</span><span class="hash">build {r["hash"]}</span></header>']
 
@@ -151,8 +156,14 @@ def terminal(reports, whys):
             line = f"  {ICON[g['status']]} {g['kind']} {g['clause']}"
             if g["status"] == "refuted":
                 line += f"\n      counterexample: {g['counterexample']['eg']}"
+                if g["kind"] == "emit":
+                    line += f"\n      audit log got: {g['counterexample']['emitted']}"
+            if g["status"] == "unknown" and g.get("reason"):
+                line += f"\n      cannot be proven: {g['reason']}"
             if g["status"] == "conditional":
                 line += f"   (relies on {', '.join(g['blocked_by'])}, which is not proven)"
+                if g.get("via_broken_spec"):
+                    line += "\n      refuted only via that broken spec; not reproduced in the interpreter"
             out.append(line)
         ex = r["examples"]
         out.append(f"  examples {sum(e['pass'] for e in ex)}/{len(ex)}   random tests {r['props']['succeeded']}/"

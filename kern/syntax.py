@@ -6,6 +6,8 @@ A module is a sequence of definitions:
       need EXPR else Ctor ARGS          behavioural guard: fails with Ctor if EXPR is false
       keep EXPR                         EXPR has the same value before and after (on success)
       ensure EXPR                       postcondition; primed reads (x') see the after-state
+      emit Ctor ARGS                    the call appends exactly these audit events, in order
+                                        (all emit clauses together); `_` matches any value
       eg WORLD | CALL -> OUTCOME [| WORLD]   executable example
     body
       x = EXPR
@@ -123,6 +125,19 @@ def parse_expr(src: str, line_no=None):
     return e
 
 
+def parse_ctor(src: str, line_no, what):
+    f = parse_expr(src, line_no)
+    if f[0] == "name" and not f[2]:
+        ctor, args = f[1], []
+    elif f[0] == "app" and not f[1][1]:
+        ctor, args = f[1][0], f[2]
+    else:
+        raise ParseError(f"{what} must name a constructor", line_no)
+    if not ctor[0].isupper():
+        raise ParseError(f"{ctor!r} must be Capitalised", line_no)
+    return ctor, args
+
+
 def parse_need(src: str, line_no):
     if " else " not in src:
         raise ParseError("need must say what it fails with: need COND else Ctor", line_no)
@@ -156,13 +171,17 @@ class Def:
     needs: list = field(default_factory=list)
     keeps: list = field(default_factory=list)
     ensures: list = field(default_factory=list)
+    emits: list = field(default_factory=list)     # [(Ctor, [arg exprs])]; empty = audit unconstrained
     examples: list = field(default_factory=list)
     body: list = field(default_factory=list)
     src_lines: dict = field(default_factory=dict)   # section -> [source lines]
 
     @property
     def hash(self) -> str:
-        canon = repr((self.params, self.ret, self.needs, self.keeps, self.ensures, self.body))
+        parts = (self.params, self.ret, self.needs, self.keeps, self.ensures, self.body)
+        if self.emits:                      # only when present, so older definitions keep their hash
+            parts += (self.emits,)
+        canon = repr(parts)
         return hashlib.sha256(canon.encode()).hexdigest()[:8]
 
 
@@ -237,10 +256,12 @@ def parse_module(text: str) -> dict:
             cur.keeps.append(parse_expr(rest, no))
         elif word == "ensure":
             cur.ensures.append(parse_expr(rest, no))
+        elif word == "emit":
+            cur.emits.append(parse_ctor(rest, no, "emit"))
         elif word == "eg":
             cur.examples.append(parse_example(rest, no))
         else:
-            raise ParseError(f"unknown clause {word!r} (need/keep/ensure/eg, then body)", no)
+            raise ParseError(f"unknown clause {word!r} (need/keep/ensure/emit/eg, then body)", no)
     return defs
 
 
@@ -262,6 +283,10 @@ def code(e) -> str:
 
 def atom_code(e):
     return code(e) if e[0] in ("int", "name") else f"({code(e)})"
+
+
+def emit_code(ev) -> str:
+    return " ".join([ev[0]] + [atom_code(a) for a in ev[1]])
 
 
 def stmt_code(s) -> str:

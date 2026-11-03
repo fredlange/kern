@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 
+from .syntax import code, emit_code
+
 
 @dataclass
 class World:
@@ -126,7 +128,7 @@ class Interp:
             return (f.ctor, f.args_), snap
 
     def holds(self, d, args, pre, post):
-        """Which keep/ensure clauses hold for this (pre, post) pair. Returns list of failing clause sources."""
+        """Which keep/ensure/emit clauses fail for this (pre, post) pair. Returns [(kind, clause source)]."""
         env = {p: a for (p, _), a in zip(d.params, args)}
         bad = []
         for kind, clauses in (("keep", d.keeps), ("ensure", d.ensures)):
@@ -136,5 +138,20 @@ class Interp:
                 else:
                     ok = bool(self.ev(c, env, pre, post))
                 if not ok:
-                    bad.append((kind, c))
+                    bad.append((kind, code(c)))
+        if d.emits and not self.emitted_ok(d, env, pre, post):
+            bad.append(("emit", "; ".join(emit_code(ev) for ev in d.emits)))
         return bad
+
+    def emitted_ok(self, d, env, pre, post):
+        """The call appended exactly the events its `emit` clauses list, in order; `_` matches anything."""
+        got = post.audit[len(pre.audit):]
+        if post.audit[:len(pre.audit)] != pre.audit or len(got) != len(d.emits):
+            return False
+        for (ctor, args), ev in zip(d.emits, got):
+            if not isinstance(ev, tuple) or ev[0] != ctor or len(ev) != len(args) + 1:
+                return False
+            for a, v in zip(args, ev[1:]):
+                if a != ("name", "_", False) and self.ev(a, env, copy.deepcopy(pre)) != v:
+                    return False
+        return True

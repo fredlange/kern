@@ -20,6 +20,7 @@ transfer from:Account to:Account amount:Int        header
   need amount > 0 else BadAmount                    refuses with BadAmount
   keep ledger.total                                  same value before and after
   ensure ledger.balance' to = ledger.balance to + amount   ' = after the call
+  emit TransferDone from to amount _                 exactly these audit events; _ = any value
   eg A:500@u1 B:0@u1 | transfer A B 100 -> ok | A:400 B:100   executed example
 body
   have = ledger.balance from
@@ -28,6 +29,10 @@ body
 ```
 
 - `uses` (effects) and `fails` (failure set) are **inferred**. The agent never writes them.
+- `emit` clauses list the exact sequence of events the call appends to the audit log.
+  With no `emit` clause the log is unconstrained. It is not inferred from the body: a
+  spec projected from the body changes when the body changes, so it could never catch
+  a bug.
 - A refusal undoes the whole call, so guarantees only have to hold on success.
 - `why` entries live in a separate file, anchored to the definition's hash. They go
   stale when the code changes.
@@ -69,20 +74,26 @@ body
 3. `ledger_v3.k`: adds an exact-balance example, raising spec strength to 10/13.
    The remaining survivors are all about the audit log, which the spec language
    cannot express yet.
+4. `ledger_v4.k`: adds `emit TransferDone from to amount _` to `transfer`, raising
+   spec strength to 13/13. The prover refutes all three audit mutants itself, with
+   counterexamples confirmed in the interpreter. `payout` adds two `emit` lines and
+   proves them from `transfer`'s spec alone. If `transfer` had no `emit` clause,
+   `payout`'s would show as unprovable rather than pass. The `.why` entries are
+   re-anchored in `ledger_v4.why`.
 
 ## Built-in versus missing
 
 The prototype has one hard-coded domain: handlers for `ledger`, `clock` and `audit`
 written in Python. It has only `Int` and `Account` types and only straight-line
 bodies with guards. There is no type checker beyond arity checks and no frame
-conditions.
+conditions, except for the audit log, where `emit` pins down exactly what is appended.
+The spec cannot pin the timestamp of an event (`_` is the only option there).
 
 ## Roadmap
 
 1. **Language:** a type checker, records, `match` and branches, loops with
    invariants, and handlers declared in Kern with *assumed* specs (marked "assumed"
-   on the proof page). Specs also need to reach the audit log, for example
-   `ensure audit.last' = TransferDone ...`.
+   on the proof page). Specs reaching the audit log is done (`emit`, v4).
 2. **Store:** definitions content-addressed by hash (the hash already exists) and
    names mapped to hashes. Expose `view`, `why`, `check` and structural edits as an
    MCP server, so an agent works through the views instead of files.

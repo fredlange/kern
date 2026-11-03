@@ -9,17 +9,33 @@ import z3
 
 from .infer import uses
 from .run import Interp, World
-from .syntax import code
+from .syntax import code, emit_code
 
 _fresh = itertools.count()
 
 
 class Sym:
-    def __init__(self, bal, own, total):
-        self.bal, self.own, self.total = bal, own, total
+    """Symbolic state. `audit` holds only the events appended during the call being proved
+    (the handler can only append): ("ev", Ctor, [z3 args]) or ("opaque", callee) when a callee
+    emits events its spec does not describe."""
+
+    def __init__(self, bal, own, total, audit=()):
+        self.bal, self.own, self.total, self.audit = bal, own, total, list(audit)
 
     def copy(self):
-        return Sym(self.bal, self.own, self.total)
+        return Sym(self.bal, self.own, self.total, self.audit)
+
+
+WILD = ("name", "_", False)
+
+
+def _ev_eq(x, y):
+    """Z3 condition for two symbolic values (ints or constructor values) being equal."""
+    if isinstance(x, tuple) or isinstance(y, tuple):
+        if not (isinstance(x, tuple) and isinstance(y, tuple)) or x[1] != y[1] or len(x[2]) != len(y[2]):
+            return z3.BoolVal(False)
+        return z3.And(*[z3.BoolVal(True)] + [_ev_eq(a, b) for a, b in zip(x[2], y[2])])
+    return x == y
 
 
 def fresh_int(p):
@@ -66,11 +82,12 @@ class Prover:
         if name == "clock.now":
             return fresh_int("now")
         if name == "audit.emit":
+            S.audit = S.audit + [a[0] if isinstance(a[0], tuple) else ("opaque", "audit.emit")]
             return None
         if name in self.defs:
             return self.modular_call(self.defs[name], a, S)
         if name[:1].isupper():
-            return None  # constructor value: irrelevant to the proved properties
+            return ("ev", name, a)          # constructor value
         raise ValueError(f"prover: unknown {name}")
 
     def modular_call(self, callee, args, S):
@@ -86,7 +103,27 @@ class Prover:
             self.pc.append(self.sev(c, env, pre, S))
         for c in callee.keeps:
             self.pc.append(self.sev(c, env, pre) == self.sev(c, env, S))
+        if "audit" in uses(self.defs, callee):
+            if callee.emits:                       # the callee's spec says exactly what it appends
+                S.audit = S.audit + [("ev", ctor, [fresh_int("any") if x == WILD else self.sev(x, env, pre)
+                                                   for x in args]) for ctor, args in callee.emits]
+            else:                                  # it emits something its spec does not describe
+                S.audit = S.audit + [("opaque", callee.name)]
         return None
+
+    def emit_goal(self, d, env, pre, S):
+        """The appended events must be exactly d.emits, in order. Returns (z3 goal, reason-if-unknowable)."""
+        opaque = [e[1] for e in S.audit if e[0] == "opaque"]
+        if opaque:
+            return None, f"relies on {', '.join(dict.fromkeys(opaque))}, whose spec does not say what it emits"
+        if len(S.audit) != len(d.emits):
+            return z3.BoolVal(False), None
+        conds = [z3.BoolVal(True)]
+        for (ctor, args), got in zip(d.emits, S.audit):
+            if got[1] != ctor or len(got[2]) != len(args):
+                return z3.BoolVal(False), None
+            conds += [_ev_eq(self.sev(x, env, pre), v) for x, v in zip(args, got[2]) if x != WILD]
+        return z3.And(*conds), None
 
     def prove(self, d):
         self.relied_on = set()
@@ -103,15 +140,24 @@ class Prover:
             else:
                 self.sev(s[1], env, S)
         results = []
-        goals = [("keep", c, self.sev(c, env, pre) == self.sev(c, env, S)) for c in d.keeps] + \
-                [("ensure", c, self.sev(c, env, pre, S)) for c in d.ensures]
-        for kind, c, g in goals:
+        goals = [("keep", c, code(c), self.sev(c, env, pre) == self.sev(c, env, S)) for c in d.keeps] + \
+                [("ensure", c, code(c), self.sev(c, env, pre, S)) for c in d.ensures]
+        unknowable = None
+        if d.emits:
+            g, why_unknown = self.emit_goal(d, env, pre, S)
+            text = ", then ".join(emit_code(ev) for ev in d.emits)
+            if why_unknown:
+                unknowable = {"kind": "emit", "expr": d.emits, "clause": text, "status": "unknown",
+                              "reason": why_unknown}
+            else:
+                goals.append(("emit", d.emits, text, g))
+        for kind, c, text, g in goals:
             solver = z3.Solver()
             solver.set("timeout", 5000)
             solver.add(*self.pc, z3.Not(g))
             r = solver.check()
             if r == z3.unsat:
-                results.append({"kind": kind, "clause": code(c), "status": "proven"})
+                results.append({"kind": kind, "expr": c, "clause": text, "status": "proven"})
             elif r == z3.sat:
                 nice = z3.Solver()
                 nice.add(*self.pc, z3.Not(g))
@@ -121,12 +167,36 @@ class Prover:
                     if t == "Account":
                         nice.add(z3.Select(pre.bal, v) >= 0, z3.Select(pre.bal, v) <= 1000,
                                  z3.Select(pre.own, v) >= 0, z3.Select(pre.own, v) <= 1)
-                m = nice.model() if nice.check() == z3.sat else solver.model()
-                results.append({"kind": kind, "clause": code(c), "status": "refuted",
-                                "counterexample": self.render_cex(d, m, params, pre)})
+                results.append({"kind": kind, "expr": c, "clause": text, "status": "refuted",
+                                "counterexample": self.find_cex(d, nice, solver, params, pre)})
             else:
-                results.append({"kind": kind, "clause": code(c), "status": "unknown"})
+                results.append({"kind": kind, "expr": c, "clause": text, "status": "unknown"})
+        if unknowable:
+            results.append(unknowable)
         return results, sorted(self.relied_on)
+
+    def find_cex(self, d, nice, solver, params, pre):
+        """A modular proof only knows a callee's spec, so the first model may pick inputs on which a
+        callee's *body* refuses (e.g. an empty account). If replay does not confirm it, ask for a
+        model with well-funded accounts and small amounts, which callee bodies rarely refuse.
+        Whichever is used, the page reports whether the interpreter confirmed it."""
+        if nice.check() != z3.sat:
+            return self.render_cex(d, solver.model(), params, pre)
+        cx = self.render_cex(d, nice.model(), params, pre)
+        if cx["confirmed_by_interpreter"]:
+            return cx
+        opt = z3.Optimize()
+        opt.add(*nice.assertions())
+        for p, t in d.params:
+            if t == "Account":
+                opt.maximize(z3.Select(pre.bal, params[p]))
+            else:
+                opt.minimize(params[p])
+        if opt.check() == z3.sat:
+            cx2 = self.render_cex(d, opt.model(), params, pre)
+            if cx2["confirmed_by_interpreter"]:
+                return cx2
+        return cx
 
     def render_cex(self, d, m, params, pre):
         """Turn a Z3 model into an `eg` line, then replay it in the interpreter to confirm."""
@@ -151,5 +221,7 @@ class Prover:
         after_src = " ".join(f"{a}:{after.bal[a]}" for a in world)
         out_src = "ok" if outcome == ("ok",) else " ".join([outcome[0], *map(str, outcome[1])])
         violated = interp.holds(d, args, before, after) if outcome == ("ok",) else []
+        emitted = ", ".join(" ".join(map(str, ev)) if isinstance(ev, tuple) else str(ev)
+                            for ev in after.audit) if outcome == ("ok",) else ""
         return {"eg": f"eg {world_src} | {d.name} {' '.join(map(str, args))} -> {out_src} | {after_src}",
-                "confirmed_by_interpreter": bool(violated)}
+                "emitted": emitted or "nothing", "confirmed_by_interpreter": bool(violated)}

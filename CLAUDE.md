@@ -103,7 +103,7 @@ kern/report.py    runs all checks; trust propagation (callers downgraded to
 kern/views.py     iface / spec / editor views + token counts; English templates
 kern/render.py    proof page HTML + terminal output
 kern/why.py       .why store, hash anchoring, staleness
-examples/ledger_v1..v3.k, ledger.why    the demo loop (see README)
+examples/ledger_v1..v4.k, ledger.why, ledger_v4.why    the demo loop (see README)
 ```
 
 Run: `python -m kern check examples/ledger_v3.k --why examples/ledger.why --html out/proof.html`.
@@ -116,8 +116,14 @@ for token counts).
 - Only `Int` and `Account` types; no type checker beyond arity checks.
 - Bodies are straight-line plus guards only: no branches, `match` or loops.
 - No frame conditions: an `ensure` can't say "other accounts are unchanged".
-- The spec can't describe the audit log, so the 3 surviving mutants in v3 are all
-  audit-related.
+- Audit spec (`emit`, added in v4) is exact-sequence only. `_` is the only way to
+  mention the timestamp, because `clock.now` advances on each read, so a spec can't
+  say "stamped with the call's time". There is no way to say "emits nothing" (no
+  clause means unconstrained). Examples (`eg`) can't assert audit events.
+- Counterexamples from modular proofs can pick inputs that a callee's *body* refuses
+  (its success condition isn't fully in its spec). `find_cex` retries with an
+  optimized model; a refutation that only holds against a broken callee spec and
+  doesn't replay is shown as conditional.
 - Application arguments must be atoms; nested calls need parentheses. An open
   design question is whether to parse by arity instead, using known interfaces.
 - The `.why` file is chosen with `--why`, defaulting to `<module>.why`.
@@ -126,8 +132,8 @@ for token counts).
 
 1. **Language:** records, a type checker, `match`/branches, loops with invariants.
    Handlers declared *in Kern* with assumed specs (shown as "assumed" on the proof
-   page). A way for specs to reach the audit log, e.g.
-   `ensure audit.last' = TransferDone ...`.
+   page). ~~Specs reaching the audit log~~ done: `emit Ctor args` (8 tokens; the
+   `ensure audit...` forms measured 13–15), exact appended sequence, `_` wildcard.
 2. **Store + MCP:** content-addressed definitions (`Def.hash` exists), names mapped
    to hashes. Expose `view` (iface/spec/editor), `why`, `check` and structural edits
    as an MCP server, so an agent works through views instead of files.

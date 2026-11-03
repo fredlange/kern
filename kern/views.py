@@ -97,6 +97,17 @@ def en(e, lets=None, tense=False):
         return f"{en(e[2], lets, tense)} {OPS[e[1]]} {en(e[3], lets, tense)}"
 
 
+def en_emits(events):
+    """Template for an `emit` guarantee: the exact events appended to the audit log."""
+    items = []
+    for ctor, args in events:
+        shown = ", ".join("any value" if a == ("name", "_", False) else en(a) for a in args)
+        items.append(f"<code>{ctor}</code>" + (f" ({shown})" if shown else ""))
+    if len(items) == 1:
+        return f"appends exactly one event to the audit log: {items[0]}"
+    return f"appends exactly {len(items)} events to the audit log, in order: " + ", then ".join(items)
+
+
 def en_ensure(e):
     return en(e, tense=_has_prime(e))
 
