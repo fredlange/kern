@@ -93,6 +93,10 @@ def show(s):
         f"  guarantee strength {k}/{t} = {k / t:.0%}   with examples {ek}/{t} = {ek / t:.0%}" if t else "  no mutants",
         f"  reading (editor view / transitive source): median {s['reading_median']:.2f}; "
         f"deepest (depth {d[0]}) {d[1]}/{d[2]} = {d[3]:.2f}" if d else "  no calls",
+        f"  reading by depth (median): " + "  ".join(
+            f"{k}: {statistics.median(v[3] for v in s['by_def'].values() if v[0] == k):.2f}"
+            f" (n={sum(1 for v in s['by_def'].values() if v[0] == k)})"
+            for k in sorted({v[0] for v in s['by_def'].values()})),
         f"  check {s['secs']:.1f}s = {s['secs_per_def']:.2f}s per definition",
     ]
     if s["not_clean"]:

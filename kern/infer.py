@@ -1,7 +1,7 @@
 """Infers what the agent never has to write: the effect set (`uses`) and the failure set (`fails`)."""
 from __future__ import annotations
 
-from .run import HANDLERS
+from .run import HANDLERS, effect_of, is_handler, state_op
 from .syntax import flat, negate
 
 
@@ -39,12 +39,13 @@ def uses(defs, d, seen=None):
     seen = (seen or set()) | {d.name}
     eff = set()
     for n in called_names(d):
-        if n in HANDLERS:
-            eff.add(HANDLERS[n][1])
+        if is_handler(defs, n):
+            eff.add(effect_of(defs, n))
         elif n in defs and n not in seen:
             eff |= uses(defs, defs[n], seen)
-    if "ledger.write" in eff:
-        eff.discard("ledger.read")
+    for e in list(eff):                  # writing a store implies reading it
+        if e.endswith(".write"):
+            eff.discard(e[:-len("write")] + "read")
     return eff
 
 
@@ -94,20 +95,42 @@ def writes(defs, d, seen=None):
         if s[0] != "do" or s[1][0] != "app":
             continue
         name, args = s[1][1][0], s[1][2]
+        st = state_op(defs, name)
         if name in WRITERS:
             out.add(_account_param(args[0], d, lets))
+        elif st and st[1] == "set":                  # state writes are "X.param" (or "X.*")
+            out.add(f"{st[0]}.{_account_param(args[0], d, lets)}")
         elif name in defs and name not in seen:
             callee = defs[name]
             idx = {p: i for i, (p, _) in enumerate(callee.params)}
             for w in writes(defs, callee, seen):
-                out.add(ANY_ACCOUNT if w == ANY_ACCOUNT else _account_param(args[idx[w]], d, lets))
+                x, dot, p = w.rpartition(".")
+                mapped = ANY_ACCOUNT if p == ANY_ACCOUNT else _account_param(args[idx[p]], d, lets)
+                out.add(f"{x}.{mapped}" if dot else mapped)
+    return out
+
+
+def ledger_writes(ws):
+    return {w for w in ws if "." not in w}
+
+
+def state_writes(ws):
+    """{state: {param or ANY_ACCOUNT}} from a writes() set."""
+    out = {}
+    for w in ws:
+        if "." in w:
+            x, _, p = w.rpartition(".")
+            out.setdefault(x, set()).add(p)
     return out
 
 
 def fmt_writes(ws, d):
-    if ANY_ACCOUNT in ws:
-        return "any account"
-    return " ".join(p for p, _ in d.params if p in ws)
+    led = ledger_writes(ws)
+    parts = ["any account"] if ANY_ACCOUNT in led else [p for p, _ in d.params if p in led]
+    for x, ps in sorted(state_writes(ws).items()):
+        parts += [f"{x}.{'*' if ANY_ACCOUNT in ps else p}" for p in (["*"] if ANY_ACCOUNT in ps else
+                                                                   [q for q, _ in d.params if q in ps])]
+    return " ".join(parts)
 
 
 STATE_READS = ("ledger.balance", "ledger.total")      # owners are never written
@@ -130,7 +153,7 @@ def _names(e):
 
 
 def _reads_state(e):
-    return bool(_names(e) & set(STATE_READS))
+    return any(n in STATE_READS or n.endswith(".get") for n in _names(e))
 
 
 def lifted(defs, d, seen=None):
@@ -193,7 +216,7 @@ def lifted(defs, d, seen=None):
                             origin or name, guards)
                     if writes(defs, callee):
                         state["clean"] = False
-                elif name in WRITERS:
+                elif name in WRITERS or (state_op(defs, name) or ("", ""))[1] == "set":
                     state["clean"] = False
 
     walk(d.body, [])

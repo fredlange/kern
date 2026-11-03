@@ -51,13 +51,14 @@ def main(argv=None):
                   f"which does not exist (renamed or deleted?); kept unchanged", file=sys.stderr)
         return 0
     if a.cmd == "run":
-        from .syntax import split_now
+        from .syntax import split_maps, split_now
         rest, now = split_now(a.world)
-        w = World.from_example(parse_world(rest, None), now)
+        rest, maps = split_maps(rest)
+        w = World.from_example(parse_world(rest, None), now, maps)
         name, *args = a.name.split()
         args = [int(x) if x.lstrip("-").isdigit() else x for x in args]
         outcome, after = Interp(defs).run(name, args, w)
-        print(outcome, after.bal, "audit:", after.audit)
+        print(outcome, after.bal, "audit:", after.audit, *(["state:", after.maps] if after.maps else []))
         return 0
     if a.cmd == "why":
         if a.name not in defs:

@@ -14,14 +14,17 @@ class World:
     own: dict                      # account -> owner
     clock: int = 0
     audit: list = field(default_factory=list)
+    maps: dict = field(default_factory=dict)      # declared state -> {key: Int}; missing keys are 0
 
     def copy(self):
         """A full copy: balances and owners are ints/strings, audit events are tuples."""
-        return World(dict(self.bal), dict(self.own), self.clock, list(self.audit))
+        return World(dict(self.bal), dict(self.own), self.clock, list(self.audit),
+                     {k: dict(v) for k, v in self.maps.items()})
 
     @classmethod
-    def from_example(cls, w, now=0):
-        return cls({a: b for a, (b, _) in w.items()}, {a: o for a, (_, o) in w.items()}, now)
+    def from_example(cls, w, now=0, maps=None):
+        return cls({a: b for a, (b, _) in w.items()}, {a: o for a, (_, o) in w.items()}, now, [],
+                   {k: dict(v) for k, v in (maps or {}).items()})
 
 
 class Fail(Exception):
@@ -65,6 +68,26 @@ HANDLERS = {
 }
 
 
+def state_op(defs, name):
+    """`X.get` / `X.set` for a module's `state X Key` declaration: (X, op, key type), else None."""
+    states = getattr(defs, "states", {})
+    x, _, op = name.rpartition(".")
+    if x in states and op in ("get", "set"):
+        return x, op, states[x]
+    return None
+
+
+def is_handler(defs, name):
+    return name in HANDLERS or state_op(defs, name) is not None
+
+
+def effect_of(defs, name):
+    if name in HANDLERS:
+        return HANDLERS[name][1]
+    x, op, _ = state_op(defs, name)
+    return f"{x}.{'write' if op == 'set' else 'read'}"
+
+
 def _restore(world, snap):
     """Roll back in place, so every reference the caller holds sees the rollback."""
     world.__dict__.clear()
@@ -89,7 +112,7 @@ class Interp:
             if op == "when":                    # `E when C`: C reads the before-state
                 return (not self.ev(e[3], env, pre)) or bool(self.ev(e[2], env, pre, post))
             l, r = self.ev(e[2], env, pre, post), self.ev(e[3], env, pre, post)
-            return {"+": lambda: l + r, "-": lambda: l - r, "=": lambda: l == r, "!=": lambda: l != r,
+            return {"+": lambda: l + r, "-": lambda: l - r, "*": lambda: l * r, "/": lambda: l // r, "=": lambda: l == r, "!=": lambda: l != r,
                     ">=": lambda: l >= r, "<=": lambda: l <= r, ">": lambda: l > r, "<": lambda: l < r}[op]()
         if k == "name":
             name, primed = e[1], e[2]
@@ -110,6 +133,15 @@ class Interp:
             if len(args) != arity:
                 raise KernError(f"{name} takes {arity} argument(s), got {len(args)}")
             return fn(world, *args)
+        st = state_op(self.defs, name)
+        if st:
+            x, op, key_type = st
+            if key_type == "Account":
+                _acct(world, args[0])
+            if op == "get":
+                return world.maps.get(x, {}).get(args[0], 0)
+            world.maps.setdefault(x, {})[args[0]] = args[1]
+            return None
         if name in self.defs:
             return self.call_def(self.defs[name], args, world)
         if name[:1].isupper():
@@ -185,6 +217,18 @@ class Interp:
         env = {p: a for (p, _), a in zip(d.params, args)}
         w = before.copy()
         return all(self.ev(n[1], env, w) for n in d.needs)
+
+    def broken_invariants(self, world):
+        """Module invariants that some key of this world violates: [(text, key)]."""
+        out = []
+        for var, t, cond in getattr(self.defs, "invariants", []):
+            keys = list(world.bal) if t == "Account" else sorted({k for m in world.maps.values() for k in m
+                                                                   if isinstance(k, int)})
+            for k in keys:
+                if not self.ev(cond, {var: k}, world):
+                    out.append((f"{var}:{t} {code(cond)}", k))
+                    break
+        return out
 
     def emitted_ok(self, d, env, pre, post):
         """The call appended exactly the events its `emit` clauses list, in order; `_` matches anything."""

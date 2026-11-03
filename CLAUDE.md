@@ -114,6 +114,7 @@ kern/baseline.py  ratchet baseline (<module>.strength): flags weakened specs
 examples/ledger_v1..v7.k, ledger.why, ledger_v4..v7.why  the demo loop (see README)
 examples/ledger_large.k   7 defs, 4-deep chain; F9 token measurements
 examples/escrow_s1.k      scale size 1 (docs/SCALE.md): escrow with branches
+examples/escrow_s2.k      scale size 2: declared state, invariants, `need as` / `emit as`
 kern/scorecard.py         `kern score FILE.k`: the per-size scorecard of docs/SCALE.md
 tests/test_fundamentals.py  adversarial audit tests, one section per fundamental
 ```
@@ -124,7 +125,12 @@ for token counts).
 
 ### Known limitations
 
-- The domain is hard-coded: the ledger, clock and audit handlers are written in Python.
+- The domain is hard-coded: the ledger, clock and audit handlers are written in Python. Modules
+  can declare `state NAME Int|Account` maps (Int values) and `invariant x:Type COND` (assumed
+  and checked at parameter keys only; a computed-key write makes it unknown).
+- `need as C args` / `emit as C args` expand a callee's spec at parse time; only right when
+  the callee runs first (otherwise the prover refutes it and the caller restates).
+- Arithmetic is linear: `*` needs a literal on one side, `/` a positive literal on the right.
 - Types: only `Int` and `Account` parameters (plus internal Owner/Bool/Event/Unit); no
   records, no return values. Recursion is rejected (no termination measures yet).
 - Bodies are guards plus `if`/`else` blocks (the prover forks a path per branch; paths grow as

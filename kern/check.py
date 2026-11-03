@@ -7,7 +7,7 @@ import random
 
 from .prove import Prover
 from .run import Interp, KernError, World
-from .syntax import code, stmt_code
+from .syntax import code, stmt_code, with_def
 from .wf import problems
 
 
@@ -15,10 +15,12 @@ def run_examples(defs, d):
     interp, out = Interp(defs), []
     for ex in d.examples:
         try:
-            w = World.from_example(ex.world, ex.now)
+            w = World.from_example(ex.world, ex.now, ex.maps)
             outcome, after = interp.run(ex.call[0], ex.call[1], w)
             ok = (outcome[0] == ex.outcome[0] and (ex.outcome[0] == "ok" or list(outcome[1]) == ex.outcome[1])
-                  and all(after.bal[a] == b for a, b in ex.after.items()))
+                  and all(after.bal[a] == b for a, b in ex.after.items())
+                  and all(after.maps.get(x, {}).get(k, 0) == v for x, kv in ex.after_maps.items()
+                          for k, v in kv.items()))
             got = "ok" if outcome == ("ok",) else " ".join([outcome[0], *map(str, outcome[1])])
             out.append({"src": ex.src, "pass": ok, "got": got})
         except (KernError, KeyError, TypeError) as e:
@@ -39,11 +41,16 @@ def _rand_args(d, accts, rnd):
 def proptest(defs, d, n=500, seed=1):
     rnd, interp = random.Random(seed), Interp(defs)
     times = random.Random(seed + 1_000_003)     # separate stream: adding time must not reshuffle worlds
+    states = random.Random(seed + 2_000_003)    # ... nor adding declared state
     stats = {"runs": n, "succeeded": 0, "failures": {}, "violations": []}
     for _ in range(n):
         accts = ["A", "B", "C"]
         w = World({a: rnd.randint(0, 1000) for a in accts}, {a: rnd.choice(["u1", "u2"]) for a in accts},
                   times.randint(0, 100))
+        for x, key_type in getattr(defs, "states", {}).items():
+            keys = accts if key_type == "Account" else range(-5, 6)   # Int args hit -5..5 a third of the time
+            # mostly 0 or 1 (flags, empty slots), sometimes a larger value
+            w.maps[x] = {k: states.choice([0, 0, 1, states.randint(0, 300)]) for k in keys}
         args = _rand_args(d, accts, rnd)
         before = w.copy()
         try:
@@ -53,9 +60,12 @@ def proptest(defs, d, n=500, seed=1):
             continue
         if outcome == ("ok",):
             stats["succeeded"] += 1
-            for kind, c in interp.holds(d, args, before, after):
+            broken = [("invariant", text) for text, _ in interp.broken_invariants(after)] \
+                if not interp.broken_invariants(before) else []
+            for kind, c in interp.holds(d, args, before, after) + broken:
                 if len(stats["violations"]) < 3:
                     world = " ".join(f"{a}:{before.bal[a]}@{before.own[a]}" for a in accts) + f" now:{before.clock}"
+                    world += "".join(f" {x}.{k}:{v}" for x, kv in before.maps.items() for k, v in kv.items() if v)
                     stats["violations"].append({"clause": f"{kind} {c}",
                                                 "eg": f"eg {world} | {d.name} {' '.join(map(str, args))}"})
         else:
@@ -70,7 +80,7 @@ def proptest(defs, d, n=500, seed=1):
 
 # ---------- mutation ----------
 
-SWAP = {"+": "-", "-": "+", ">=": ">", ">": ">=", "<=": "<", "<": "<=", "=": "!=", "!=": "="}
+SWAP = {"+": "-", "-": "+", "*": "/", "/": "*", ">=": ">", ">": ">=", "<=": "<", "<": "<=", "=": "!=", "!=": "="}
 
 
 def _expr_mutants(e, params):
@@ -145,7 +155,7 @@ def mutation_score(defs, d, n_props=150):
     rows, ill_formed, errors = [], [], []
     for desc, body in mutants(d):
         md = dataclasses.replace(d, body=body)
-        mdefs = dict(defs, **{d.name: md})
+        mdefs = with_def(defs, md)
         if problems(mdefs, md):        # a compile error, not a bug the spec should catch
             ill_formed.append(desc)
             continue

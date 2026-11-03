@@ -1032,3 +1032,138 @@ body
     ledger.credit to amount
 """)
     assert statuses(reps["f"]) == ["proven"]
+
+
+# =====================================================================================
+# Scale, size 2: declared state, invariants, `*` `/`, `need as` / `emit as` (docs/SCALE.md)
+# =====================================================================================
+
+ESCROW2 = open("examples/escrow_s2.k").read()
+STATE_HEAD = "state hold Int\nstate frozen Account\ninvariant a:Account ledger.balance a >= 0\n\n"
+
+
+def test_s2_escrow_is_clean():
+    defs, reps = analysed(ESCROW2)
+    assert all(r["clean"] for r in reps.values()) and len(defs) == 26
+
+
+def test_s2_state_dependent_refutation_replays_with_the_state_in_the_eg_line():
+    src = ESCROW2.replace("  need spent.get a + amount <= limit.get a else OverLimit (spent.get a + amount - limit.get a)\n",
+                          "  need spent.get a + amount <= limit.get a + 1 else OverLimit (spent.get a + amount - limit.get a)\n", 1)
+    src = src.replace("  ok otherwise\n  keep ledger.total\n  ensure spent.get' a = spent.get a + amount\n",
+                      "  ok otherwise\n  keep ledger.total\n  ensure spent.get' a = spent.get a + amount\n"
+                      "  ensure spent.get' a <= limit.get a\n", 1)
+    g = [g for g in analysed(src)[1]["withdraw"]["guarantees"] if g["clause"] == "spent.get' a <= limit.get a"][0]
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+    assert "spent.A:" in g["counterexample"]["eg"] or "limit.A:" in g["counterexample"]["eg"]
+
+
+def test_s2_examples_check_state_after():
+    src = ESCROW2.replace("| open_order 7 A E 100 -> ok | A:400 E:100 hold.7:100", "| open_order 7 A E 100 -> ok | A:400 E:100 hold.7:99")
+    assert not all(e["pass"] for e in analysed(src)[1]["open_order"]["examples"])
+
+
+def test_s2_state_writes_are_inferred_through_callees_and_frame_other_keys():
+    defs, reps = analysed(STATE_HEAD + """
+put id:Int n:Int
+  ensure hold.get' id = n
+body
+  hold.set id n
+
+two id:Int other:Int n:Int
+  ensure hold.get' other = hold.get other when other != id
+body
+  put id n
+""")
+    assert writes(defs, defs["two"]) == {"hold.id"} and statuses(reps["two"]) == ["proven"]
+
+
+def test_s2_write_to_a_computed_key_is_any_key():
+    defs = parse_module(STATE_HEAD + "f id:Int\nbody\n  hold.set (id + 1) 5\n")
+    assert writes(defs, defs["f"]) == {"hold.*"}
+
+
+def test_s2_invariant_violation_is_refuted_and_replays():
+    defs, reps = analysed(STATE_HEAD + """
+drain a:Account b:Account amount:Int
+  need a != b else SameAccount
+  need amount > 0 else BadAmount
+body
+  ledger.debit a amount
+  ledger.credit b amount
+""")
+    g = _g(reps["drain"], "invariant")
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+
+
+def test_s2_invariant_with_a_computed_key_is_unknown_not_proven():
+    defs, reps = analysed("state hold Int\ninvariant o:Int hold.get o >= 0\n\nf id:Int\nbody\n  hold.set (id + 1) 5\n")
+    g = _g(reps["f"], "invariant")           # never ✔; ◐ is honest (random tests do check invariants)
+    assert g["status"] in ("unknown", "tested") and "computed key" in g["reason"]
+
+
+def test_s2_invariant_removes_the_overdrawn_workaround():
+    """purchase no longer needs `need ledger.balance escrow >= 0 else Overdrawn`."""
+    defs, reps = analysed(ESCROW2)
+    assert "Overdrawn" not in ESCROW2 and _ok(reps["purchase"])["status"] == "proven"
+
+
+@pytest.mark.parametrize("expr,msg", [("amount / 0", "positive number"), ("amount / amount", "positive number"),
+                                      ("amount * amount", "number on one side")])
+def test_s2_only_linear_arithmetic(expr, msg):
+    with pytest.raises(WellFormedError, match=msg):
+        check_module(parse_module(f"f to:Account amount:Int\nbody\n  ledger.credit to ({expr})\n"))
+
+
+def test_s2_division_agrees_between_prover_and_interpreter_for_negatives():
+    defs, reps = analysed("""
+f to:Account amount:Int
+  ensure ledger.balance' to = ledger.balance to + amount / 2
+  eg A:10@u1 | f A -7 -> ok | A:6
+body
+  ledger.credit to (amount / 2)
+""")
+    assert statuses(reps["f"]) == ["proven"] and all(e["pass"] for e in reps["f"]["examples"])
+
+
+def test_s2_need_as_expands_to_the_callees_spec_needs():
+    defs = parse_module(ESCROW2)
+    restated = parse_module(open("examples/escrow_s1.k").read())
+    assert defs["reserve"].needs == restated["reserve"].needs                      # same conditions
+    assert "need as transfer buyer escrow amount" in views.spec(analysed(ESCROW2)[1]["reserve"], NO_WHY)
+
+
+def test_s2_need_as_follows_the_spec_arguments_not_the_body():
+    """The reason references keep strength where inheritance lost it: a body mutant that changes a
+    callee argument is still caught, because the reference names the arguments itself."""
+    m = analysed(ESCROW2, mutation=True)[1]["reserve"]["mutation"]
+    assert (m["guarantee_killed"], m["total"]) == (6, 6)
+
+
+def test_s2_emit_as_conjoins_its_condition():
+    defs = parse_module(ESCROW2)
+    conds = [code(ev[2]) for ev in defs["refund"].emits if len(ev) > 2]
+    assert "part = amount and amount > 0" not in conds          # release's events are unconditional
+    assert "part = amount" in conds and "part < amount and amount - part < 100" in conds
+
+
+@pytest.mark.parametrize("src,msg", [
+    ("f a:Int\n  need as nothing a\nbody\n  ledger.total\n", "no definition named"),
+    ("f a:Int\n  need as g a\nbody\n  ledger.total\n\ng a:Int\n  need as f a\nbody\n  ledger.total\n", "loop"),
+    ("f a:Int\n  need as g a a\nbody\n  ledger.total\n\ng a:Int\nbody\n  ledger.total\n", "takes 1"),
+])
+def test_s2_bad_references_are_parse_errors(src, msg):
+    with pytest.raises(ParseError, match=msg):
+        parse_module(src)
+
+
+@pytest.mark.parametrize("body,msg", [("  ledger.credit to (hold.get to)", "must be Int, got Account"),
+                                      ("  hold.set id", "takes 2")])
+def test_s2_state_ops_are_typed(body, msg):
+    with pytest.raises(WellFormedError, match=msg):
+        check_module(parse_module(STATE_HEAD + f"f to:Account id:Int\nbody\n{body}\n"))
+
+
+def test_s2_specs_may_read_state_but_not_write_it():
+    with pytest.raises(WellFormedError, match="has an effect"):
+        check_module(parse_module(STATE_HEAD + "f id:Int\n  ensure hold.set id 1\nbody\n  hold.set id 1\n"))

@@ -41,6 +41,9 @@ def _guarantee_text(g, d):
         return en_emits(e)
     if kind == "ok":
         return "succeeds whenever the needs above hold: it refuses for no other reason"
+    if kind == "invariant":
+        var, t, cond = e
+        return f"keeps the module invariant for every <code>{var}</code> ({t}): {en(cond)}"
     return f"{en(e)} is unchanged" if kind == "keep" else en_ensure(e)
 
 
@@ -77,19 +80,24 @@ def card(r, why):
     out = [f'<section class="card"><header><h2><code>{d.name}</code></h2>'
            f'<span class="badge {cls}">{label}</span><span class="hash">build {r["hash"]}</span></header>']
 
-    eff = ", ".join(EFFECTS.get(e, e) for e in sorted(r["uses"])) or "nothing"
+    eff = ", ".join(EFFECTS.get(e, f"state <code>{e.rsplit('.', 1)[0]}</code> (read {'and write' if e.endswith('write') else 'only'})")
+                    for e in sorted(r["uses"])) or "nothing"
     out.append(f'<h3>Can touch</h3><p>{eff}. <span class="muted">Inferred from the body; nothing else is reachable.</span></p>')
     if r["writes"]:
-        out.append(f"<p>Changes balances of: {html.escape(fmt_writes(r['writes'], d))}. "
-                   f"<span class='muted'>Inferred; every other balance is unchanged.</span></p>")
+        what = "Changes" if any("." in w for w in r["writes"]) else "Changes balances of"
+        out.append(f"<p>{what}: {html.escape(fmt_writes(r['writes'], d))}. "
+                   f"<span class='muted'>Inferred; every other {'balance and state entry' if what == 'Changes' else 'balance'} is unchanged.</span></p>")
         silent = unguaranteed_writes(r)
         if silent:
             out.append("<p class='warnc'>No guarantee says what the new balance of " +
                        ", ".join(f"<code>{p}</code>" for p in silent) + " is.</p>")
 
     rows = []
+    origin = {id(n): d.ref_origin.get(("need", i)) for i, n in enumerate(d.needs)}
     for n, guards in [(n, []) for n in d.needs] + list(guarded_needs(d.body)):
         cond, _ = en_refusal(n, lets)
+        if origin.get(id(n)):                       # written as `need as X …`: X's spec, these arguments
+            cond += f" <span class='muted'>(as {html.escape(origin[id(n)])})</span>"
         for kind, g in reversed(guards):           # a need inside `if G` only applies when G holds
             g_text = en(g, lets) if kind == "if" else (en(negate(g), lets) if negate(g) else f"not ({en(g, lets)})")
             cond = f"{g_text} <span class='muted'>and</span> {cond}"

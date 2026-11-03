@@ -64,7 +64,7 @@ def editor(reports, name, whys):
 
 NAMES = {"ledger.balance": "balance of {0}", "ledger.owner": "owner of {0}", "ledger.total": "total money in the ledger",
          "clock.now": "the time of the call"}
-OPS = {"=": "=", "!=": "≠", ">=": "≥", "<=": "≤", ">": "&gt;", "<": "&lt;", "+": "+", "-": "−", "and": "and", "or": "or", "when": "when"}
+OPS = {"=": "=", "!=": "≠", ">=": "≥", "<=": "≤", ">": "&gt;", "<": "&lt;", "+": "+", "-": "−", "*": "×", "/": "÷", "and": "and", "or": "or", "when": "when"}
 EFFECTS = {"ledger.write": "the ledger (read and write)", "ledger.read": "the ledger (read only)",
            "clock": "the clock", "audit": "the audit log"}
 
@@ -85,17 +85,20 @@ def body_needs(r):
 
 
 def unguaranteed_writes(r):
-    """Written balances that no `ensure` describes the after-value of (informational)."""
+    """Written balances (and state entries, `hold.id`) that no `ensure` describes the after-value of."""
     d, said = r["def"], set()
 
     def walk(e):
         if e[0] == "app" and e[1] == ("ledger.balance", True) and e[2][0][0] == "name":
             said.add(e[2][0][1])
+        if e[0] == "app" and e[1][1] and e[1][0].endswith(".get") and e[2][0][0] == "name":
+            said.add(f"{e[1][0][:-4]}.{e[2][0][1]}")
         for sub in (e[2:4] if e[0] == "bin" else e[2] if e[0] == "app" else []):
             walk(sub)
     for c in d.ensures:
         walk(c)
-    return [p for p, _ in d.params if p in r["writes"] and p not in said]
+    out = [p for p, _ in d.params if p in r["writes"] and p not in said]
+    return out + sorted(w for w in r["writes"] if "." in w and w not in said)
 
 
 def _has_prime(e):
@@ -121,6 +124,9 @@ def en(e, lets=None, tense=False):
         return f"<code>{e[1]}</code>"
     if k == "app":
         (n, primed), args = e[1], e[2]
+        if n.endswith(".get") and len(args) == 1:            # declared state: `hold of id`
+            s = f"{n[:-4]} of {en(args[0], lets, tense)}"
+            return s + (" <em>after</em>" if primed else " <em>before</em>" if tense else "")
         if n in NAMES:
             s = NAMES[n].format(*[en(a, lets, tense) for a in args])
             return s + (" <em>after</em>" if primed else " <em>before</em>" if tense else "")

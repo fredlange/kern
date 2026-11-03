@@ -8,7 +8,8 @@ import itertools
 
 import z3
 
-from .infer import ANY_ACCOUNT, callees, fails, lifted, uses, writes
+from .infer import ANY_ACCOUNT, callees, fails, ledger_writes, lifted, state_writes, uses, writes
+from .run import state_op
 from .run import Interp, World
 from .syntax import code, emit_code, flat
 
@@ -20,12 +21,13 @@ class Sym:
     (the handler can only append): ("ev", Ctor, [z3 args]) or ("opaque", callee) when a callee
     emits events its spec does not describe."""
 
-    def __init__(self, bal, own, total, audit=(), now=None):
+    def __init__(self, bal, own, total, audit=(), now=None, maps=None):
         self.bal, self.own, self.total, self.audit = bal, own, total, list(audit)
         self.now = now if now is not None else z3.Int("now")   # the call's time; never changes
+        self.maps = dict(maps or {})                            # declared state -> z3 Array Int -> Int
 
     def copy(self):
-        return Sym(self.bal, self.own, self.total, self.audit, self.now)
+        return Sym(self.bal, self.own, self.total, self.audit, self.now, self.maps)
 
 
 WILD = ("name", "_", False)
@@ -67,7 +69,7 @@ class Prover:
         if k == "bin":
             l, r = self.sev(e[2], env, cur, post), self.sev(e[3], env, cur, post)
             op = e[1]
-            return {"+": lambda: l + r, "-": lambda: l - r, "=": lambda: l == r, "!=": lambda: l != r,
+            return {"+": lambda: l + r, "-": lambda: l - r, "*": lambda: l * r, "/": lambda: l / r, "=": lambda: l == r, "!=": lambda: l != r,
                     ">=": lambda: l >= r, "<=": lambda: l <= r, ">": lambda: l > r, "<": lambda: l < r,
                     "and": lambda: z3.And(l, r), "or": lambda: z3.Or(l, r),
                     "when": lambda: z3.Implies(r, l)}[op]()
@@ -98,6 +100,12 @@ class Prover:
         if name == "audit.emit":
             S.audit = S.audit + [a[0] if isinstance(a[0], tuple) else ("opaque", "audit.emit")]
             return None
+        st = state_op(self.defs, name)
+        if st:
+            if st[1] == "get":
+                return z3.Select(S.maps[st[0]], a[0])
+            S.maps[st[0]] = z3.Store(S.maps[st[0]], a[0], a[1])
+            return None
         if name in self.defs:
             return self.modular_call(self.defs[name], a, S)
         if name[:1].isupper():
@@ -114,15 +122,26 @@ class Prover:
         for cond, *_ in lifted(self.defs, callee):  # ... and its inferred body-level guards
             self.pc.append(self.sev(cond, env, S))
         pre = S.copy()
-        written = writes(self.defs, callee)       # inferred frame: every other balance is unchanged
+        all_written = writes(self.defs, callee)   # inferred frame: everything else is unchanged
+        written = ledger_writes(all_written)
         if ANY_ACCOUNT in written:
             S.bal = z3.Array(f"bal{next(_fresh)}", z3.IntSort(), z3.IntSort())
         for p in sorted(written - {ANY_ACCOUNT}):
             S.bal = z3.Store(S.bal, env[p], fresh_int(f"bal_{p}_"))
         if written:
             S.total = fresh_int("total")
+        for x, ps in sorted(state_writes(all_written).items()):
+            if ANY_ACCOUNT in ps:
+                S.maps[x] = z3.Array(f"{x}{next(_fresh)}", z3.IntSort(), z3.IntSort())
+                continue
+            for p in sorted(ps):
+                S.maps[x] = z3.Store(S.maps[x], env[p], fresh_int(f"{x}_{p}_"))
         for c in callee.ensures:
             self.pc.append(self.sev(c, env, pre, S))
+        for var, t, cond in self.invariants():    # the callee keeps the invariant at its keys
+            for (p, pt) in callee.params:
+                if pt == t:
+                    self.pc.append(self.sev(cond, {var: env[p]}, S))
         for c in callee.keeps:
             self.pc.append(self.sev(c, env, pre) == self.sev(c, env, S))
         if "audit" in uses(self.defs, callee):
@@ -190,6 +209,27 @@ class Prover:
                 conds.append(z3.Implies(z3.And(cw, cg, pos_w[i] == pos_g[j]), same))
         return z3.And(*conds)
 
+    def invariants(self):
+        return getattr(self.defs, "invariants", [])
+
+    def invariant_touched(self, d, cond):
+        """None if d writes nothing the invariant reads, "any" if it writes a computed key there,
+        else True (its writes are all at parameters, where the invariant is then checked)."""
+        from .infer import _names
+        reads = _names(cond)
+        ws = writes(self.defs, d)
+        hit = False
+        if reads & {"ledger.balance", "ledger.total"} and ledger_writes(ws):
+            hit = True
+            if ANY_ACCOUNT in ledger_writes(ws):
+                return "any"
+        for x, ps in state_writes(ws).items():
+            if f"{x}.get" in reads:
+                hit = True
+                if ANY_ACCOUNT in ps:
+                    return "any"
+        return True if hit else None
+
     def bind(self, p):
         """Point the per-path bookkeeping (used by modular_call and refusal_point) at path p."""
         self.pc, self.refusals, self.opaque_refusers = p.pc, p.refusals, p.opaque
@@ -222,11 +262,16 @@ class Prover:
         confirmed refutation: the caller only needs to know whether the mutant was caught."""
         self.relied_on = set()
         pre = Sym(z3.Array("bal", z3.IntSort(), z3.IntSort()), z3.Array("own", z3.IntSort(), z3.IntSort()),
-                  z3.Int("total"))
+                  z3.Int("total"), maps={x: z3.Array(f"map_{x}", z3.IntSort(), z3.IntSort())
+                                         for x in getattr(self.defs, "states", {})})
         env = {p: z3.Int(p) for p, _ in d.params}
         params = dict(env)
         start = Path([], pre.copy(), env, [], [], [])
         self.bind(start)
+        for var, t, cond in self.invariants():    # it held before the call, for every key; we use
+            for p, pt in d.params:                # it for the keys the call can name
+                if pt == t:
+                    self.pc.append(self.sev(cond, {var: env[p]}, pre))
         for n in d.needs:                          # spec needs are the stated refusals
             v = self.sev(n[1], env, start.S)
             start.own.append(v)
@@ -238,6 +283,18 @@ class Prover:
                  for c in d.keeps] + \
                 [("ensure", c, code(c), [(self.sev(c, p.env, pre, p.S), p.pc) for p in paths]) for c in d.ensures]
         unknowable = []
+        for var, t, cond in self.invariants():
+            touched = self.invariant_touched(d, cond)
+            if touched is None:
+                continue
+            text = f"{var}:{t} {code(cond)}"
+            if touched == "any":
+                unknowable.append({"kind": "invariant", "expr": (var, t, cond), "clause": text, "status": "unknown",
+                                   "reason": "it writes a computed key, so the invariant can't be checked key by key"})
+                continue
+            goals.append(("invariant", (var, t, cond), text,
+                          [(z3.And(*[z3.BoolVal(True)] + [self.sev(cond, {var: p.env[q]}, p.S)
+                                                           for q, qt in d.params if qt == t]), p.pc) for p in paths]))
         if d.complete:
             self.refusals = [r for p in paths for r in p.refusals]
             self.opaque_refusers = [o for p in paths for o in p.opaque]
@@ -290,6 +347,9 @@ class Prover:
                 if t == "Account":
                     nice.add(z3.Select(pre.bal, v) >= 0, z3.Select(pre.bal, v) <= 1000,
                              z3.Select(pre.own, v) >= 0, z3.Select(pre.own, v) <= 1)
+                for x, arr in pre.maps.items():
+                    if self.defs.states[x] == t:
+                        nice.add(z3.Select(arr, v) >= 0, z3.Select(arr, v) <= 1000)
             cx = self.find_cex(d, nice, solver, params, pre, kind)
             # a counterexample the interpreter does not reproduce is not evidence of a bug
             return {"kind": kind, "expr": c, "clause": text, "counterexample": cx,
@@ -349,15 +409,33 @@ class Prover:
             else:
                 args.append(v)
         now = m.eval(pre.now, model_completion=True).as_long()
-        w = World.from_example(world, now)
+        maps, keys = {}, []                        # declared state at the keys the call can name
+        for x, arr in pre.maps.items():
+            for p, t in d.params:
+                if self.defs.states[x] != t:
+                    continue
+                zk = m.eval(params[p], model_completion=True).as_long()
+                key = letters[zk] if t == "Account" else zk
+                if (x, key) in keys:
+                    continue
+                keys.append((x, key))
+                val = m.eval(z3.Select(arr, params[p]), model_completion=True).as_long()
+                if val:
+                    maps.setdefault(x, {})[key] = val
+        w = World.from_example(world, now, maps)
         interp = Interp(self.defs)
         before = w.copy()
         outcome, after = interp.run(d.name, args, w)
         world_src = " ".join(f"{a}:{b}@{o}" for a, (b, o) in world.items()) + (f" now:{now}" if now else "")
+        world_src += "".join(f" {x}.{k}:{v}" for x, kv in maps.items() for k, v in kv.items())
         after_src = " ".join(f"{a}:{after.bal[a]}" for a in world)
+        after_src += "".join(f" {x}.{k}:{after.maps.get(x, {}).get(k, 0)}" for x, k in keys
+                             if after.maps.get(x, {}).get(k, 0) != maps.get(x, {}).get(k, 0))
         out_src = "ok" if outcome == ("ok",) else " ".join([outcome[0], *map(str, outcome[1])])
         if kind == "ok":                           # it must refuse although the spec needs hold
             violated = interp.unstated_refusal(d, args, before, outcome)
+        elif kind == "invariant":                  # it held before (at these keys) and not after
+            violated = outcome == ("ok",) and interp.broken_invariants(after) and not interp.broken_invariants(before)
         else:
             violated = interp.holds(d, args, before, after) if outcome == ("ok",) else []
         emitted = ", ".join(" ".join(map(str, ev)) if isinstance(ev, tuple) else str(ev)

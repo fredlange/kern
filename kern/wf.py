@@ -12,7 +12,7 @@ nothing reaches them without passing this check. It rejects:
 from __future__ import annotations
 
 from .infer import called_names, callees
-from .run import HANDLERS
+from .run import HANDLERS, is_handler, state_op
 from .syntax import ParseError, code
 
 TYPES = True                                  # step 3 of docs/FIXES.md ran with this off
@@ -57,6 +57,12 @@ class _Checker:
             r = self.ty(e[3], scope, where, spec, primed_ok)
             if op in ("+", "-"):
                 return self.need_types(where, op, (l, r), ("Int", "Int"), "Int")
+            if op in ("*", "/"):             # linear arithmetic only, so the prover stays decidable
+                if op == "/" and not (e[3][0] == "int" and e[3][1] > 0):
+                    self.err(where, f"`{code(e)}`: `/` needs a positive number on the right")
+                if op == "*" and e[2][0] != "int" and e[3][0] != "int":
+                    self.err(where, f"`{code(e)}`: `*` needs a number on one side")
+                return self.need_types(where, op, (l, r), ("Int", "Int"), "Int")
             if op in (">=", "<=", ">", "<"):
                 return self.need_types(where, op, (l, r), ("Int", "Int"), "Bool")
             if op in ("and", "or"):
@@ -95,12 +101,17 @@ class _Checker:
             if primed:
                 self.err(where, f"`{name}'`: only handler reads have an after-state")
             return scope[name]
-        if name in HANDLERS:
+        if is_handler(self.defs, name):
             if primed and name in NO_AFTER_STATE:
                 self.err(where, f"`{name}'`: the time is the same before and after a call")
-            if spec and name not in SPEC_READS:
+            st = state_op(self.defs, name)
+            reads = name in SPEC_READS or (st and st[1] == "get")
+            if spec and not reads:
                 self.err(where, f"specs may only read state; `{name}` has an effect")
-            want, result = SIG[name]
+            if st:
+                want, result = ([st[2]], "Int") if st[1] == "get" else ([st[2], "Int"], "Unit")
+            else:
+                want, result = SIG[name]
             return self.check_args(where, name, want, arg_types, result)
         if name in self.defs:
             if spec:
@@ -177,7 +188,7 @@ class _Checker:
             elif s[0] == "let":
                 where = f"{s[1]} = {code(s[2])}"
                 t = self.ty(s[2], scope, where, spec=False)
-                if s[1] in scope or s[1] in self.used or s[1] in HANDLERS or s[1] in self.defs:
+                if s[1] in scope or s[1] in self.used or is_handler(self.defs, s[1]) or s[1] in self.defs:
                     self.err(where, f"`{s[1]}` shadows an existing name")
                 if TYPES and t == "Unit":
                     self.err(where, "has no value (Unit)")
@@ -222,8 +233,18 @@ def cycles(defs):
     return out
 
 
+def invariant_problems(defs):
+    from .syntax import Def
+    out = []
+    for var, t, cond in getattr(defs, "invariants", []):
+        c = _Checker(defs, Def(f"invariant {var}", [], None))
+        c.expect(code(cond), c.ty(cond, {var: t}, code(cond), spec=True), "Bool")
+        out += c.out
+    return out
+
+
 def check_module(defs):
-    found = [p for d in defs.values() for p in problems(defs, d)] + cycles(defs)
+    found = [p for d in defs.values() for p in problems(defs, d)] + cycles(defs) + invariant_problems(defs)
     if found:
         raise WellFormedError(found)
     return defs

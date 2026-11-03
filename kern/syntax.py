@@ -27,7 +27,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 
-TOKEN = re.compile(r"\s*(?:(\d+)|([A-Za-z_][A-Za-z0-9_.]*'?)|(!=|>=|<=|->|[=<>+\-()]))")
+TOKEN = re.compile(r"\s*(?:(\d+)|([A-Za-z_][A-Za-z0-9_.]*'?)|(!=|>=|<=|->|[=<>+\-*/()]))")
 CMP = {"=", "!=", ">=", "<=", ">", "<"}
 KEYWORDS = ("and", "or", "else", "when")
 
@@ -102,8 +102,15 @@ class ExprParser:
         return left
 
     def sum(self):
-        left = self.app()
+        left = self.term()
         while self.peek() in (("op", "+"), ("op", "-")):
+            op = self.take()[1]
+            left = ("bin", op, left, self.term())
+        return left
+
+    def term(self):
+        left = self.app()
+        while self.peek() in (("op", "*"), ("op", "/")):
             op = self.take()[1]
             left = ("bin", op, left, self.app())
         return left
@@ -187,6 +194,25 @@ def parse_need(src: str, line_no):
     return ("need", parse_expr(cond, line_no), ctor, args)
 
 
+class Module(dict):
+    """Definitions by name, plus module-level declarations: `state NAME KeyType` (a map from keys
+    to Int, default 0, read with NAME.get k and written with NAME.set k v) and
+    `invariant x:Type COND` (holds for every key before and after every call)."""
+
+    def __init__(self, *a, states=None, invariants=None, **kw):
+        super().__init__(*a, **kw)
+        self.states = dict(states or {})
+        self.invariants = list(invariants or [])
+
+    def with_def(self, d):
+        return Module(self, states=self.states, invariants=self.invariants, **{d.name: d})
+
+
+def with_def(defs, d):
+    """defs with d replacing the definition of the same name, keeping module declarations."""
+    return defs.with_def(d) if isinstance(defs, Module) else dict(defs, **{d.name: d})
+
+
 @dataclass
 class Example:
     world: dict            # account -> (balance, owner)
@@ -195,6 +221,8 @@ class Example:
     after: dict            # account -> balance
     src: str
     now: int = 0           # the call's time (clock.now), written `now:N` in the world
+    maps: dict = field(default_factory=dict)        # state -> {key: value}, written `hold.7:100`
+    after_maps: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -207,6 +235,7 @@ class Def:
     ensures: list = field(default_factory=list)
     emits: list = field(default_factory=list)     # [(Ctor, [arg exprs])]; empty = audit unconstrained
     complete: bool = False                         # `ok otherwise`: the spec needs are every refusal
+    ref_origin: dict = field(default_factory=dict)  # (kind, index) -> callee, for `need as` / `emit as`
     examples: list = field(default_factory=list)
     body: list = field(default_factory=list)
     src_lines: dict = field(default_factory=dict)   # section -> [source lines]
@@ -233,6 +262,20 @@ WORLD_ITEM = re.compile(r"^([A-Z]\w*):(\d+)(?:@(\w+))?$")
 
 
 NOW_ITEM = re.compile(r"^now:(\d+)$")
+MAP_ITEM = re.compile(r"^([a-z]\w*)\.([A-Z]\w*|-?\d+):(-?\d+)$")
+
+
+def split_maps(src):
+    """Take `state.key:value` items out of a world: (rest, {state: {key: value}})."""
+    items, maps = [], {}
+    for item in src.split():
+        m = MAP_ITEM.match(item)
+        if m:
+            key = m.group(2) if m.group(2)[0].isalpha() else int(m.group(2))
+            maps.setdefault(m.group(1), {})[key] = int(m.group(3))
+        else:
+            items.append(item)
+    return " ".join(items), maps
 
 
 def split_now(src):
@@ -262,26 +305,43 @@ def parse_example(src, line_no):
     if len(parts) not in (2, 3) or "->" not in parts[1]:
         raise ParseError("eg WORLD | call args -> outcome [| AFTER]", line_no)
     world_src, now = split_now(parts[0])
+    world_src, maps = split_maps(world_src)
     world = parse_world(world_src, line_no)
     call_src, out_src = [s.strip() for s in parts[1].split("->")]
     call = call_src.split()
-    args = [int(a) if a.isdigit() else a for a in call[1:]]
+    args = [int(a) if a.lstrip("-").isdigit() else a for a in call[1:]]
     out = out_src.split()
     outcome = ("ok",) if out == ["ok"] else (out[0], [int(x) for x in out[1:]])
-    after = parse_world(parts[2], line_no, with_owner=False) if len(parts) == 3 else {}
-    return Example(world, (call[0], args), outcome, after, src, now)
+    after_src, after_maps = split_maps(parts[2]) if len(parts) == 3 else ("", {})
+    after = parse_world(after_src, line_no, with_owner=False)
+    return Example(world, (call[0], args), outcome, after, src, now, maps, after_maps)
 
 
 HEADER = re.compile(r"^([a-z]\w*)((?:\s+\w+:\w+)*)\s*(?:->\s*(\w+))?\s*$")
 
 
+STATE = re.compile(r"^state ([a-z]\w*) (Int|Account)$")
+INVARIANT = re.compile(r"^invariant ([a-z]\w*):(Int|Account) (.+)$")
+
+
 def parse_module(text: str) -> dict:
-    defs, cur, in_body = {}, None, False
+    defs, cur, in_body = Module(), None, False
     for no, raw in enumerate(text.splitlines(), 1):
         if not raw.strip():
             continue
         line = raw.strip()
         if not raw[0].isspace():
+            if line.startswith(("state ", "invariant ")):
+                m, inv = STATE.match(line), INVARIANT.match(line)
+                if m:
+                    defs.states[m.group(1)] = m.group(2)
+                elif inv:
+                    defs.invariants.append((inv.group(1), inv.group(2), parse_expr(inv.group(3), no)))
+                else:
+                    raise ParseError("want `state NAME Int|Account` or `invariant x:Type COND`", no)
+                _finish(cur)
+                cur, in_body = None, False
+                continue
             if line == "body":
                 if cur is None:
                     raise ParseError("body without a definition", no)
@@ -306,7 +366,12 @@ def parse_module(text: str) -> dict:
             cur._raw.append((indent, line, no))
             continue
         cur.src_lines["spec"].append(line)
-        if word == "need":
+        if word == "need" and rest.startswith("as "):       # `need as callee ARGS`: its spec needs
+            cur.needs.append(("need_as", *_ref(rest[3:], no)))
+        elif word == "emit" and rest.startswith("as "):     # `emit as callee ARGS [when C]`
+            ref, _, cond = rest[3:].partition(" when ")
+            cur.emits.append(("emit_as", *_ref(ref, no), parse_expr(cond, no) if cond else None))
+        elif word == "need":
             cur.needs.append(parse_need(rest, no))
         elif word == "keep":
             cur.keeps.append(parse_expr(rest, no))
@@ -325,7 +390,83 @@ def parse_module(text: str) -> dict:
         else:
             raise ParseError(f"unknown clause {word!r} (need/keep/ensure/emit/ok/eg, then body)", no)
     _finish(cur)
+    _expand_refs(defs)
     return defs
+
+
+def _ref(src, no):
+    e = parse_expr(src, no)
+    if e[0] == "app" and not e[1][1]:
+        return e[1][0], e[2], no
+    if e[0] == "name" and not e[2]:
+        return e[1], [], no
+    raise ParseError("`as` must name a definition and its arguments", no)
+
+
+def _subst(e, m):
+    if e[0] == "name":
+        return m.get(e[1], e) if not e[2] else e
+    if e[0] == "bin":
+        return ("bin", e[1], _subst(e[2], m), _subst(e[3], m))
+    if e[0] == "app":
+        return ("app", e[1], [_subst(a, m) for a in e[2]])
+    return e
+
+
+def _expand_refs(defs):
+    """Replace `need as C args` / `emit as C args` by C's spec needs / emits with C's parameters
+    replaced by args. The reference is written in the spec, so it follows the spec's arguments, not
+    the body's; the result is checked like any written clause. d.ref_origin marks which need or emit
+    came from which reference (for the page)."""
+    done, busy = set(), set()
+
+    def expand(d):
+        if d.name in done:
+            return
+        if d.name in busy:
+            raise ParseError(f"`as` references loop through {d.name}")
+        busy.add(d.name)
+        needs, emits, d.ref_origin = [], [], {}
+        for n in d.needs:
+            if n[0] != "need_as":
+                needs.append(n)
+                continue
+            callee = _callee(defs, n)
+            expand(callee)
+            m = _bind(callee, n)
+            for c in callee.needs:
+                d.ref_origin[("need", len(needs))] = n[1]
+                needs.append(("need", _subst(c[1], m), c[2], [_subst(a, m) for a in c[3]]))
+        for ev in d.emits:
+            if ev[0] != "emit_as":
+                emits.append(ev)
+                continue
+            callee = _callee(defs, ev)
+            expand(callee)
+            m, extra = _bind(callee, ev), ev[4]
+            for ctor, args, *cond in callee.emits:
+                c = _subst(cond[0], m) if cond else None
+                c = ("bin", "and", extra, c) if extra and c else (extra or c)
+                d.ref_origin[("emit", len(emits))] = ev[1]
+                emits.append((ctor, [_subst(a, m) for a in args], c) if c else (ctor, [_subst(a, m) for a in args]))
+        d.needs, d.emits = needs, emits
+        busy.discard(d.name)
+        done.add(d.name)
+
+    for d in list(defs.values()):
+        expand(d)
+
+
+def _callee(defs, ref):
+    if ref[1] not in defs:
+        raise ParseError(f"`as {ref[1]}`: no definition named {ref[1]!r}", ref[3])
+    return defs[ref[1]]
+
+
+def _bind(callee, ref):
+    if len(ref[2]) != len(callee.params):
+        raise ParseError(f"`as {ref[1]}` takes {len(callee.params)} argument(s), got {len(ref[2])}", ref[3])
+    return {p: a for (p, _), a in zip(callee.params, ref[2])}
 
 
 def _finish(d):
@@ -390,14 +531,14 @@ def code(e) -> str:
     raise ValueError(e)
 
 
-PREC = {"when": 0, "or": 1, "and": 2, "=": 3, "!=": 3, ">=": 3, "<=": 3, ">": 3, "<": 3, "+": 4, "-": 4}
+PREC = {"when": 0, "or": 1, "and": 2, "=": 3, "!=": 3, ">=": 3, "<=": 3, ">": 3, "<": 3, "+": 4, "-": 4, "*": 5, "/": 5}
 
 
 def _side(child, op, right, show):
     """Print a binary operand, parenthesised when needed to reparse to the same tree."""
     text = show(child)
     c, p = (PREC[child[1]], PREC[op]) if child[0] == "bin" else (99, 0)
-    # +/-, and, or are left-associative; comparisons and `when` need parentheses on either side
+    # + - * / and or are left-associative; comparisons and `when` need parentheses on either side
     if c < p or (c == p and (right or op in CMP or op == "when")):
         return f"({text})"
     return text

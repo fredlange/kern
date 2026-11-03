@@ -198,3 +198,115 @@ everything): 3/10.
 **What this predicts for size 2:** if the reading ratio is to fall, it has to come
 from depth (more levels skipped) or from thicker bodies, for example state and
 computed values. Restating grows with depth, so this is the trend to watch.
+
+### Pre-registered for size 2 (written before the size-2 program)
+
+- **Reading ratio, depth for depth:** the median shifts when the program's shape
+  changes (many depth-1 wrappers push it up), so size 2 is compared with size 1 per
+  depth, using medians at depth 1, 2, 3 (and 4 if it exists), plus the deepest.
+  Size 1: depth 1 **0.81** (n=3), depth 2 **0.59** (n=4), depth 3 **0.63** (n=2).
+- **What counts as structural for this metric:** the per-depth ratios rise, and the
+  cause is restated needs growing faster with depth than the bodies the view skips.
+  If that's what happens, stop and ask.
+- **Scope order if the budget runs short:** state maps, then `*` and `/`, then the
+  invariant. A workaround that survives is counted, not hidden.
+
+## Size 2: orders, disputes, limits (`examples/escrow_s2.k`)
+
+**Program:** 26 definitions. Size 1's ten are adapted (the fee is computed, there's
+no `Overdrawn`), plus:
+- orders: `open_order`, `capture_order`, `cancel_order`, `refund_order`;
+- disputes: `open_dispute`, and resolving for the buyer, for the seller, or split;
+- account controls: `set_limit`, `freeze`, `unfreeze`, `withdraw`, `reset_day`;
+- `payout_seller`, `deposit`, `purchase_order`.
+
+Every definition uses `ok otherwise`, and every definition that emits has an `emit`
+spec.
+
+**Features added:**
+- **`state NAME Int|Account`:** a map to Int (default 0), read with `NAME.get k` (also
+  in specs, with an after-state `NAME.get' k`) and written with `NAME.set k v`.
+  - One resolver (`run.state_op`) is used by the interpreter, checker, inference and
+    prover, so they can't disagree about what a state operation is.
+  - Inferred writes look like `hold.id` (`hold.*` for a computed key). Modular calls
+    havoc exactly those, and the page says which written entries no guarantee
+    describes.
+  - Example worlds take `hold.7:100`. Counterexamples carry the state at the keys
+    the call names, so they replay.
+  - Random worlds draw state from a separate stream (mostly 0/1, sometimes larger),
+    so modules without state keep exactly the same random worlds.
+- **`invariant x:Type COND`:** assumed for every parameter of that type in the
+  pre-state (sound, because it's weaker than "for all keys"), and proven in the
+  post-state by each definition that writes what it reads.
+  - A write to a computed key makes the claim unknown (it can become ◐, since random
+    tests check invariants after every success).
+  - Callees are assumed to keep it at their argument keys, and trust propagation
+    covers whether they actually do.
+- **`*` and `/`** with a literal (`/` by a positive literal only), so the arithmetic
+  stays linear. Z3 and Python agree on floor division for negatives (tested).
+- **`need as C args` / `emit as C args [when D]`:** a written reference to a callee's
+  spec, expanded at parse time into ordinary needs and emits (D is conjoined with
+  each event's condition). This was added because restated needs drove the size-1
+  reading ratio (the pre-registered risk).
+  - Unlike inheriting, the reference names its own arguments, so a body mutant that
+    changes a call's arguments is still caught (reserve: 6/6, as when restated).
+  - The page marks such rows "(as capture)".
+  - A reference is only right when the callee's conditions hold in the caller's
+    pre-state, i.e. it's the first call. Otherwise the prover refutes it and the
+    caller restates, as purchase and purchase_order do for capture.
+- **Tests:** 119 → 140, with adversarial cases for each feature.
+
+**Workarounds, compared with size 1:**
+
+| # | Size 1 | Size 2 |
+|---|---|---|
+| 1 | fee as a parameter | **gone**: `amount * 2 / 100` |
+| 2 | `Overdrawn` need | **gone**: `invariant a:Account ledger.balance a >= 0` |
+| 3 | a hold is an escrow account | **weaker**: holds are per order (`hold`), but the escrow balance isn't tied to the sum of holds (no sums or quantifiers) |
+| 4 | refund has no `emit` spec | **gone**: `emit as … when` |
+| 5 | aliasing guards everywhere | **remains** |
+| 6 | (new) callee conditions after a write must be restated | **remains**: purchase, purchase_order, refund (Insufficient) |
+| 7 | (new) batch work (release all expired holds, end-of-day for all accounts) | **not expressible**: no loops; left out of the program |
+
+Definitions with at least one workaround (excluding #3 and #5): 3/26 (purchase,
+purchase_order, refund), against 3/10 at size 1.
+
+### Scorecard, size 2 vs size 1
+
+| | size 1 | size 2 |
+|---|---|---|
+| definitions / max depth | 10 / 3 | 26 / 3 |
+| clean / unconfirmed | 10/10 / 0 | 26/26 / 0 |
+| guarantees | 51 | 172 |
+| guarantee strength | 146/147 = 99% | 270/271 = 100% |
+| mutants per definition | 14.7 | 10.4 |
+| reading ratio, median | 0.69 | **0.62** |
+| reading ratio, depth 1 / 2 / 3 | 0.81 / 0.59 / 0.63 | **0.80 / 0.62 / 0.43** |
+| reading ratio, deepest | 0.69 | **0.50** |
+| check s per definition | 0.15 | 0.18 |
+| workarounds (definitions) | 3/10 | 3/26 |
+| source tokens: spec / body | 1351 / 199 | 2483 / 524 |
+
+Measured on the way: size 2 with every refusal **restated** scored a median of
+0.66, depth 1/2/3 of 0.81/0.65/0.48, 5287 source tokens and 265/271 strength. The
+references brought it to the numbers above.
+
+**Verdict, against the pre-registered rules:**
+- **Floors:** all hold. Outputs for v3–v7 and ledger_large are identical, except
+  the v6 witness already recorded; hashes are unchanged.
+- **Improved:**
+  - **Reading ratio:** median, depth 3 and deepest.
+  - **Workarounds:** the same three definitions out of 2.6× as many.
+  - **Strength:** not lower.
+  - **Check time:** within 2×.
+- **Depth 2: 0.59 → 0.62, slightly worse.** The pre-registered test asks whether the
+  cause is restated needs growing with depth:
+  - Like for like, it isn't: cancel 0.59 → 0.52, tip 0.56 → 0.53, split 0.60 → 0.61.
+  - The median moved because different definitions sit at depth 2 now: refund (0.78)
+    dropped from depth 3 to 2 when capture started calling transfer directly, and
+    six new wrappers over large callee specs joined.
+  - So it isn't the structural cause, and it doesn't trigger the stop rule. I report
+    it as is rather than call it an improvement.
+- **The mutants-per-definition denominator fell (14.7 → 10.4).** The cause is many
+  small new definitions (freeze, set_limit, reset_day: 1–4 mutants each), not needs
+  moved into specs: the restated and referenced versions have the same 271 mutants.
