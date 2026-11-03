@@ -277,8 +277,21 @@ def code(e) -> str:
         head = e[1][0] + ("'" if e[1][1] else "")
         return " ".join([head] + [atom_code(a) for a in e[2]])
     if k == "bin":
-        return f"{code(e[2])} {e[1]} {code(e[3])}"
+        return f"{_side(e[2], e[1], False, code)} {e[1]} {_side(e[3], e[1], True, code)}"
     raise ValueError(e)
+
+
+PREC = {"and": 1, "or": 1, "=": 2, "!=": 2, ">=": 2, "<=": 2, ">": 2, "<": 2, "+": 3, "-": 3}
+
+
+def _side(child, op, right, show):
+    """Print a binary operand, parenthesised when needed to reparse to the same tree."""
+    text = show(child)
+    c, p = (PREC[child[1]], PREC[op]) if child[0] == "bin" else (99, 0)
+    # +/- are left-associative; comparisons and and/or need parentheses on either side
+    if c < p or (c == p and (right or p <= 2)):
+        return f"({text})"
+    return text
 
 
 def atom_code(e):

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import html
 
+from .infer import fails as inferred_fails
 from .views import EFFECTS, en, en_emits, en_ensure, en_refusal, lets_of
 
 ICON = {"proven": "✔", "refuted": "✗", "conditional": "!", "unknown": "?"}
@@ -14,8 +15,12 @@ def _status(r):
     gs = r["guarantees"]
     if any(g["status"] == "refuted" for g in gs) or r["props"]["violations"] or not all(e["pass"] for e in r["examples"]):
         return "fail", "Broken guarantees"
-    if any(g["status"] != "proven" for g in gs):
+    if not gs:
+        return "warn", "No guarantees stated"
+    if any(g["status"] == "conditional" for g in gs):
         return "warn", "Depends on unproven code"
+    if any(g["status"] != "proven" for g in gs):
+        return "warn", "Not proven: prover gave no answer"
     return "ok", "All guarantees proven"
 
 
@@ -37,7 +42,8 @@ def _how(g):
         return f"Proven only if the guarantees of {who} hold — and they currently do not."
     if g["status"] == "refuted":
         cx = g["counterexample"]
-        conf = " Replayed in the interpreter: confirmed." if cx["confirmed_by_interpreter"] else ""
+        conf = (" Replayed in the interpreter: confirmed." if cx["confirmed_by_interpreter"]
+                else " Not reproduced in the interpreter.")
         got = f" The audit log received: {html.escape(cx['emitted'])}." if g["kind"] == "emit" else ""
         return f"Fails for this input:<pre>{html.escape(cx['eg'])}</pre>{got}{conf}"
     if g.get("reason"):
@@ -62,7 +68,7 @@ def card(r, why):
         rows.append((cond, f"<code>{html.escape(n[2])}</code>{detail}"))
     own = {n[2] for n in d.needs + d.body if n[0] == "need"}
     for c in r["callees"]:
-        inherited = [k for k in r["fails"] if k not in own]
+        inherited = [k for k in inferred_fails(r["defs"], r["defs"][c]) if k not in own]
         if inherited:
             rows.append((f"<code>{c}</code> refuses",
                          ", ".join(f"<code>{k}</code>" for k in inherited) + " <span class='muted'>(passed through)</span>"))
@@ -156,6 +162,8 @@ def terminal(reports, whys):
             line = f"  {ICON[g['status']]} {g['kind']} {g['clause']}"
             if g["status"] == "refuted":
                 line += f"\n      counterexample: {g['counterexample']['eg']}"
+                if not g["counterexample"]["confirmed_by_interpreter"]:
+                    line += "   (not reproduced in the interpreter)"
                 if g["kind"] == "emit":
                     line += f"\n      audit log got: {g['counterexample']['emitted']}"
             if g["status"] == "unknown" and g.get("reason"):

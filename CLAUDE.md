@@ -5,6 +5,10 @@ primary authors and readers of code. Humans don't review code; they review a
 generated **proof page**. This file carries over the design decisions and findings
 from the design conversation, so they don't need re-deriving.
 
+Design fundamentals and the three bets: [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md).
+Latest audit against them (status per fundamental, ranked gaps):
+[docs/AUDIT.md](docs/AUDIT.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
+
 ## Goal (as stated by Fredrik)
 
 A custom way of expressing logical sequences, optimised for an agent:
@@ -104,6 +108,9 @@ kern/views.py     iface / spec / editor views + token counts; English templates
 kern/render.py    proof page HTML + terminal output
 kern/why.py       .why store, hash anchoring, staleness
 examples/ledger_v1..v4.k, ledger.why, ledger_v4.why    the demo loop (see README)
+examples/ledger_large.k   7 defs, 4-deep chain; F9 token measurements (rebalance is
+                          correct but shown refuted: no frame conditions)
+tests/test_fundamentals.py  adversarial audit tests, one section per fundamental
 ```
 
 Run: `python -m kern check examples/ledger_v3.k --why examples/ledger.why --html out/proof.html`.
@@ -124,6 +131,24 @@ for token counts).
   (its success condition isn't fully in its spec). `find_cex` retries with an
   optimized model; a refutation that only holds against a broken callee spec and
   doesn't replay is shown as conditional.
+- **Unsound (found in audit):** a `let` that shadows a parameter changes what an
+  `ensure` means in the prover (✔ while the body is wrong); recursion is "proven" by
+  assuming the definition's own spec; mutual recursion crashes `check`. Root cause:
+  no well-formedness/type pass before proving.
+- Spec strength is dominated by examples: v4 transfer with every keep/ensure
+  deleted still scores 13/13. Ill-formed mutants count as kills (1 in v3 transfer);
+  failure payloads are never mutated.
+- Vacuous specs (unsatisfiable success path) and frame-less modular proofs give a
+  false green (extra writes elsewhere) or a false ✗ (`rebalance`).
+- Atomic rollback happens only on declared failures; a runtime error mid-body leaves
+  the world mutated.
+- Unknown names aren't a static error (`uses` ignores them, the prover crashes).
+  Values follow Python semantics (`from + to` = `'AB'`). Specs aren't checked for
+  purity.
+- Why store: orphans (rename/delete) are silent; the hash excludes `eg` and the
+  inferred interface, so callee changes never stale a caller's why.
+- `need a > 0 and b < 10` doesn't parse (`and` after a comparison).
+- Tiers ◐/○ aren't implemented.
 - Application arguments must be atoms; nested calls need parentheses. An open
   design question is whether to parse by arity instead, using known interfaces.
 - The `.why` file is chosen with `--why`, defaulting to `<module>.why`.

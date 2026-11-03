@@ -19,7 +19,7 @@ def analyse(defs, mutation=True):
     for d in defs.values():
         guarantees, relied = Prover(defs).prove(d)
         reports[d.name] = {
-            "def": d, "hash": d.hash, "uses": uses(defs, d), "fails": fails(defs, d),
+            "def": d, "defs": defs, "hash": d.hash, "uses": uses(defs, d), "fails": fails(defs, d),
             "callees": callees(defs, d), "relied_on": relied,
             "guarantees": guarantees, "examples": run_examples(defs, d), "props": proptest(defs, d),
         }

@@ -13,6 +13,11 @@ python -m kern why    examples/ledger_v3.k transfer --why examples/ledger.why
 python -m kern run    examples/ledger_v3.k "transfer A B 100" --world "A:500@u1 B:0@u1"
 ```
 
+Tests: `pip install pytest`, then `pytest` from the repo root runs
+`tests/test_fundamentals.py`, the audit against
+[docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md). Known gaps are strict `xfail`s
+(see [docs/AUDIT.md](docs/AUDIT.md)).
+
 ## What a definition is
 
 ```
@@ -68,8 +73,9 @@ body
    relies on `transfer`.
 2. `ledger_v2.k`: one line added, `need from != to else SameAccount`. Everything is
    proven. `payout` picks up `SameAccount` in its inferred failures without being
-   edited, and its `why` notes are flagged stale. Spec strength is 9/13. The
-   survivors show that nothing says an exact-balance transfer succeeds, and nothing
+   edited. (Its `why` notes are *not* flagged stale: `Def.hash` covers only the
+   definition's own text, which didn't change. See docs/AUDIT.md, F6.) Spec
+   strength is 9/13. The survivors show that nothing says an exact-balance transfer succeeds, and nothing
    covers the audit event.
 3. `ledger_v3.k`: adds an exact-balance example, raising spec strength to 10/13.
    The remaining survivors are all about the audit log, which the spec language

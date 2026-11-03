@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from .infer import fmt_fails, fmt_uses
-from .syntax import code
+from .syntax import _side, code
 
 try:
     import anthropic
@@ -94,7 +94,8 @@ def en(e, lets=None, tense=False):
             return s + (" <em>after</em>" if primed else " <em>before</em>" if tense else "")
         return f"<code>{n} {' '.join(en(a, lets, tense) for a in args)}</code>"
     if k == "bin":
-        return f"{en(e[2], lets, tense)} {OPS[e[1]]} {en(e[3], lets, tense)}"
+        show = lambda x: en(x, lets, tense)
+        return f"{_side(e[2], e[1], False, show)} {OPS[e[1]]} {_side(e[3], e[1], True, show)}"
 
 
 def en_emits(events):
