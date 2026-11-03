@@ -272,7 +272,25 @@ def invariant_problems(defs):
         c = _Checker(defs, Def(f"invariant {var}", [], None))
         c.expect(code(cond), c.ty(cond, {var: t}, code(cond), spec=True), "Bool")
         out += c.out
+        # Checked key by key (prover: at parameter keys; host: at written keys), which is only
+        # sound if the invariant reads state at its own bound key and nowhere else.
+        for e in _walk_expr(cond):
+            name, args = (e[1], []) if e[0] == "name" else (e[1][0], e[2]) if e[0] == "app" else (None, None)
+            if name is None or name == var or not is_handler(defs, name):
+                continue
+            if args != [("name", var, False)]:
+                out.append(f"invariant {var}: {code(cond)}: `{code(e)}` must read state at `{var}` only")
     return out
+
+
+def _walk_expr(e):
+    yield e
+    if e[0] == "bin":
+        yield from _walk_expr(e[2])
+        yield from _walk_expr(e[3])
+    elif e[0] == "app":
+        for a in e[2]:
+            yield from _walk_expr(a)
 
 
 def check_module(defs):

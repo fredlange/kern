@@ -222,13 +222,20 @@ class Interp:
         w = before.copy()
         return all(self.ev(n[1], env, w) for n in d.needs)
 
-    def broken_invariants(self, world):
-        """Module invariants that some key of this world violates: [(text, key)]."""
+    def broken_invariants(self, world, keys=None):
+        """Module invariants that some key of this world violates: [(text, key)].
+
+        keys = {"Account": {...}, "Int": {...}} checks only those keys (the host passes the keys a call
+        wrote). That is sound because an invariant may only read state at its own bound key
+        (wf.invariant_problems), so an unwritten key keeps whatever the invariant said about it."""
         out = []
         for var, t, cond in getattr(self.defs, "invariants", []):
-            keys = list(world.bal) if t == "Account" else sorted({k for m in world.maps.values() for k in m
-                                                                   if isinstance(k, int)})
-            for k in keys:
+            if keys is not None:
+                keys_t = sorted(keys.get(t, ()), key=str)
+            else:
+                keys_t = list(world.bal) if t == "Account" else sorted({k for m in world.maps.values() for k in m
+                                                                         if isinstance(k, int)})
+            for k in keys_t:
                 if not self.ev(cond, {var: k}, world):
                     out.append((f"{var}:{t} {code(cond)}", k))
                     break

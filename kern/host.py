@@ -53,6 +53,77 @@ class Unproven(Exception):
     pass
 
 
+class _Lazy:
+    """One store (balances, owners, or one `state` map) read from SQLite on demand.
+
+    `cache` holds values read in this call and is shared by copies (the transaction makes it
+    valid for the whole call). `dirty` holds what the call wrote; a copy copies only that, so
+    Interp.run's snapshot and in-place rollback stay cheap and unchanged."""
+
+    def __init__(self, fetch, default=None, cache=None, dirty=None, total=None):
+        self.fetch, self.default, self.total_sql = fetch, default, total
+        self.cache = {} if cache is None else cache
+        self.dirty = {} if dirty is None else dict(dirty)
+
+    def copy(self):
+        return _Lazy(self.fetch, self.default, self.cache, self.dirty, self.total_sql)
+
+    def _read(self, k):
+        if k in self.dirty:
+            return self.dirty[k]
+        if k not in self.cache:
+            self.cache[k] = self.fetch(k)
+        return self.cache[k]
+
+    def __contains__(self, k):
+        return self._read(k) is not None
+
+    def __getitem__(self, k):
+        v = self._read(k)
+        if v is None:
+            raise KeyError(k)
+        return v
+
+    def get(self, k, default=None):
+        v = self._read(k)
+        return default if v is None else v
+
+    def __setitem__(self, k, v):
+        self.dirty[k] = v
+
+    def values(self):
+        """Only `ledger.total` iterates balances: the SQL sum, corrected for this call's writes."""
+        total = self.total_sql()
+        for k, v in self.dirty.items():
+            total += v - (self.cache[k] if k in self.cache else self.fetch(k) or 0)
+        return [total]
+
+    def __iter__(self):
+        raise TypeError("a lazy store cannot be iterated (that would load the whole world)")
+
+
+class _LazyMaps(dict):
+    """state name -> _Lazy, for every declared state (so `maps.get(x, {})` never misses)."""
+
+    def copy_maps(self):
+        out = _LazyMaps()
+        for x, m in self.items():
+            out[x] = m.copy()
+        return out
+
+
+class LazyWorld(World):
+    def copy(self):
+        return LazyWorld(self.bal.copy(), self.own.copy(), self.clock, list(self.audit), self.maps.copy_maps())
+
+    def written_keys(self):
+        """{"Account": keys, "Int": keys} this call wrote, for the key-scoped invariant check."""
+        keys = {"Account": set(self.bal.dirty), "Int": set()}
+        for x, m in self.maps.items():
+            keys[m.key_type].update(m.dirty)
+        return keys
+
+
 def _tuplify(x):
     """JSON gives lists back; events and constructor values are tuples in the interpreter."""
     return tuple(_tuplify(y) for y in x) if isinstance(x, list) else x
@@ -110,7 +181,31 @@ class Host:
     def _undump(d):
         return World(dict(d["bal"]), dict(d["own"]), 0, [], {s: {k: v for k, v in kv} for s, kv in d["maps"].items()})
 
+    def lazy(self):
+        """The world for one call, read on demand inside the call's transaction."""
+        q = self.db.execute
+        one = lambda sql, *a: (q(sql, a).fetchone() or (None,))[0]
+        bal = _Lazy(lambda a: one("select balance from account where name=?", a),
+                    total=lambda: one("select coalesce(sum(balance), 0) from account"))
+        own = _Lazy(lambda a: one("select owner from account where name=?", a))
+        maps = _LazyMaps()
+        for x, key_type in getattr(self.defs, "states", {}).items():
+            m = _Lazy(lambda k, x=x: one("select value from cell where state=? and key=?", x, json.dumps(k)) or 0)
+            m.key_type = key_type
+            maps[x] = m
+        return LazyWorld(bal, own, 0, [], maps)
+
+    def _write_dirty(self, world):
+        """Write exactly what the call changed (accounts are never created by a call)."""
+        for a, b in world.bal.dirty.items():
+            self.db.execute("update account set balance=? where name=?", (b, a))
+        for x, m in world.maps.items():
+            for k, v in m.dirty.items():
+                self.db.execute("insert into cell values(?,?,?) on conflict(state, key) do update set value=?",
+                                (x, json.dumps(k), v, v))
+
     def load(self):
+        """The whole world (replay, `GET /state`): never on the call path."""
         bal, own, maps = {}, {}, {}
         for name, b, o in self.db.execute("select name, balance, owner from account"):
             bal[name], own[name] = b, o
@@ -145,8 +240,7 @@ class Host:
         now = self.clock()                               # the observation, read once per call
         self.db.execute("begin immediate")               # serialises calls, also across processes
         try:
-            world = self.load()
-            before = world.copy()
+            world = self.lazy()
             world.clock = now
             try:
                 outcome, world = self.interp.run(name, list(args), world)
@@ -154,7 +248,8 @@ class Host:
                 res = {"status": "error", "error": str(e)}
             else:
                 if outcome == ("ok",):
-                    broken = self.interp.broken_invariants(world)    # tier ○: checked at runtime
+                    # tier ○, checked at runtime: at the keys this call wrote (sound: wf.invariant_problems)
+                    broken = self.interp.broken_invariants(world, world.written_keys())
                     if broken:
                         res = {"status": "error", "fault": "module", "error": f"invariant broken: {broken[0][0]} at {broken[0][1]}"}
                     else:
@@ -166,7 +261,7 @@ class Host:
             seq = self.db.execute("insert into log(name, args, now, outcome) values(?,?,?,?)",
                                   (name, json.dumps(list(args)), now, json.dumps(self._logged(res)))).lastrowid
             if res["status"] == "ok":
-                self._write(before, world)
+                self._write_dirty(world)
                 for ev in world.audit:
                     self.db.execute("insert into outbox(call, event) values(?,?)", (seq, json.dumps(ev)))
             self.db.execute("commit")

@@ -177,3 +177,61 @@ def test_genesis_world_must_satisfy_invariants():
     with pytest.raises(ValueError, match="invariant"):
         h.init("A:10@u1 hold.7:-1")
     assert h.init("A:10@u1")
+
+
+# --- H1 (docs/HOST_PLAN.md): lazy world, key-scoped invariant checks
+
+def _statements_per_call(n_accounts):
+    defs = check_module(parse_module(open("examples/escrow_s2.k").read()))
+    h = Host(defs, ":memory:", clock=lambda: 1, sinks=[])
+    h.init(" ".join(f"A{i}:1000@u1" for i in range(n_accounts)))
+    count = []
+    h.db.set_trace_callback(count.append)
+    assert h.call("transfer", ["A0", "A1", 5])["status"] == "ok"
+    h.db.set_trace_callback(None)
+    return len(count)
+
+
+def test_a_call_does_not_read_the_whole_world():
+    """Item 2's mechanism, without timing: the statements a call runs don't grow with the world."""
+    assert _statements_per_call(50) == _statements_per_call(5000)
+
+
+def test_lazy_total_sees_this_calls_writes():
+    defs = check_module(parse_module("""\
+pay to:Account amount:Int
+body
+  ledger.credit to amount
+  audit.emit (Total ledger.total)
+"""))
+    h = host(defs, "A:10@u1 B:5@u2")
+    w, interp = mem_world("A:10@u1 B:5@u2"), Interp(defs)
+    r = h.call("pay", ["A", 7])
+    w.clock = 1000
+    interp.run("pay", ["A", 7], w)
+    assert r["events"] == w.audit == [("Total", 22)]
+
+
+def test_key_scoped_invariant_check_catches_a_write_at_any_key():
+    """The runtime check covers the keys the call actually wrote, including computed ones."""
+    defs = check_module(parse_module("""\
+state hold Int
+invariant o:Int hold.get o >= 0
+
+poke id:Int
+body
+  hold.set (id + 1) (0 - 5)
+"""))
+    h = host(defs, "A:1@u1", gate=False)
+    r = h.call("poke", [3])
+    assert r["status"] == "error" and "invariant" in r["error"] and "at 4" in r["error"]
+    assert h.load().maps == {}
+
+
+@pytest.mark.parametrize("inv", ["a:Account ledger.total >= 0", "o:Int hold.get 3 >= 0",
+                                 "o:Int hold.get (o + 1) >= 0", "a:Account clock.now >= 0 or ledger.balance a >= 0"])
+def test_invariants_read_state_only_at_their_own_key(inv):
+    """Checking invariants key by key is only sound if they read nothing else."""
+    from kern.wf import WellFormedError
+    with pytest.raises(WellFormedError, match="must read state at"):
+        check_module(parse_module(f"state hold Int\ninvariant {inv}\n"))
