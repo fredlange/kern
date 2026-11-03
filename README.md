@@ -11,12 +11,14 @@ python -m kern check  examples/ledger_v3.k --why examples/ledger.why --html out/
 python -m kern view   examples/ledger_v3.k payout --as editor --why examples/ledger.why
 python -m kern why    examples/ledger_v3.k transfer --why examples/ledger.why
 python -m kern run    examples/ledger_v3.k "transfer A B 100" --world "A:500@u1 B:0@u1"
+python -m kern baseline examples/ledger_v4.k     # record guarantee strength; check then flags drops
 ```
 
 Tests: `pip install pytest`, then `pytest` from the repo root runs
 `tests/test_fundamentals.py`, the audit against
 [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md). Known gaps are strict `xfail`s
-(see [docs/AUDIT.md](docs/AUDIT.md)).
+(see [docs/AUDIT.md](docs/AUDIT.md); fixes and their before/after evidence in
+[docs/FIXES.md](docs/FIXES.md)).
 
 ## What a definition is
 
@@ -39,8 +41,10 @@ body
   spec projected from the body changes when the body changes, so it could never catch
   a bug.
 - A refusal undoes the whole call, so guarantees only have to hold on success.
-- `why` entries live in a separate file, anchored to the definition's hash. They go
-  stale when the code changes.
+- `why` entries live in a separate file, anchored to the definition's hash *and* its
+  inferred interface. They go stale when the code changes, or when a callee change
+  alters what this definition can do or refuse. Entries that read like obligations
+  ("must …") are flagged, and orphaned entries are reported.
 - Nothing correctness-critical may live in `why`. If it must be obeyed, it is a
   `need`, `keep` or `ensure`.
 
@@ -48,22 +52,29 @@ body
 
 | Step | Method |
 |---|---|
+| Well-formedness, types | names, arity, no shadowing, pure specs, no recursion; Int / Account / Owner / Bool / Event / Unit. Nothing ill-formed is proven or run |
 | Effects, failures | inferred from the body, transitively through callees |
+| Writes, refusal conditions | inferred: which balances can change (the frame modular proofs use), and the body-level conditions under which a call refuses |
 | Examples | run in the interpreter |
 | Random tests | 500 random worlds and inputs; every guarantee is checked on each success |
-| Proofs | symbolic execution to Z3. Calls are verified *modularly*, from the callee's spec only |
+| Proofs | symbolic execution to Z3. Calls are verified *modularly*, from the callee's spec and inferred interface, never its body |
+| Tiers | ✔ proven, ✗ refuted (replayed), ? unconfirmed or no answer, ! relies on a broken callee, ◐ tested only, ∅ never succeeds |
 | Trust | a modular proof is downgraded if a callee's guarantees are broken |
-| Counterexamples | rendered as `eg` lines and replayed in the interpreter to confirm |
-| Spec strength | mutation testing of the body, measured only once everything passes |
+| Counterexamples | rendered as `eg` lines and replayed in the interpreter; only a replayed one counts as ✗ |
+| Spec strength | mutation testing of the body. The headline is what the *guarantees* catch; examples are reported separately |
+| Ratchet | `kern baseline FILE.k` records strength and guarantees; `check` flags "Weaker than baseline" |
 | Proof page | fixed templates over the results. No model-written text |
 
 ## Agent views
 
 | View | Contents | `payout`, measured |
 |---|---|---|
-| `iface` | header, uses, fails, why stub | 40 tokens |
-| `spec` | + need, keep, ensure, proof status | 72 tokens |
-| `editor` | own full definition + `spec` of each callee (never callee bodies) | 222 tokens |
+| `iface` | header, uses, writes, fails, why stub | 45 tokens |
+| `spec` | + need, keep, ensure, emit, own `body need` lines, proof status | 77 tokens |
+| `editor` | own full definition + `spec` of each callee (never callee bodies) | 251 tokens |
+
+(`payout` in `ledger_v3.k`. These were 40/72/222 before `writes` and `body need`
+lines were added; see docs/FIXES.md.)
 
 ## The demo loop
 
@@ -73,15 +84,15 @@ body
    relies on `transfer`.
 2. `ledger_v2.k`: one line added, `need from != to else SameAccount`. Everything is
    proven. `payout` picks up `SameAccount` in its inferred failures without being
-   edited. (Its `why` notes are *not* flagged stale: `Def.hash` covers only the
-   definition's own text, which didn't change. See docs/AUDIT.md, F6.) Spec
-   strength is 9/13. The survivors show that nothing says an exact-balance transfer succeeds, and nothing
-   covers the audit event.
-3. `ledger_v3.k`: adds an exact-balance example, raising spec strength to 10/13.
-   The remaining survivors are all about the audit log, which the spec language
-   cannot express yet.
+   edited. Its `why` is anchored to its interface, so the v1 page flags payout's why
+   as stale even though payout's text is identical. Transfer's guarantees catch 6/13
+   mutants (examples 9/13). The rest are about *when* it refuses, its payload, and
+   the audit event.
+3. `ledger_v3.k`: adds an exact-balance example. Example coverage rises to 10/13;
+   guarantee strength stays at 6/13, because an example is not a guarantee. The
+   survivors that nothing catches are all about the audit log.
 4. `ledger_v4.k`: adds `emit TransferDone from to amount _` to `transfer`, raising
-   spec strength to 13/13. The prover refutes all three audit mutants itself, with
+   guarantee strength to 9/13 (everything together: 13/13). The prover refutes all three audit mutants itself, with
    counterexamples confirmed in the interpreter. `payout` adds two `emit` lines and
    proves them from `transfer`'s spec alone. If `transfer` had no `emit` clause,
    `payout`'s would show as unprovable rather than pass. The `.why` entries are
@@ -91,13 +102,14 @@ body
 
 The prototype has one hard-coded domain: handlers for `ledger`, `clock` and `audit`
 written in Python. It has only `Int` and `Account` types and only straight-line
-bodies with guards. There is no type checker beyond arity checks and no frame
-conditions, except for the audit log, where `emit` pins down exactly what is appended.
-The spec cannot pin the timestamp of an event (`_` is the only option there).
+bodies with guards. A small type checker covers the six built-in types. There are no
+written frame conditions: the frame is *inferred* (`writes`), and the page says which
+written balances no guarantee describes. The spec cannot pin the timestamp of an event
+(`_` is the only option there), nor say *when* a call succeeds.
 
 ## Roadmap
 
-1. **Language:** a type checker, records, `match` and branches, loops with
+1. **Language:** records, `match` and branches, loops with
    invariants, and handlers declared in Kern with *assumed* specs (marked "assumed"
    on the proof page). Specs reaching the audit log is done (`emit`, v4).
 2. **Store:** definitions content-addressed by hash (the hash already exists) and

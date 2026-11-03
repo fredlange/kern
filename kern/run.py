@@ -61,6 +61,12 @@ HANDLERS = {
 }
 
 
+def _restore(world, snap):
+    """Roll back in place, so every reference the caller holds sees the rollback."""
+    world.__dict__.clear()
+    world.__dict__.update(snap.__dict__)
+
+
 class Interp:
     def __init__(self, defs):
         self.defs = defs
@@ -119,13 +125,29 @@ class Interp:
         return None
 
     def run(self, name, args, world):
-        """Atomic top-level call. Returns (outcome, world_after)."""
+        """Atomic top-level call. Returns (outcome, world_after).
+
+        Arguments are checked at the boundary, before anything runs: with the type checker,
+        accounts inside a body only ever come from parameters, so an unknown account can only
+        enter here. That keeps every outcome either ok or a declared (inferred) failure."""
+        d = self.defs[name]
+        if len(args) != len(d.params):
+            raise KernError(f"bad call: {name} takes {len(d.params)} argument(s), got {len(args)}")
+        for (p, t), a in zip(d.params, args):
+            if t == "Account" and (not isinstance(a, str) or a not in world.bal):
+                raise KernError(f"bad call: account {a!r} for `{p}` is not in the world")
+            if t == "Int" and (not isinstance(a, int) or isinstance(a, bool)):
+                raise KernError(f"bad call: `{p}` must be an Int, got {a!r}")
         snap = copy.deepcopy(world)
         try:
             self.call_def(self.defs[name], args, world)
             return ("ok",), world
         except Fail as f:
-            return (f.ctor, f.args_), snap
+            _restore(world, snap)
+            return (f.ctor, f.args_), world
+        except BaseException:          # runtime errors are atomic too: nothing the call did survives
+            _restore(world, snap)
+            raise
 
     def holds(self, d, args, pre, post):
         """Which keep/ensure/emit clauses fail for this (pre, post) pair. Returns [(kind, clause source)]."""

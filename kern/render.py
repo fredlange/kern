@@ -6,19 +6,29 @@ from __future__ import annotations
 import html
 
 from .infer import fails as inferred_fails
-from .views import EFFECTS, en, en_emits, en_ensure, en_refusal, lets_of
+from .infer import fmt_writes
+from .views import EFFECTS, en, en_emits, en_ensure, en_refusal, lets_of, unguaranteed_writes
 
-ICON = {"proven": "✔", "refuted": "✗", "conditional": "!", "unknown": "?"}
+ICON = {"proven": "✔", "refuted": "✗", "conditional": "!", "unknown": "?", "unconfirmed": "?",
+        "tested": "◐", "vacuous": "∅"}
 
 
 def _status(r):
     gs = r["guarantees"]
+    if any(g["status"] == "vacuous" for g in gs):
+        return "fail", "Never succeeds"
     if any(g["status"] == "refuted" for g in gs) or r["props"]["violations"] or not all(e["pass"] for e in r["examples"]):
         return "fail", "Broken guarantees"
+    if r.get("regression"):
+        return "warn", "Weaker than baseline"
     if not gs:
         return "warn", "No guarantees stated"
     if any(g["status"] == "conditional" for g in gs):
         return "warn", "Depends on unproven code"
+    if any(g["status"] == "unconfirmed" for g in gs):
+        return "warn", "Not proven: counterexample not reproduced"
+    if any(g["status"] == "tested" for g in gs):
+        return "warn", "Tested only, not proven"
     if any(g["status"] != "proven" for g in gs):
         return "warn", "Not proven: prover gave no answer"
     return "ok", "All guarantees proven"
@@ -39,11 +49,17 @@ def _how(g):
         if g.get("via_broken_spec"):
             return (f"Unknown: it fails according to the spec of {who}, but that spec is itself broken, "
                     f"and the interpreter did not reproduce the failure.")
-        return f"Proven only if the guarantees of {who} hold — and they currently do not."
-    if g["status"] == "refuted":
+        return f"Proven only if the guarantees of {who} hold — and they are not proven."
+    if g["status"] == "vacuous":
+        return f"Holds only vacuously: {html.escape(g['reason'])}."
+    if g["status"] == "tested":
+        return (f"Not proven. Held in all {g['tested']} random runs that succeeded"
+                + (f" ({html.escape(g['reason'])})." if g.get("reason") else "."))
+    if g["status"] in ("refuted", "unconfirmed"):
         cx = g["counterexample"]
         conf = (" Replayed in the interpreter: confirmed." if cx["confirmed_by_interpreter"]
-                else " Not reproduced in the interpreter.")
+                else " Not reproduced in the interpreter, so this is not evidence of a bug: a callee's "
+                     "spec may be too weak to prove the guarantee.")
         got = f" The audit log received: {html.escape(cx['emitted'])}." if g["kind"] == "emit" else ""
         return f"Fails for this input:<pre>{html.escape(cx['eg'])}</pre>{got}{conf}"
     if g.get("reason"):
@@ -60,15 +76,28 @@ def card(r, why):
 
     eff = ", ".join(EFFECTS.get(e, e) for e in sorted(r["uses"])) or "nothing"
     out.append(f'<h3>Can touch</h3><p>{eff}. <span class="muted">Inferred from the body; nothing else is reachable.</span></p>')
+    if r["writes"]:
+        out.append(f"<p>Changes balances of: {html.escape(fmt_writes(r['writes'], d))}. "
+                   f"<span class='muted'>Inferred; every other balance is unchanged.</span></p>")
+        silent = unguaranteed_writes(r)
+        if silent:
+            out.append("<p class='warnc'>No guarantee says what the new balance of " +
+                       ", ".join(f"<code>{p}</code>" for p in silent) + " is.</p>")
 
     rows = []
     for n in d.needs + [s for s in d.body if s[0] == "need"]:
         cond, _ = en_refusal(n, lets)
         detail = f" <span class='muted'>with</span> {', '.join(en(a, lets) for a in n[3])}" if n[3] else ""
         rows.append((cond, f"<code>{html.escape(n[2])}</code>{detail}"))
+    for cond, ctor, payload, origin in r["lifted"]:
+        if origin:                                  # own body needs are already listed above
+            text, _ = en_refusal(("need", cond, ctor, payload or []), {})
+            rows.append((text, f"<code>{html.escape(ctor)}</code> <span class='muted'>(from {origin})</span>"))
+    stated = {(origin, ctor) for _, ctor, _, origin in r["lifted"]}
     own = {n[2] for n in d.needs + d.body if n[0] == "need"}
     for c in r["callees"]:
-        inherited = [k for k in inferred_fails(r["defs"], r["defs"][c]) if k not in own]
+        inherited = [k for k in inferred_fails(r["defs"], r["defs"][c])
+                     if k not in own and not any(k == ctor for _, ctor in stated)]
         if inherited:
             rows.append((f"<code>{c}</code> refuses",
                          ", ".join(f"<code>{k}</code>" for k in inherited) + " <span class='muted'>(passed through)</span>"))
@@ -102,22 +131,39 @@ def card(r, why):
 
     m = r["mutation"]
     if m:
-        pct = round(100 * m["killed"] / m["total"]) if m["total"] else 100
-        out.append(f"<h3>Spec strength <span class='muted'>{m['killed']}/{m['total']} deliberate bugs caught ({pct}%)</span></h3>")
-        if m["survived"]:
-            out.append("<p>These changes to the body break nothing the spec promises — either the spec is "
-                       "missing a guarantee, or the code is unnecessary:</p><ul class='ex'>" +
-                       "".join(f"<li>{html.escape(s)}</li>" for s in m["survived"]) + "</ul>")
+        pct = round(100 * m["guarantee_killed"] / m["total"]) if m["total"] else 100
+        out.append(f"<h3>Spec strength <span class='muted'>guarantees catch {m['guarantee_killed']}/{m['total']} "
+                   f"deliberate bugs ({pct}%)</span></h3>"
+                   f"<p>Caught by the prover: {m['prover_killed']}; by random tests checking the guarantees: "
+                   f"{m['props_killed']}. The examples alone catch {m['example_killed']}/{m['total']}; "
+                   f"everything together {m['killed']}/{m['total']}.</p>")
+        if m["guarantee_missed"]:
+            out.append("<p>No guarantee rules out these changes to the body. Either a guarantee is missing, "
+                       "or the code is unnecessary:</p><ul class='ex'>" +
+                       "".join(f"<li>{html.escape(s)}" + (" <span class='muted'>(an example catches it)</span>"
+                               if ex else " <span class='failc'>(nothing catches it)</span>") + "</li>"
+                               for s, ex in m["guarantee_missed"]) + "</ul>")
+        if m["errors"]:
+            out.append("<p class='failc'>The checker crashed on these mutants (not counted):</p><ul class='ex'>" +
+                       "".join(f"<li>{html.escape(e)}</li>" for e in m["errors"]) + "</ul>")
     else:
         out.append("<h3>Spec strength</h3><p class='muted'>Not measured until every guarantee holds.</p>")
+
+    if r.get("regression"):
+        out.append("<h3>Weaker than baseline</h3><ul class='ex'>" +
+                   "".join(f"<li class='failc'>{html.escape(x)}</li>" for x in r["regression"]) + "</ul>")
 
     if r["relied_on"]:
         out.append("<h3>Relies on</h3><p>" + ", ".join(f"<code>{c}</code>" for c in r["relied_on"]) +
                    " — through their specs only, not their code.</p>")
 
     if why["count"]:
-        stale = ("<p class='failc'>Written for build " + why["anchored_to"] +
-                 "; the code has changed since. Confirm or update.</p>") if why["stale"] else ""
+        stale = ("<p class='failc'>Written for " + why["anchored_to"] + "; the definition or its inferred "
+                 "interface has changed since (now " + why["current"] + "). Confirm or update.</p>") if why["stale"] else ""
+        if why.get("obligations"):
+            stale += ("<p class='warnc'>These read like obligations. Anything that must be obeyed belongs "
+                      "in a need, keep, ensure or emit, not only in prose:</p><ul>" +
+                      "".join(f"<li>{html.escape(e)}</li>" for e in why["obligations"]) + "</ul>")
         out.append(f"<details><summary>Why ({why['count']})</summary>{stale}<ul>" +
                    "".join(f"<li>{html.escape(e)}</li>" for e in why["entries"]) + "</ul></details>")
     out.append("</section>")
@@ -141,26 +187,35 @@ table{border-collapse:collapse}td{padding:3px 14px 3px 0;vertical-align:top}
 ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line)}ul.g li:first-child{border-top:0}
 .ic{font-weight:700;width:16px;flex:none}li.proven .ic{color:var(--ok)}li.refuted .ic{color:var(--fail)}li.conditional .ic,li.unknown .ic{color:var(--warn)}
 .how{color:var(--muted);font-size:14px}.src{margin-top:2px;font-size:12px}ul.ex{margin:4px 0;padding-left:18px}
-.okc{color:var(--ok)}.failc{color:var(--fail)}details{margin-top:16px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;font-weight:600}
+.okc{color:var(--ok)}.failc{color:var(--fail)}.warnc{color:var(--warn)}details{margin-top:16px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;font-weight:600}
 """
 
 
-def page(reports, whys, title):
-    cards = "\n".join(card(r, whys[n]) for n, r in reports.items())
+def _orphan_html(orphans):
+    if not orphans:
+        return ""
+    return ("<section class='card'><h2>Orphaned why entries</h2><p class='failc'>These explain definitions "
+            "that no longer exist (renamed or deleted?):</p><ul>" +
+            "".join(f"<li><code>{html.escape(n)}</code>: {html.escape(e)}</li>" for n, es in orphans.items() for e in es)
+            + "</ul></section>")
+
+
+def page(reports, whys, title, orphans=None):
+    cards = "\n".join(card(r, whys[n]) for n, r in reports.items()) + _orphan_html(orphans)
     return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>Kern proof: {html.escape(title)}</title><style>{CSS}</style></head><body><main>"
             f"<h1>Proof page · {html.escape(title)}</h1><p class='sub'>Generated from verifier results by fixed templates — "
             f"no text here was written by a model.</p>{cards}</main></body></html>")
 
 
-def terminal(reports, whys):
+def terminal(reports, whys, orphans=None):
     out = []
     for n, r in reports.items():
         cls, label = _status(r)
         out.append(f"{n} [{r['hash']}]  {label}")
         for g in r["guarantees"]:
             line = f"  {ICON[g['status']]} {g['kind']} {g['clause']}"
-            if g["status"] == "refuted":
+            if g["status"] in ("refuted", "unconfirmed"):
                 line += f"\n      counterexample: {g['counterexample']['eg']}"
                 if not g["counterexample"]["confirmed_by_interpreter"]:
                     line += "   (not reproduced in the interpreter)"
@@ -168,19 +223,40 @@ def terminal(reports, whys):
                     line += f"\n      audit log got: {g['counterexample']['emitted']}"
             if g["status"] == "unknown" and g.get("reason"):
                 line += f"\n      cannot be proven: {g['reason']}"
+            if g["status"] == "vacuous":
+                line += f"\n      holds only vacuously: {g['reason']}"
+            if g["status"] == "tested":
+                line += f"   (not proven; held in {g['tested']} random successes)"
             if g["status"] == "conditional":
                 line += f"   (relies on {', '.join(g['blocked_by'])}, which is not proven)"
                 if g.get("via_broken_spec"):
                     line += "\n      refuted only via that broken spec; not reproduced in the interpreter"
             out.append(line)
+        if r["writes"]:
+            silent = unguaranteed_writes(r)
+            out.append(f"  writes {fmt_writes(r['writes'], r['def'])}" +
+                       (f"   (no guarantee about the new balance of {', '.join(silent)})" if silent else ""))
         ex = r["examples"]
         out.append(f"  examples {sum(e['pass'] for e in ex)}/{len(ex)}   random tests {r['props']['succeeded']}/"
                    f"{r['props']['runs']} reached success, {len(r['props']['violations'])} violations")
         if r["mutation"]:
             m = r["mutation"]
-            out.append(f"  spec strength {m['killed']}/{m['total']}" + "".join(f"\n      survived: {s}" for s in m["survived"]))
+            out.append(f"  spec strength: guarantees {m['guarantee_killed']}/{m['total']} "
+                       f"(prover {m['prover_killed']}, random tests {m['props_killed']}); "
+                       f"examples {m['example_killed']}/{m['total']}; together {m['killed']}/{m['total']}")
+            for s, ex in m["guarantee_missed"]:
+                out.append(f"      {'missed' if ex else 'survived'}: {s}" + ("   (an example catches it)" if ex else ""))
+            for e in m["errors"]:
+                out.append(f"      checker error: {e}")
+        for x in r.get("regression", []):
+            out.append(f"  WEAKER THAN BASELINE: {x}")
         w = whys[n]
         if w["count"]:
-            out.append(f"  why {w['count']}" + ("  STALE (code changed since written)" if w["stale"] else ""))
+            out.append(f"  why {w['count']}" + ("  STALE (definition or its interface changed since written)"
+                                                 if w["stale"] else ""))
+            for e in w.get("obligations", []):
+                out.append(f"      why reads like an obligation (move it to the spec?): {e}")
         out.append("")
+    for n, es in (orphans or {}).items():
+        out.append(f"ORPHANED why: {len(es)} entr{'y' if len(es) == 1 else 'ies'} for `{n}`, which does not exist")
     return "\n".join(out)

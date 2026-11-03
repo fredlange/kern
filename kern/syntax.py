@@ -70,14 +70,19 @@ class ExprParser:
             raise ParseError(f"unexpected {self.peek()[1]!r}", self.line_no)
 
     def expr(self):
+        """and/or (left-associative) over comparisons over sums."""
+        left = self.cmp()
+        while self.peek() in (("name", "and"), ("name", "or")):
+            op = self.take()[1]
+            left = ("bin", op, left, self.cmp())
+        return left
+
+    def cmp(self):
         left = self.sum()
         kind, val = self.peek()
         if kind == "op" and val in CMP:
             self.take()
             return ("bin", val, left, self.sum())
-        if kind == "name" and val in ("and", "or"):
-            self.take()
-            return ("bin", val, left, self.expr())
         return left
 
     def sum(self):
@@ -182,6 +187,13 @@ class Def:
         if self.emits:                      # only when present, so older definitions keep their hash
             parts += (self.emits,)
         canon = repr(parts)
+        return hashlib.sha256(canon.encode()).hexdigest()[:8]
+
+    @property
+    def content_hash(self) -> str:
+        """Everything, examples included: the key for a content-addressed store. `hash` leaves
+        examples out on purpose (they are evidence, not semantics, so they don't stale a why)."""
+        canon = repr((self.hash, [e.src for e in self.examples]))
         return hashlib.sha256(canon.encode()).hexdigest()[:8]
 
 

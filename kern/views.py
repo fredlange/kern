@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 
-from .infer import fmt_fails, fmt_uses
-from .syntax import _side, code
+from .infer import fmt_fails, fmt_uses, fmt_writes
+from .syntax import _side, atom_code, code
 
 try:
     import anthropic
@@ -31,6 +31,8 @@ def iface(r, why):
     """What a caller that only needs to *use* the definition reads."""
     d = r["def"]
     lines = [d.src_lines["header"][0], f"  uses {fmt_uses(r['uses'])}"]
+    if r["writes"]:
+        lines.append(f"  writes {fmt_writes(r['writes'], d)}")
     if r["fails"]:
         lines.append(f"  fails {fmt_fails(r['fails'])}")
     if why["count"]:
@@ -43,6 +45,7 @@ def spec(r, why):
     d = r["def"]
     lines = [iface(r, why)]
     lines += [f"  {l}" for l in d.src_lines["spec"] if not l.startswith("eg ")]
+    lines += [f"  {l}" for l in body_needs(r)]
     lines.append(_proof_line(r))
     return "\n".join(lines)
 
@@ -60,10 +63,39 @@ def editor(reports, name, whys):
 # ---------- English rendering for the human proof page (templates, no model) ----------
 
 NAMES = {"ledger.balance": "balance of {0}", "ledger.owner": "owner of {0}", "ledger.total": "total money in the ledger"}
-OPS = {"=": "=", "!=": "≠", ">=": "≥", "<=": "≤", ">": ">", "<": "<", "+": "+", "-": "−", "and": "and", "or": "or"}
+OPS = {"=": "=", "!=": "≠", ">=": "≥", "<=": "≤", ">": "&gt;", "<": "&lt;", "+": "+", "-": "−", "and": "and", "or": "or"}
 NEG = {"=": "!=", "!=": "=", ">=": "<", "<=": ">", ">": "<=", "<": ">="}
 EFFECTS = {"ledger.write": "the ledger (read and write)", "ledger.read": "the ledger (read only)",
            "clock": "the clock", "audit": "the audit log"}
+
+
+def body_needs(r):
+    """The definition's own body-level refusal conditions, in `need` syntax, marked `body`.
+
+    Inherited ones (from callees) are left to the callee's own spec view: showing them here
+    measured 176 vs 90 tokens for payout's spec view (docs/FIXES.md, step 8). The prover and the
+    proof page use the full lifted set."""
+    out = []
+    for cond, ctor, payload, origin in r["lifted"]:
+        if origin:
+            continue
+        fail = " ".join([ctor] + [atom_code(a) for a in (payload or [])])
+        out.append(f"body need {code(cond)} else {fail}")
+    return out
+
+
+def unguaranteed_writes(r):
+    """Written balances that no `ensure` describes the after-value of (informational)."""
+    d, said = r["def"], set()
+
+    def walk(e):
+        if e[0] == "app" and e[1] == ("ledger.balance", True) and e[2][0][0] == "name":
+            said.add(e[2][0][1])
+        for sub in (e[2:4] if e[0] == "bin" else e[2] if e[0] == "app" else []):
+            walk(sub)
+    for c in d.ensures:
+        walk(c)
+    return [p for p, _ in d.params if p in r["writes"] and p not in said]
 
 
 def _has_prime(e):

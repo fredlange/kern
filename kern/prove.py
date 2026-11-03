@@ -7,7 +7,7 @@ import itertools
 
 import z3
 
-from .infer import uses
+from .infer import ANY_ACCOUNT, lifted, uses, writes
 from .run import Interp, World
 from .syntax import code, emit_code
 
@@ -95,9 +95,15 @@ class Prover:
         env = {p: v for (p, _), v in zip(callee.params, args)}
         for n in callee.needs:                     # success path: callee's guards passed
             self.pc.append(self.sev(n[1], env, S))
+        for cond, *_ in lifted(self.defs, callee):  # ... and its inferred body-level guards
+            self.pc.append(self.sev(cond, env, S))
         pre = S.copy()
-        if "ledger.write" in uses(self.defs, callee):
+        written = writes(self.defs, callee)       # inferred frame: every other balance is unchanged
+        if ANY_ACCOUNT in written:
             S.bal = z3.Array(f"bal{next(_fresh)}", z3.IntSort(), z3.IntSort())
+        for p in sorted(written - {ANY_ACCOUNT}):
+            S.bal = z3.Store(S.bal, env[p], fresh_int(f"bal_{p}_"))
+        if written:
             S.total = fresh_int("total")
         for c in callee.ensures:
             self.pc.append(self.sev(c, env, pre, S))
@@ -132,9 +138,11 @@ class Prover:
         env = {p: z3.Int(p) for p, _ in d.params}
         params = dict(env)
         self.pc, S = [], pre.copy()
+        own_pc = []                                # the definition's own needs, without callee specs
         for s in d.needs + d.body:
             if s[0] == "need":
-                self.pc.append(self.sev(s[1], env, S))
+                own_pc.append(self.sev(s[1], env, S))
+                self.pc.append(own_pc[-1])
             elif s[0] == "let":
                 env[s[1]] = self.sev(s[2], env, S)
             else:
@@ -151,6 +159,13 @@ class Prover:
                               "reason": why_unknown}
             else:
                 goals.append(("emit", d.emits, text, g))
+        vacuous = self.vacuity(own_pc)
+        if vacuous:
+            out = [{"kind": kind, "expr": c, "clause": text, "status": "vacuous", "reason": vacuous}
+                   for kind, c, text, _ in goals]
+            if unknowable:
+                out.append(dict(unknowable, status="vacuous", reason=vacuous))
+            return out, sorted(self.relied_on)
         for kind, c, text, g in goals:
             solver = z3.Solver()
             solver.set("timeout", 5000)
@@ -167,13 +182,30 @@ class Prover:
                     if t == "Account":
                         nice.add(z3.Select(pre.bal, v) >= 0, z3.Select(pre.bal, v) <= 1000,
                                  z3.Select(pre.own, v) >= 0, z3.Select(pre.own, v) <= 1)
-                results.append({"kind": kind, "expr": c, "clause": text, "status": "refuted",
-                                "counterexample": self.find_cex(d, nice, solver, params, pre)})
+                cx = self.find_cex(d, nice, solver, params, pre)
+                # a counterexample the interpreter does not reproduce is not evidence of a bug
+                results.append({"kind": kind, "expr": c, "clause": text, "counterexample": cx,
+                                "status": "refuted" if cx["confirmed_by_interpreter"] else "unconfirmed"})
             else:
                 results.append({"kind": kind, "expr": c, "clause": text, "status": "unknown"})
         if unknowable:
             results.append(unknowable)
         return results, sorted(self.relied_on)
+
+    def vacuity(self, own_pc):
+        """If no input can succeed, every guarantee holds trivially. Say so, and say whose fault."""
+        s = z3.Solver()
+        s.set("timeout", 5000)
+        s.add(*self.pc)
+        if s.check() != z3.unsat:
+            return None
+        s = z3.Solver()
+        s.set("timeout", 5000)
+        s.add(*own_pc)
+        if s.check() == z3.unsat:
+            return "no input passes its own needs, so the call never succeeds"
+        who = ", ".join(sorted(self.relied_on))
+        return f"no input succeeds given the specs of {who} (they contradict each other or its needs)"
 
     def find_cex(self, d, nice, solver, params, pre):
         """A modular proof only knows a callee's spec, so the first model may pick inputs on which a

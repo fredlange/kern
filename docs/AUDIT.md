@@ -9,7 +9,30 @@ feature (ledger v4), plus this audit's rendering fixes. Fundamentals:
 Each probe was run, not argued. Numbers come from the commands or tests named.
 Token counts use the `anthropic==0.34.2` tokenizer (an older one, so approximate).
 
-## Summary
+## Status after the fix pass
+
+Every suggested fix has been made; [FIXES.md](FIXES.md) has each step with its
+before/after evidence. Tests: **81 passed, 2 xfailed** (was 37 passed, 23 xfailed).
+The two remaining strict xfails are tier ○ and record/replay, both roadmap step 4.
+
+| # | At audit | After fixes | What closed it | What remains |
+|---|---|---|---|---|
+| F1 | partial | **holds** | lifted refusal conditions (`body need`) in views, prover and page | conditions after the first write that read balances aren't liftable; views show only own body needs (inherited ones ≈ 2× tokens) |
+| F2 | violated | **holds** | well-formedness pass (no shadowing, no recursion); in-place rollback on any exception | recursion is rejected rather than supported |
+| F3 | partial | **partial** | inferred write set on page and views; "no guarantee about the new balance of …"; baseline flags removed guarantees | a guarantee can't say *when* a call succeeds |
+| F4 | holds / partial | **holds** | pure specs; bad calls rejected at the boundary; every valid outcome is ok or an inferred failure | — |
+| F5 | partial | **holds** (except ○) | tiers ∅ ? ◐; strength headline = guarantees; ✗ only when replayed | ○ runtime-checked (roadmap 4) |
+| F6 | partial | **holds** | interface-anchored why; orphans reported; obligation lint; `content_hash` | the lint is a keyword heuristic |
+| F7 | holds / partial | **partial** | static name resolution; types | record/replay (roadmap 4) |
+| F8 | partial | **holds** | ill-formed mutants excluded; payload mutants; baseline | 150 random runs per mutant is a cost trade-off |
+| F9 | holds | **holds** | — | `writes` (+4) and `body need` (+20 where present) raise view tokens; measured in FIXES.md |
+
+**Correction to this audit:** F2 below says rollback on declared failures holds.
+It didn't. `Interp.run` returned a snapshot copy, but the caller's own world object
+stayed half-mutated, and the test only checked the returned value. That was found
+while planning the fix and fixed in step 2.
+
+## Summary (at audit time)
 
 | # | Fundamental | Status | Evidence | Gap | Suggested fix | Effort |
 |---|---|---|---|---|---|---|
@@ -52,7 +75,9 @@ never the body), `Prover.prove`, `kern/report.py` trust propagation,
   (rule 1), but it means "spec only" really means "spec + inferred interface".
 - **Holds: rollback on hidden callee failures.** When payout's second transfer hits
   the body-level `Insufficient`, balances *and* the audit log equal the snapshot
-  (`test_f2_hidden_callee_failure_rolls_back_whole_call`). 2,000 random payouts (some
+  (`test_f2_hidden_callee_failure_rolls_back_whole_call`). **Correction:** this
+  checked only the returned value; the caller's own object stayed mutated (fixed in
+  FIXES.md step 2). 2,000 random payouts (some
   refused with `Insufficient`) show no guarantee violations
   (`test_f2_modular_proof_agrees_with_execution_on_hidden_failures`). The
   atomic-rollback argument is sound for declared failures.

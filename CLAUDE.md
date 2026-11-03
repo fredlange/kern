@@ -7,7 +7,8 @@ from the design conversation, so they don't need re-deriving.
 
 Design fundamentals and the three bets: [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md).
 Latest audit against them (status per fundamental, ranked gaps):
-[docs/AUDIT.md](docs/AUDIT.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
+[docs/AUDIT.md](docs/AUDIT.md). Fix pass with before/after evidence per step:
+[docs/FIXES.md](docs/FIXES.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
 
 ## Goal (as stated by Fredrik)
 
@@ -97,7 +98,8 @@ page are the same mechanism. The prover follows the same rule: calls are verifie
 ```
 kern/syntax.py    lexer and parser; AST is plain tuples; code() prints it back
 kern/run.py       interpreter; HANDLERS table (ledger/clock/audit); atomic run()
-kern/infer.py     uses / fails / callees inference
+kern/wf.py        well-formedness + type check; runs before anything is proven or run
+kern/infer.py     uses / fails / writes / lifted (body-level refusal conditions) inference
 kern/prove.py     symbolic execution to Z3; modular calls (callee spec, then
                   havoc the state, then assume its ensures); counterexample -> eg line,
                   replayed in the interpreter
@@ -106,10 +108,10 @@ kern/report.py    runs all checks; trust propagation (callers downgraded to
                   "conditional" if a callee is not clean)
 kern/views.py     iface / spec / editor views + token counts; English templates
 kern/render.py    proof page HTML + terminal output
-kern/why.py       .why store, hash anchoring, staleness
+kern/why.py       .why store, interface-anchored hash, staleness, orphans, obligation lint
+kern/baseline.py  ratchet baseline (<module>.strength): flags weakened specs
 examples/ledger_v1..v4.k, ledger.why, ledger_v4.why    the demo loop (see README)
-examples/ledger_large.k   7 defs, 4-deep chain; F9 token measurements (rebalance is
-                          correct but shown refuted: no frame conditions)
+examples/ledger_large.k   7 defs, 4-deep chain; F9 token measurements
 tests/test_fundamentals.py  adversarial audit tests, one section per fundamental
 ```
 
@@ -120,42 +122,33 @@ for token counts).
 ### Known limitations
 
 - The domain is hard-coded: the ledger, clock and audit handlers are written in Python.
-- Only `Int` and `Account` types; no type checker beyond arity checks.
+- Types: only `Int` and `Account` parameters (plus internal Owner/Bool/Event/Unit); no
+  records, no return values. Recursion is rejected (no termination measures yet).
 - Bodies are straight-line plus guards only: no branches, `match` or loops.
-- No frame conditions: an `ensure` can't say "other accounts are unchanged".
-- Audit spec (`emit`, added in v4) is exact-sequence only. `_` is the only way to
-  mention the timestamp, because `clock.now` advances on each read, so a spec can't
-  say "stamped with the call's time". There is no way to say "emits nothing" (no
-  clause means unconstrained). Examples (`eg`) can't assert audit events.
-- Counterexamples from modular proofs can pick inputs that a callee's *body* refuses
-  (its success condition isn't fully in its spec). `find_cex` retries with an
-  optimized model; a refutation that only holds against a broken callee spec and
-  doesn't replay is shown as conditional.
-- **Unsound (found in audit):** a `let` that shadows a parameter changes what an
-  `ensure` means in the prover (✔ while the body is wrong); recursion is "proven" by
-  assuming the definition's own spec; mutual recursion crashes `check`. Root cause:
-  no well-formedness/type pass before proving.
-- Spec strength is dominated by examples: v4 transfer with every keep/ensure
-  deleted still scores 13/13. Ill-formed mutants count as kills (1 in v3 transfer);
-  failure payloads are never mutated.
-- Vacuous specs (unsatisfiable success path) and frame-less modular proofs give a
-  false green (extra writes elsewhere) or a false ✗ (`rebalance`).
-- Atomic rollback happens only on declared failures; a runtime error mid-body leaves
-  the world mutated.
-- Unknown names aren't a static error (`uses` ignores them, the prover crashes).
-  Values follow Python semantics (`from + to` = `'AB'`). Specs aren't checked for
-  purity.
-- Why store: orphans (rename/delete) are silent; the hash excludes `eg` and the
-  inferred interface, so callee changes never stale a caller's why.
-- `need a > 0 and b < 10` doesn't parse (`and` after a comparison).
-- Tiers ◐/○ aren't implemented.
+- Frames are *inferred* (`writes`), not written; a guarantee still can't say *when* a
+  call succeeds, so mutants that change refusal conditions are caught only by
+  examples (v4 transfer: guarantees 9/13, together 13/13).
+- Audit spec (`emit`) is exact-sequence only; `_` is the only way to mention the
+  timestamp (`clock.now` advances per read; whether it should be fixed per call is
+  an open question). No way to say "emits nothing". `eg` can't assert audit events.
+- Lifted refusal conditions (`body need`) stop at the first ledger write; later ones
+  that read balances aren't visible to callers. Agent views show only a definition's
+  *own* body needs (inherited ones measured at ~2x the spec-view tokens).
+- Counterexamples from modular proofs may not replay; those show as `?` unconfirmed,
+  never ✗. Within one long-running process, Z3's witness choice can depend on earlier
+  solver calls, which can flip a mutant between refuted and unconfirmed (CLI runs are
+  reproducible).
+- Mutation tests use 150 random runs per mutant; the `settle` audit mutant needed 500
+  to be caught by random tests (the prover now catches it).
+- The obligation lint for `why` is a keyword heuristic.
+- Tier ○ (runtime-checked) and record/replay are not implemented (roadmap 4).
 - Application arguments must be atoms; nested calls need parentheses. An open
   design question is whether to parse by arity instead, using known interfaces.
 - The `.why` file is chosen with `--why`, defaulting to `<module>.why`.
 
 ## Roadmap (agreed order)
 
-1. **Language:** records, a type checker, `match`/branches, loops with invariants.
+1. **Language:** records, `match`/branches, loops with invariants (a minimal type checker exists).
    Handlers declared *in Kern* with assumed specs (shown as "assumed" on the proof
    page). ~~Specs reaching the audit log~~ done: `emit Ctor args` (8 tokens; the
    `ensure audit...` forms measured 13–15), exact appended sequence, `_` wildcard.
