@@ -41,16 +41,22 @@ def _rand_args(d, accts, rnd):
 def proptest(defs, d, n=500, seed=1):
     rnd, interp = random.Random(seed), Interp(defs)
     times = random.Random(seed + 1_000_003)     # separate stream: adding time must not reshuffle worlds
-    states = random.Random(seed + 2_000_003)    # ... nor adding declared state
+    per_state = {}                              # ... nor adding declared state
     stats = {"runs": n, "succeeded": 0, "failures": {}, "violations": []}
+    from .infer import relevant_states, uses
+    touched = uses(defs, d)
+    states_used = relevant_states(defs, d)     # the state the call or its spec can see
+    checks_invariants = any(e.endswith(".write") or e == "ledger.write" for e in touched)
     for _ in range(n):
         accts = ["A", "B", "C"]
         w = World({a: rnd.randint(0, 1000) for a in accts}, {a: rnd.choice(["u1", "u2"]) for a in accts},
                   times.randint(0, 100))
-        for x, key_type in getattr(defs, "states", {}).items():
+        for x, key_type in states_used.items():
             keys = accts if key_type == "Account" else range(-5, 6)   # Int args hit -5..5 a third of the time
-            # mostly 0 or 1 (flags, empty slots), sometimes a larger value
-            w.maps[x] = {k: states.choice([0, 0, 1, states.randint(0, 300)]) for k in keys}
+            # mostly 0 or 1 (flags, empty slots), sometimes a larger value; one stream per state, so
+            # which states are drawn does not change the values of the others
+            r = per_state.setdefault(x, random.Random(f"{seed}:{x}"))
+            w.maps[x] = {k: r.choice([0, 0, 1, r.randint(0, 300)]) for k in keys}
         args = _rand_args(d, accts, rnd)
         before = w.copy()
         try:
@@ -61,7 +67,7 @@ def proptest(defs, d, n=500, seed=1):
         if outcome == ("ok",):
             stats["succeeded"] += 1
             broken = [("invariant", text) for text, _ in interp.broken_invariants(after)] \
-                if not interp.broken_invariants(before) else []
+                if checks_invariants and not interp.broken_invariants(before) else []
             for kind, c in interp.holds(d, args, before, after) + broken:
                 if len(stats["violations"]) < 3:
                     world = " ".join(f"{a}:{before.bal[a]}@{before.own[a]}" for a in accts) + f" now:{before.clock}"

@@ -146,6 +146,8 @@ class Interp:
             return self.call_def(self.defs[name], args, world)
         if name[:1].isupper():
             return (name, *args)            # constructor value
+        if name == "distinct":
+            return len(set(args)) == len(args)
         raise KernError(f"unknown name {name!r}")
 
     def call_def(self, d, args, world):
@@ -153,7 +155,7 @@ class Interp:
             raise KernError(f"{d.name} takes {len(d.params)} argument(s), got {len(args)}")
         env = {p: a for (p, _), a in zip(d.params, args)}
         self.block(d.needs + d.body, env, world)
-        return None
+        return env.get("result")                 # functions (-> Int) set it; others return nothing
 
     def block(self, stmts, env, world):
         for s in stmts:
@@ -183,7 +185,7 @@ class Interp:
                 raise KernError(f"bad call: `{p}` must be an Int, got {a!r}")
         snap = world.copy()
         try:
-            self.call_def(self.defs[name], args, world)
+            self.last_result = self.call_def(self.defs[name], args, world)
             outcome = ("ok",)
         except Fail as f:
             _restore(world, snap)
@@ -197,6 +199,8 @@ class Interp:
     def holds(self, d, args, pre, post):
         """Which keep/ensure/emit clauses fail for this (pre, post) pair. Returns [(kind, clause source)]."""
         env = {p: a for (p, _), a in zip(d.params, args)}
+        if d.ret:
+            env["result"] = getattr(self, "last_result", None)
         bad = []
         for kind, clauses in (("keep", d.keeps), ("ensure", d.ensures)):
             for c in clauses:

@@ -310,3 +310,134 @@ references brought it to the numbers above.
 - **The mutants-per-definition denominator fell (14.7 → 10.4).** The cause is many
   small new definitions (freeze, set_limit, reset_day: 1–4 mutants each), not needs
   moved into specs: the restated and referenced versions have the same 271 mutants.
+
+## Size 3: subscriptions, loyalty, chargebacks, holdback, carts (`examples/escrow_s3.k`)
+
+**Program:** 55 definitions. Size 2's 26 are adapted: a tiered `fee_for`, `distinct`,
+KYC before withdrawals, and capture_order records what was captured. Plus:
+- 5 pure functions: `fee_for`, `vat_of`, `points_for`, `holdback_for`, `late_fee`;
+- KYC: `verify`, `unverify`;
+- loyalty: `earn_points`, `redeem_points`, `clear_points`, `transfer_points`,
+  `purchase_earning`, `checkout_points`;
+- subscriptions: `subscribe`, `change_sub`, `cancel_sub`, `pause_sub`, `resume_sub`,
+  `charge_sub`, `charge_sub_with_points`, `charge_late`;
+- `chargeback`;
+- holdback: `payout_holdback`, `release_holdback`;
+- carts: `checkout2`, `checkout_vat`, `checkout_tip`;
+- accounts: `close_account`, `reopen_account`.
+
+There are 13 declared states, 6 invariants, and a maximum depth of 4. Every
+definition except the 5 functions uses `ok otherwise`.
+
+**Features added:**
+- **Pure functions, `name params -> Int`.** No `need` (total), no state or effects
+  (pure), and every path sets `result`. Specs may call them; specs still can't call
+  anything else.
+  - The prover treats a call modularly: an uninterpreted function (same arguments,
+    same result) plus the function's ensures. The body is never read.
+  - A spec that names a function puts it among the callees, so it appears in the
+    editor view.
+  - This took the fee formula out of every caller's spec: capture says
+    `ledger.balance seller + amount - fee_for amount`, with no tier cases.
+- **`distinct a b c`:** pairwise different. The page says "two of a, b and c are the
+  same → SameAccount".
+- **Speed:**
+  - Random worlds and counterexamples only carry the state a definition or its spec
+    can see (13 states made random-world setup 9.7 s).
+  - Invariants are only checked by definitions that write.
+  - Conditional emit matching evaluates each expected event once.
+  - Together: 0.35 → 0.27 s per definition.
+- **Bug I introduced and fixed on the way:** the first version of "state a
+  definition can see" left out state that only the *spec* reads. unfreeze with its
+  `frozen.set` dropped then gave a counterexample that didn't replay (unconfirmed,
+  so not a kill). The strength drop gave it away (size 2: 270 → 268). It's fixed,
+  and there's a regression test.
+- **Tests:** 140 → 161.
+
+**The prover found three real spec bugs while I wrote size 3:**
+- **checkout_tip, ✗:** purchase_order allows the buyer to be the seller, and tipping
+  yourself refuses (SameAccount).
+- **checkout_points, ✗:** same aliasing, so the buyer's balance isn't `- amount`.
+- **checkout2, `?`:** purchase_order only describes the buyer's balance `when buyer !=
+  seller and buyer != house`, so the second order couldn't be proven. Reported as
+  "not reproduced", never ✗.
+
+All three were fixed with `distinct`. One more ratchet step (F8): tip gained `ensure
+ledger.balance' buyer = …`. Its page had warned "no guarantee about the new balance
+of buyer", and checkout_tip needed exactly that guarantee.
+
+**Workarounds, compared with size 2:**
+
+| # | Size 2 | Size 3 |
+|---|---|---|
+| 3 | holds per order, not tied to the escrow balance | same |
+| 5 | aliasing guards everywhere | **shorter** (`distinct`), still everywhere |
+| 6 | callee conditions after a write restated | **7 definitions** (purchase, purchase_order, refund, payout_holdback, checkout2, checkout_vat, checkout_tip) |
+| 7 | no loops (batch work left out) | same |
+| 8 | (new) no Account-valued state: orders don't remember their parties | every order and subscription operation takes buyer/seller/escrow as parameters and re-checks their aliasing |
+
+Definitions with #6: 7/55 = 13% (size 2: 3/26 = 12%).
+
+### Scorecard, size 3 vs size 2
+
+| | size 1 | size 2 | size 3 |
+|---|---|---|---|
+| definitions / max depth | 10 / 3 | 26 / 3 | 55 / 4 |
+| clean / unconfirmed | 10/10 / 0 | 26/26 / 0 | 55/55 / 0 |
+| guarantees proven | 51 | 172 | 323 |
+| guarantee strength | 146/147 | 270/271 | 582/589 |
+| … of which equivalent survivors | 1 | 1 | 7 |
+| reading ratio, median | 0.69 | 0.62 | **0.60** |
+| reading ratio, depth 1 / 2 / 3 / 4 | 0.81 / 0.59 / 0.63 / – | 0.80 / 0.62 / 0.43 / – | 0.83 / **0.61 / 0.42 / 0.33** |
+| reading ratio, deepest | 0.69 | 0.50 | **0.36** |
+| check s per definition | 0.15 | 0.17 | 0.27 |
+| source tokens: spec / body | 1351 / 199 | 2483 / 524 | 4550 / 1127 |
+
+**Verdict, against the pre-registered rules:**
+- **Floors:** all hold. Outputs for v3–v7 and ledger_large are identical, except
+  the recorded v6 witness, and hashes are unchanged.
+- **Improved:**
+  - **Reading ratio:** median, depth 2, depth 3, deepest; depth 4 is new at 0.33.
+    The central claim's trend now points the right way: the deeper a definition,
+    the less of the code below it an agent loads (a third at depth 4).
+- **Worse, with causes:**
+  - **Depth 1, 0.80 → 0.83.** Like for like it's flat: four definitions equal,
+    capture better, withdraw +0.03 because I added the KYC need. The median moved
+    because new thin wrappers over a function or leaf joined (earn_points 0.91,
+    reopen_account 0.91). Not the structural cause, but at depth 1 views save
+    little, and that's a fact about the design.
+  - **Guarantee strength, 99.6% → 98.8%.** All 7 survivors are equivalent mutants:
+    5 functions are continuous piecewise, so moving a tier boundary by one changes
+    nothing; the 7th is refund's, as before. That's a limit of the measurement,
+    not a weaker spec. Proving equivalence for functions would remove it (not
+    done).
+  - **Check time per definition, 0.17 → 0.27 (1.6×).** Within the 2× floor, but the
+    trend is up. The cause is structural: exact audit specs accumulate the events of
+    the whole call tree (checkout2 lists 15) and matching conditional events is
+    quadratic. checkout2 alone takes 4 s.
+- **So nothing triggers the stop rule.** Size 3 is the review point.
+
+## Across the three sizes: what to discuss at the review
+
+1. **The reading ratio falls with depth (0.8 → 0.6 → 0.4 → 0.33), but depth 1
+   saves only about 20%.** Most of an editor view is the callees' *specs*, and
+   specs here are 4× the bodies. Views save a lot only when the code under a
+   definition is deep. That's the central claim, measured on one app I wrote
+   myself; roadmap step 3 (agents doing tasks) is still the real test.
+2. **Restating vs inheriting refusals:** inheriting was measured worse on every
+   trend and reverted. Written references (`need as`, `emit as`) gave the token
+   savings without losing strength. This overrules F4 for refusals, on measurement,
+   and is yours to overturn.
+3. **Refusals after a write must be restated by hand (7 definitions).** Fixing that
+   needs the prover to translate a callee's conditions through earlier callees'
+   ensures. That's the hard part I skipped.
+4. **Loops aren't done.** Batch work (release every expired hold) needs quantified
+   loop invariants ("every order below i is released"). Without them a loop can't
+   get an exact `emit` or frame spec, so it can't meet the floors. This is the
+   biggest open piece of bet 1.
+5. **Exact audit specs grow with the call tree,** and so does check time. An
+   "emits at least / in this order among others" form, or summarising callee events
+   by reference, would cap that. Not built.
+6. **The app is mine.** The specs, the program and the measurements were all
+   written by the same agent. A second author, or your domain, would test bets 2
+   and 3.

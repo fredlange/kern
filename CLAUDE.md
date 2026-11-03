@@ -9,7 +9,8 @@ Design fundamentals and the three bets: [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS
 Latest audit against them (status per fundamental, ranked gaps):
 [docs/AUDIT.md](docs/AUDIT.md). Fix pass with before/after evidence per step:
 [docs/FIXES.md](docs/FIXES.md). Scaling an app in three sizes, with a pre-registered scorecard:
-[docs/SCALE.md](docs/SCALE.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
+[docs/SCALE.md](docs/SCALE.md). How Kern reaches the OS (SQLite state, outbox, recorded clock,
+HTTP/console, replay; `kern/host.py`): [docs/HOST.md](docs/HOST.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
 
 ## Goal (as stated by Fredrik)
 
@@ -115,8 +116,12 @@ examples/ledger_v1..v7.k, ledger.why, ledger_v4..v7.why  the demo loop (see READ
 examples/ledger_large.k   7 defs, 4-deep chain; F9 token measurements
 examples/escrow_s1.k      scale size 1 (docs/SCALE.md): escrow with branches
 examples/escrow_s2.k      scale size 2: declared state, invariants, `need as` / `emit as`
+examples/escrow_s3.k      scale size 3: 55 defs, pure functions (-> Int) usable in specs, `distinct`
 kern/scorecard.py         `kern score FILE.k`: the per-size scorecard of docs/SCALE.md
+kern/host.py              OS boundary (docs/HOST.md): SQLite state, outbox, recorded clock,
+                          HTTP + console front ends, replay, permission manifest, proof gate
 tests/test_fundamentals.py  adversarial audit tests, one section per fundamental
+tests/test_host.py        host = interpreter (random equivalence), atomicity, at-least-once, replay
 ```
 
 Run: `python -m kern check examples/ledger_v3.k --why examples/ledger.why --html out/proof.html`.
@@ -132,7 +137,8 @@ for token counts).
   the callee runs first (otherwise the prover refutes it and the caller restates).
 - Arithmetic is linear: `*` needs a literal on one side, `/` a positive literal on the right.
 - Types: only `Int` and `Account` parameters (plus internal Owner/Bool/Event/Unit); no
-  records, no return values. Recursion is rejected (no termination measures yet).
+  records. Return values only for pure, total functions (`-> Int`, set `result`), which specs
+  may call (modularly: uninterpreted + their ensures). Recursion is rejected (no termination measures yet).
 - Bodies are guards plus `if`/`else` blocks (the prover forks a path per branch; paths grow as
   2^ifs per body). No `match` or loops. Specs have `ensure E when C` and `emit … when C`.
 - Frames are *inferred* (`writes`), not written.

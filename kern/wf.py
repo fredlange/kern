@@ -114,12 +114,17 @@ class _Checker:
                 want, result = SIG[name]
             return self.check_args(where, name, want, arg_types, result)
         if name in self.defs:
-            if spec:
-                self.err(where, f"specs cannot call definitions (`{name}`)")
+            fn = self.defs[name].ret                      # `-> Int`: a pure, total function
+            if spec and not fn:
+                self.err(where, f"specs cannot call definitions (`{name}`); only functions (`-> Int`)")
             if primed:
                 self.err(where, f"`{name}'`: only handler reads have an after-state")
             want = [t for _, t in self.defs[name].params]
-            return self.check_args(where, name, want, arg_types, "Unit")
+            return self.check_args(where, name, want, arg_types, "Int" if fn else "Unit")
+        if name == "distinct":                        # `distinct a b c`: pairwise different
+            if len(args) < 2 or len(set(t for t in arg_types if t != ANY)) > 1:
+                self.err(where, "`distinct` takes two or more values of one type")
+            return "Bool"
         if name[:1].isupper():
             for a, t in zip(args, arg_types):
                 if TYPES and t == "Unit":
@@ -151,8 +156,17 @@ class _Checker:
             if p in params:
                 self.err("header", f"parameter `{p}` appears twice")
             params[p] = t if t in PARAM_TYPES else ANY
+        if d.ret and d.ret != "Int":
+            self.err("header", "a function returns Int")
         if d.ret:
-            self.err("header", "return values are not supported yet")
+            from .infer import uses
+            if any(s[0] == "need" for s in d.needs + list(_flat(d.body))):
+                self.err("header", "a function (-> Int) is total: no `need`")
+            if uses(self.defs, d):
+                self.err("header", "a function (-> Int) is pure: it may not read or change state")
+            if not _assigns(d.body):
+                self.err("body", "every path must set `result`")
+            params["result"] = "Int"                      # specs (ensure) may name the result
         for n in d.needs:
             where = f"need {code(n[1])}"
             self.expect(where, self.ty(n[1], params, where, spec=True), "Bool")
@@ -188,12 +202,15 @@ class _Checker:
             elif s[0] == "let":
                 where = f"{s[1]} = {code(s[2])}"
                 t = self.ty(s[2], scope, where, spec=False)
+                if s[1] == "result" and self.d.ret:       # each path sets it once (checked by _assigns)
+                    scope.pop("result", None)
                 if s[1] in scope or s[1] in self.used or is_handler(self.defs, s[1]) or s[1] in self.defs:
                     self.err(where, f"`{s[1]}` shadows an existing name")
                 if TYPES and t == "Unit":
                     self.err(where, "has no value (Unit)")
                 scope[s[1]] = t
-                self.used.add(s[1])
+                if s[1] != "result":
+                    self.used.add(s[1])
             elif s[0] == "need":
                 where = f"need {code(s[1])}"
                 self.expect(where, self.ty(s[1], scope, where, spec=False), "Bool")
@@ -206,6 +223,21 @@ class _Checker:
                 t = self.ty(s[1], scope, where, spec=False)
                 if TYPES and t not in ("Unit", ANY):
                     self.err(where, f"value of type {t} is computed and discarded")
+
+
+def _flat(stmts):
+    from .syntax import flat
+    return flat(stmts)
+
+
+def _assigns(stmts):
+    """Every path through stmts sets `result`."""
+    for s in stmts:
+        if s[0] == "let" and s[1] == "result":
+            return True
+        if s[0] == "if" and _assigns(s[2]) and _assigns(s[3]):
+            return True
+    return False
 
 
 def problems(defs, d):

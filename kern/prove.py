@@ -8,7 +8,7 @@ import itertools
 
 import z3
 
-from .infer import ANY_ACCOUNT, callees, fails, ledger_writes, lifted, state_writes, uses, writes
+from .infer import ANY_ACCOUNT, callees, fails, ledger_writes, lifted, relevant_states, state_writes, uses, writes
 from .run import state_op
 from .run import Interp, World
 from .syntax import code, emit_code, flat
@@ -106,10 +106,14 @@ class Prover:
                 return z3.Select(S.maps[st[0]], a[0])
             S.maps[st[0]] = z3.Store(S.maps[st[0]], a[0], a[1])
             return None
+        if name in self.defs and self.defs[name].ret:
+            return self.function_call(self.defs[name], a, S)
         if name in self.defs:
             return self.modular_call(self.defs[name], a, S)
         if name[:1].isupper():
             return ("ev", name, a)          # constructor value
+        if name == "distinct":
+            return z3.Distinct(*a)
         raise ValueError(f"prover: unknown {name}")
 
     def modular_call(self, callee, args, S):
@@ -155,6 +159,17 @@ class Prover:
                 S.audit = S.audit + [("opaque", callee.name)]
         return None
 
+    def function_call(self, f, args, S):
+        """A pure function, modularly: the same arguments give the same result (an uninterpreted
+        function), and the result satisfies the function's ensures. Its body is never read."""
+        self.relied_on.add(f.name)
+        fn = z3.Function(f"fn_{f.name}", *([z3.IntSort()] * (len(args) + 1)))
+        r = fn(*args)
+        env = dict({p: v for (p, _), v in zip(f.params, args)}, result=r)
+        for c in f.ensures:
+            self.pc.append(self.sev(c, env, S, S))
+        return r
+
     def refuses_beyond_spec(self, d):
         """Can `d` refuse other than through its spec needs? (a body need, or a callee that refuses)"""
         return any(s[0] == "need" for s in flat(d.body)) or \
@@ -199,13 +214,14 @@ class Prover:
         pos_w = [z3.Sum([z3.IntVal(0)] + [one(c) for _, _, c in want[:i]]) for i in range(len(want))]
         pos_g = [z3.Sum([z3.IntVal(0)] + [one(c) for _, _, c in got[:j]]) for j in range(len(got))]
         conds = [z3.Sum([z3.IntVal(0)] + [one(c) for *_, c in want]) == z3.Sum([z3.IntVal(0)] + [one(c) for *_, c in got])]
+        wanted = [[None if x == WILD else self.sev(x, env, pre) for x in args] for _, args, _ in want]
         for i, (ctor, args, cw) in enumerate(want):
             for j, (gctor, vals, cg) in enumerate(got):
                 if gctor != ctor or len(vals) != len(args):
                     same = z3.BoolVal(False)
                 else:
-                    same = z3.And(*[z3.BoolVal(True)] + [_ev_eq(self.sev(x, env, pre), v)
-                                                         for x, v in zip(args, vals) if x != WILD])
+                    same = z3.And(*[z3.BoolVal(True)] + [_ev_eq(x, v) for x, v in zip(wanted[i], vals)
+                                                         if x is not None])
                 conds.append(z3.Implies(z3.And(cw, cg, pos_w[i] == pos_g[j]), same))
         return z3.And(*conds)
 
@@ -279,9 +295,15 @@ class Prover:
         paths = self.exec(d.body, start)
         results = []
         # per goal: one (goal, premise) per path; it holds iff it holds on every path
-        goals = [("keep", c, code(c), [(self.sev(c, p.env, pre) == self.sev(c, p.env, p.S), p.pc) for p in paths])
+        def per_path(fn):
+            out = []
+            for p in paths:
+                self.bind(p)                       # a function call in a clause adds to p's premise
+                out.append((fn(p), p.pc))
+            return out
+        goals = [("keep", c, code(c), per_path(lambda p: self.sev(c, p.env, pre) == self.sev(c, p.env, p.S)))
                  for c in d.keeps] + \
-                [("ensure", c, code(c), [(self.sev(c, p.env, pre, p.S), p.pc) for p in paths]) for c in d.ensures]
+                [("ensure", c, code(c), per_path(lambda p: self.sev(c, p.env, pre, p.S))) for c in d.ensures]
         unknowable = []
         for var, t, cond in self.invariants():
             touched = self.invariant_touched(d, cond)
@@ -305,14 +327,14 @@ class Prover:
             else:                                  # it is about the runs that refuse: no success premise
                 goals.insert(0, ("ok", None, "otherwise", [(g, [])]))
         if d.emits:
-            per_path = [(self.emit_goal(d, p.env, pre, p.S), p.pc) for p in paths]
+            emit_cases = per_path(lambda p: self.emit_goal(d, p.env, pre, p.S))
             text = ", then ".join(emit_code(ev) for ev in d.emits)
-            why_unknown = next((w for (g, w), _ in per_path if w), None)
+            why_unknown = next((w for (g, w), _ in emit_cases if w), None)
             if why_unknown:
                 unknowable.append({"kind": "emit", "expr": d.emits, "clause": text, "status": "unknown",
                                    "reason": why_unknown})
             else:
-                goals.append(("emit", d.emits, text, [(g, pc) for (g, _), pc in per_path]))
+                goals.append(("emit", d.emits, text, [(g, pc) for (g, _), pc in emit_cases]))
         vacuous = self.vacuity(paths)
         if vacuous:
             out = [{"kind": kind, "expr": c, "clause": text, "status": "vacuous", "reason": vacuous}
@@ -409,8 +431,11 @@ class Prover:
             else:
                 args.append(v)
         now = m.eval(pre.now, model_completion=True).as_long()
-        maps, keys = {}, []                        # declared state at the keys the call can name
+        maps, keys = {}, []                        # declared state at the keys the call can name,
+        shown = relevant_states(self.defs, d)      # only the state the call or its spec can see
         for x, arr in pre.maps.items():
+            if x not in shown:
+                continue
             for p, t in d.params:
                 if self.defs.states[x] != t:
                     continue

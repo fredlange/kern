@@ -12,7 +12,7 @@ python -m kern view   examples/ledger_v3.k payout --as editor --why examples/led
 python -m kern why    examples/ledger_v3.k transfer --why examples/ledger.why
 python -m kern run    examples/ledger_v3.k "transfer A B 100" --world "A:500@u1 B:0@u1"
 python -m kern baseline examples/ledger_v4.k     # record guarantee strength; check then flags drops
-python -m kern score examples/escrow_s1.k        # the scale scorecard (docs/SCALE.md)
+python -m kern score examples/escrow_s3.k        # the scale scorecard (docs/SCALE.md; sizes s1, s2, s3)
 ```
 
 Tests: `pip install pytest`, then `pytest` from the repo root runs

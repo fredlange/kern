@@ -243,7 +243,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>A:500@u1 E:0@u0 hold.7:5 | open_order 7 A E 100 -&gt; OrderExists</code> <span class='okc'>✔</span></li>
 <li><code>A:500@u1 E:0@u0 frozen.A:1 | open_order 7 A E 100 -&gt; Frozen</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 86 succeeded and were checked against every guarantee; refused: Frozen 203, OrderExists 76, SameAccount 56, BadAmount 44, Insufficient 35.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 79 succeeded and were checked against every guarantee; refused: Frozen 204, OrderExists 77, SameAccount 61, BadAmount 40, Insufficient 39.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 11/11 deliberate bugs (100%)</span></h3><p>Caught by the prover: 11; by random tests checking the guarantees: 11. The examples alone catch 7/11; everything together 11/11.</p>
 <h3>Relies on</h3><p><code>reserve</code> — through their specs only, not their code.</p>
 </section>
@@ -269,7 +269,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>E:300@u0 B:0@u2 H:0@u9 hold.7:250 disputed.7:1 | capture_order 7 E B H -&gt; Disputed</code> <span class='okc'>✔</span></li>
 <li><code>E:300@u0 B:0@u2 H:0@u9 | capture_order 7 E B H -&gt; NoOrder</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 8 succeeded and were checked against every guarantee; refused: NoOrder 405, Disputed 52, SameAccount 35.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 7 succeeded and were checked against every guarantee; refused: NoOrder 406, Disputed 45, SameAccount 41, Insufficient 1.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 9/9 deliberate bugs (100%)</span></h3><p>Caught by the prover: 9; by random tests checking the guarantees: 9. The examples alone catch 9/9; everything together 9/9.</p>
 <h3>Relies on</h3><p><code>capture</code> — through their specs only, not their code.</p>
 </section>
@@ -291,7 +291,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Examples <span class='muted'>1/1 pass, executed against build 0e853947</span></h3><ul class='ex'>
 <li><code>E:100@u0 A:0@u1 hold.3:100 | cancel_order 3 E A -&gt; ok | E:0 A:100 hold.3:0</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 27 succeeded and were checked against every guarantee; refused: NoOrder 406, Disputed 50, SameAccount 15, Insufficient 2.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 24 succeeded and were checked against every guarantee; refused: NoOrder 421, Disputed 37, SameAccount 15, Insufficient 3.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 5/5 deliberate bugs (100%)</span></h3><p>Caught by the prover: 5; by random tests checking the guarantees: 5. The examples alone catch 5/5; everything together 5/5.</p>
 <h3>Relies on</h3><p><code>cancel</code> — through their specs only, not their code.</p>
 </section>
@@ -313,8 +313,8 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Examples <span class='muted'>1/1 pass, executed against build 5ca6307c</span></h3><ul class='ex'>
 <li><code>E:300@u0 A:0@u1 B:0@u2 H:0@u9 hold.4:300 | refund_order 4 E A B H 100 -&gt; ok | E:0 A:100 B:196 H:4 hold.4:0</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 1 succeeded and were checked against every guarantee; refused: NoOrder 416, Disputed 43, BadPart 34, SameAccount 6.</p>
-<h3>Spec strength <span class='muted'>guarantees catch 18/18 deliberate bugs (100%)</span></h3><p>Caught by the prover: 18; by random tests checking the guarantees: 0. The examples alone catch 18/18; everything together 18/18.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 3 succeeded and were checked against every guarantee; refused: NoOrder 408, Disputed 53, BadPart 28, SameAccount 8.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 18/18 deliberate bugs (100%)</span></h3><p>Caught by the prover: 18; by random tests checking the guarantees: 16. The examples alone catch 18/18; everything together 18/18.</p>
 <h3>Relies on</h3><p><code>refund</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>open_dispute</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build c9390920</span></header>
@@ -333,7 +333,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>hold.5:100 | open_dispute 5 -&gt; ok | disputed.5:1</code> <span class='okc'>✔</span></li>
 <li><code>| open_dispute 5 -&gt; NoOrder</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 42 succeeded and were checked against every guarantee; refused: NoOrder 415, Disputed 43.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 35 succeeded and were checked against every guarantee; refused: NoOrder 429, Disputed 36.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 4/4 deliberate bugs (100%)</span></h3><p>Caught by the prover: 4; by random tests checking the guarantees: 4. The examples alone catch 2/4; everything together 4/4.</p>
 </section>
 <section class="card"><header><h2><code>resolve_for_buyer</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build d5cfabae</span></header>
@@ -355,7 +355,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Examples <span class='muted'>1/1 pass, executed against build d5cfabae</span></h3><ul class='ex'>
 <li><code>E:100@u0 A:0@u1 hold.5:100 disputed.5:1 | resolve_for_buyer 5 E A -&gt; ok | E:0 A:100 hold.5:0 disputed.5:0</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 12 succeeded and were checked against every guarantee; refused: NotDisputed 463, BadAmount 18, SameAccount 6, Insufficient 1.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 13 succeeded and were checked against every guarantee; refused: NotDisputed 451, BadAmount 25, SameAccount 9, Insufficient 2.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 9/9 deliberate bugs (100%)</span></h3><p>Caught by the prover: 9; by random tests checking the guarantees: 9. The examples alone catch 7/9; everything together 9/9.</p>
 <h3>Relies on</h3><p><code>release</code> — through their specs only, not their code.</p>
 </section>
@@ -378,8 +378,8 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Examples <span class='muted'>1/1 pass, executed against build 6e5e8107</span></h3><ul class='ex'>
 <li><code>E:300@u0 B:0@u2 H:0@u9 hold.5:250 disputed.5:1 | resolve_for_seller 5 E B H -&gt; ok | E:50 B:245 H:5 hold.5:0</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 7 succeeded and were checked against every guarantee; refused: NotDisputed 445, BadAmount 28, SameAccount 20.</p>
-<h3>Spec strength <span class='muted'>guarantees catch 13/13 deliberate bugs (100%)</span></h3><p>Caught by the prover: 13; by random tests checking the guarantees: 0. The examples alone catch 9/13; everything together 13/13.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 6 succeeded and were checked against every guarantee; refused: NotDisputed 454, SameAccount 22, BadAmount 18.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 13/13 deliberate bugs (100%)</span></h3><p>Caught by the prover: 13; by random tests checking the guarantees: 13. The examples alone catch 9/13; everything together 13/13.</p>
 <h3>Relies on</h3><p><code>capture</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>resolve_split</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build df268649</span></header>
@@ -402,7 +402,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Examples <span class='muted'>1/1 pass, executed against build df268649</span></h3><ul class='ex'>
 <li><code>E:100@u0 A:0@u1 B:0@u2 hold.5:100 disputed.5:1 | resolve_split 5 E A B 40 -&gt; ok | E:0 A:40 B:60 hold.5:0</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 1 succeeded and were checked against every guarantee; refused: NotDisputed 465, BadPart 31, SameAccount 3.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 1 succeeded and were checked against every guarantee; refused: NotDisputed 450, BadPart 40, SameAccount 9.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 18/18 deliberate bugs (100%)</span></h3><p>Caught by the prover: 18; by random tests checking the guarantees: 0. The examples alone catch 12/18; everything together 18/18.</p>
 <h3>Relies on</h3><p><code>split</code> — through their specs only, not their code.</p>
 </section>
@@ -468,7 +468,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>A:500@u1 K:0@u9 limit.A:300 | withdraw A K 200 -&gt; ok | A:300 K:200 spent.A:200</code> <span class='okc'>✔</span></li>
 <li><code>A:500@u1 K:0@u9 limit.A:300 spent.A:200 | withdraw A K 200 -&gt; OverLimit 100</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 13 succeeded and were checked against every guarantee; refused: Frozen 257, OverLimit 187, BadAmount 37, SameAccount 6.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 16 succeeded and were checked against every guarantee; refused: Frozen 240, OverLimit 196, BadAmount 42, SameAccount 6.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 7/7 deliberate bugs (100%)</span></h3><p>Caught by the prover: 7; by random tests checking the guarantees: 7. The examples alone catch 6/7; everything together 7/7.</p>
 <h3>Relies on</h3><p><code>transfer</code> — through their specs only, not their code.</p>
 </section>
@@ -502,7 +502,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Examples <span class='muted'>1/1 pass, executed against build e1375a87</span></h3><ul class='ex'>
 <li><code>B:500@u2 K:0@u9 limit.B:1000 | payout_seller B K 200 -&gt; ok | B:300 K:200 spent.B:200</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 13 succeeded and were checked against every guarantee; refused: Frozen 257, OverLimit 187, BadAmount 37, SameAccount 6.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 16 succeeded and were checked against every guarantee; refused: Frozen 240, OverLimit 196, BadAmount 42, SameAccount 6.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 6/6 deliberate bugs (100%)</span></h3><p>Caught by the prover: 6; by random tests checking the guarantees: 6. The examples alone catch 3/6; everything together 6/6.</p>
 <h3>Relies on</h3><p><code>withdraw</code> — through their specs only, not their code.</p>
 </section>
@@ -544,7 +544,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Examples <span class='muted'>1/1 pass, executed against build 92811580</span></h3><ul class='ex'>
 <li><code>A:500@u1 E:0@u0 B:0@u2 H:0@u9 | purchase_order 9 A E B H 250 -&gt; ok | A:250 E:0 B:245 H:5 hold.9:0</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 14 succeeded and were checked against every guarantee; refused: Frozen 214, SameAccount 118, OrderExists 84, BadAmount 29, Insufficient 27, Disputed 14.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 21 succeeded and were checked against every guarantee; refused: Frozen 185, SameAccount 130, OrderExists 92, Insufficient 34, BadAmount 32, Disputed 6.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 20/20 deliberate bugs (100%)</span></h3><p>Caught by the prover: 20; by random tests checking the guarantees: 20. The examples alone catch 20/20; everything together 20/20.</p>
 <h3>Relies on</h3><p><code>capture_order</code>, <code>open_order</code> — through their specs only, not their code.</p>
 </section></main></body></html>

@@ -1167,3 +1167,98 @@ def test_s2_state_ops_are_typed(body, msg):
 def test_s2_specs_may_read_state_but_not_write_it():
     with pytest.raises(WellFormedError, match="has an effect"):
         check_module(parse_module(STATE_HEAD + "f id:Int\n  ensure hold.set id 1\nbody\n  hold.set id 1\n"))
+
+
+# =====================================================================================
+# Scale, size 3: pure functions (-> Int) usable in specs, `distinct` (docs/SCALE.md)
+# =====================================================================================
+
+ESCROW3 = open("examples/escrow_s3.k").read()
+FN = """
+fee_for amount:Int -> Int
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100
+body
+  if amount < 100
+    result = 0
+  else
+    result = amount * 2 / 100
+
+pay from:Account to:Account house:Account amount:Int
+  need distinct from to house else SameAccount
+  ensure ledger.balance' house = ledger.balance house + fee_for amount
+  ensure ledger.balance' to = ledger.balance to + amount - fee_for amount
+body
+  fee = fee_for amount
+  ledger.debit from amount
+  ledger.credit to (amount - fee)
+  ledger.credit house fee
+"""
+
+
+def test_s3_escrow_is_clean():
+    defs, reps = analysed(ESCROW3)
+    assert all(r["clean"] for r in reps.values()) and len(defs) == 55
+
+
+def test_s3_function_calls_are_modular():
+    """A caller's proof uses the function's spec only: a wrong body with the same spec leaves the
+    caller proven (and the function itself refuted, so trust propagation marks the caller)."""
+    defs, reps = analysed(FN.replace("    result = amount * 2 / 100\n", "    result = amount * 3 / 100\n"))
+    assert "refuted" in statuses(reps["fee_for"])
+    assert set(statuses(reps["pay"])) == {"conditional"}
+
+
+def test_s3_same_arguments_same_result():
+    defs, reps = analysed(FN + """
+twice to:Account amount:Int
+  ensure ledger.balance' to = ledger.balance to
+body
+  a = fee_for amount
+  b = fee_for amount
+  ledger.credit to (a - b)
+""")
+    assert statuses(reps["twice"]) == ["proven"]
+
+
+@pytest.mark.parametrize("src,msg", [
+    ("f a:Int -> Int\nbody\n  need a > 0 else Bad\n  result = a\n", "total"),
+    ("f a:Account -> Int\nbody\n  result = ledger.balance a\n", "pure"),
+    ("f a:Int -> Int\nbody\n  if a > 0\n    result = a\n", "every path"),
+    ("g a:Account\n  ensure ledger.balance' a = 0\nbody\n  h a\n\nh a:Account\nbody\n  ledger.credit a 0\n"
+     "\nk a:Account\n  ensure h a\nbody\n  h a\n", "only functions"),
+])
+def test_s3_functions_are_pure_total_and_only_they_appear_in_specs(src, msg):
+    with pytest.raises(WellFormedError, match=msg):
+        check_module(parse_module(src))
+
+
+def test_s3_spec_named_functions_are_in_the_editor_view():
+    defs, reps = analysed(ESCROW3)
+    assert "fee_for amount:Int -> Int" in views.editor(reps, "capture", no_whys(defs))
+
+
+def test_s3_distinct():
+    defs, reps = analysed(FN)
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", render.card(reps["pay"], NO_WHY)))
+    assert "two of from , to and house are the same → SameAccount" in text
+    with pytest.raises(WellFormedError, match="distinct"):
+        check_module(parse_module("f a:Account n:Int\n  need distinct a n else X\nbody\n  ledger.credit a n\n"))
+
+
+def test_s3_aliasing_bug_the_prover_found():
+    """Found while writing size 3: a cart that lets the buyer be the seller refuses when it tips."""
+    src = ESCROW3.replace("  need distinct buyer escrow seller house else SameAccount\n  need as purchase_order id buyer escrow seller house amount\n  need extra", "  need as purchase_order id buyer escrow seller house amount\n  need extra")
+    g = _ok(analysed(src)[1]["checkout_tip"])
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+
+
+def test_s3_state_only_the_spec_reads_is_still_drawn_and_shown():
+    """Regression (size 3): `unfreeze` with `frozen.set a 0` dropped touches no state, but its spec
+    reads `frozen.get' a`; random worlds and counterexamples must still include `frozen`."""
+    defs = parse_module(ESCROW3)
+    md = dataclasses.replace(defs["unfreeze"], body=[s for s in defs["unfreeze"].body if s[0] != "do" or
+                                                     s[1][1][0] != "frozen.set"])
+    mdefs = defs.with_def(md)
+    g = _g({"guarantees": Prover(mdefs).prove(md)[0]}, "ensure")
+    assert g["status"] == "refuted" and "frozen.A:" in g["counterexample"]["eg"]

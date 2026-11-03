@@ -127,6 +127,9 @@ def en(e, lets=None, tense=False):
         if n.endswith(".get") and len(args) == 1:            # declared state: `hold of id`
             s = f"{n[:-4]} of {en(args[0], lets, tense)}"
             return s + (" <em>after</em>" if primed else " <em>before</em>" if tense else "")
+        if n == "distinct":
+            names = [en(a, lets, tense) for a in args]
+            return f"{', '.join(names[:-1])} and {names[-1]} are all different"
         if n in NAMES:
             s = NAMES[n].format(*[en(a, lets, tense) for a in args])
             return s + (" <em>after</em>" if primed else " <em>before</em>" if tense else "")
@@ -160,7 +163,11 @@ def en_ensure(e):
 def en_refusal(need, lets):
     cond = need[1]
     neg = negate(cond)
-    text = en(neg, lets) if neg else f"not ({en(cond, lets)})"
+    if cond[0] == "app" and cond[1][0] == "distinct":
+        names = [en(a, lets) for a in cond[2]]
+        text = f"two of {', '.join(names[:-1])} and {names[-1]} are the same"
+    else:
+        text = en(neg, lets) if neg else f"not ({en(cond, lets)})"
     detail = f" ({', '.join(en(a, lets) for a in need[3])})" if need[3] else ""
     return text, f"{need[2]}{detail}"
 

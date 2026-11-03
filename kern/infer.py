@@ -227,8 +227,30 @@ def code_key(item):
     return repr(item[0]) + item[1]
 
 
+def relevant_states(defs, d):
+    """Declared state that matters for checking d: what its body (and callees) read or write, and
+    what its spec clauses read (a spec may describe state the body forgot to touch)."""
+    touched = uses(defs, d)
+    exprs = d.keeps + d.ensures + [x for ev in d.emits for x in list(ev[1]) + list(ev[2:3])]
+    named = {n[1][0][:-4] for e in exprs for n in _walk(e) if n[0] == "app" and n[1][0].endswith(".get")}
+    return {x: t for x, t in getattr(defs, "states", {}).items()
+            if f"{x}.read" in touched or f"{x}.write" in touched or x in named}
+
+
+def spec_functions(defs, d):
+    """Functions (-> Int) a definition's spec clauses name: the reader needs their specs too."""
+    exprs = [n[1] for n in d.needs] + [a for n in d.needs for a in n[3]] + d.keeps + d.ensures + \
+            [x for ev in d.emits for x in list(ev[1]) + list(ev[2:3])]
+    out = []
+    for e in exprs:
+        for n in _walk(e):
+            if n[0] == "app" and n[1][0] in defs and defs[n[1][0]].ret:
+                out.append(n[1][0])
+    return out
+
+
 def callees(defs, d):
-    return [n for n in dict.fromkeys(called_names(d)) if n in defs and n != d.name]
+    return [n for n in dict.fromkeys(called_names(d) + spec_functions(defs, d)) if n in defs and n != d.name]
 
 
 def fmt_uses(eff):
