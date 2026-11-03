@@ -222,8 +222,30 @@ def _orphan_html(orphans):
             + "</ul></section>")
 
 
-def page(reports, whys, title, orphans=None):
-    cards = "\n".join(card(r, whys[n]) for n, r in reports.items()) + _orphan_html(orphans)
+def host_html(host):
+    """What the host realises and assumes. Fixed templates over the host's own tables; every line
+    is marked *assumed*: none of it is proven, it is what the proofs above rely on the host for.
+    `host` = {"effects": {effect: how}, "endpoints": [(ctor, method, url, reply, fail)],
+              "assumptions": [text]}."""
+    if not host:
+        return ""
+    rows = "".join(f"<tr><td><code>{html.escape(e)}</code></td><td>{html.escape(how)}</td></tr>"
+                   for e, how in host["effects"].items())
+    eps = "".join(f"<li><code>{html.escape(c)}</code> → {html.escape(m)} <code>{html.escape(u)}</code>; reply "
+                  f"<code>{html.escape(r)}</code>, failure <code>{html.escape(f)}</code></li>"
+                  for c, m, u, r, f in host["endpoints"])
+    asm = "".join(f"<li><span class='badge warn'>assumed</span> {html.escape(a)}</li>" for a in host["assumptions"])
+    return ("<section class='card'><header><h2>Host</h2><span class='badge warn'>assumed, not proven</span></header>"
+            "<p class='muted'>The proofs above are about the Kern code. This section lists what the host does "
+            "with each effect the module can name, and what the proofs assume about it. None of it is "
+            "checked by the prover.</p>"
+            f"<h3>Effects and how this host realises them</h3><table>{rows}</table>"
+            + (f"<h3>Network endpoints (the only ones the module can reach)</h3><ul>{eps}</ul>" if eps else "")
+            + f"<h3>Assumptions</h3><ul>{asm}</ul></section>")
+
+
+def page(reports, whys, title, orphans=None, host=None):
+    cards = "\n".join(card(r, whys[n]) for n, r in reports.items()) + _orphan_html(orphans) + host_html(host)
     return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>Kern proof: {html.escape(title)}</title><style>{CSS}</style></head><body><main>"
             f"<h1>Proof page · {html.escape(title)}</h1><p class='sub'>Generated from verifier results by fixed templates — "

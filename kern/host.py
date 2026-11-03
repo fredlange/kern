@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sqlite3
 import sys
 import threading
@@ -51,6 +52,149 @@ create table if not exists outbox(seq integer primary key, call integer not null
 
 class Unproven(Exception):
     pass
+
+
+class ConfigError(Exception):
+    """The host config doesn't match the module; raised at startup, never during a call."""
+
+
+# --- the network: requests are `net` events, replies come back as new top-level calls
+
+def net_requests(defs):
+    """Constructor -> argument types, for every event a module can send on `net` (bodies and specs)."""
+    from .syntax import flat
+    out = {}
+    for d in defs.values():
+        types = dict(d.params)
+        for s in flat(d.body):
+            if s[0] == "do" and s[1][0] == "app" and s[1][1][0] == "net.emit":
+                ev = s[1][2][0]
+                ctor, args = (ev[1][0], ev[2]) if ev[0] == "app" else (ev[1], [])
+                out.setdefault(ctor, [types.get(a[1], "Int") if a[0] == "name" else "Int" for a in args])
+        for i, (ctor, args, *_) in enumerate(d.emits):
+            if d.emit_channel.get(i) == "net":
+                out.setdefault(ctor, [types.get(a[1], "Int") if a[0] == "name" else "Int" for a in args])
+    return out
+
+
+class Endpoint:
+    """`Ctor -> GET URL; reply DEF ARGS; fail DEF ARGS`. ARGS are `{i}` (the event's i-th argument)
+    or `$.field` (an Int field of the JSON reply). Kern never sees the bytes."""
+
+    def __init__(self, line, no):
+        try:
+            head, reply, fail = [p.strip() for p in line.split(";")]
+            ctor, target = [p.strip() for p in head.split("->")]
+            self.method, self.url = target.split()
+            kw, self.reply, *self.reply_args = reply.split()
+            kw2, self.fail, *self.fail_args = fail.split()
+            assert kw == "reply" and kw2 == "fail" and self.method in ("GET", "POST")
+        except (ValueError, AssertionError):
+            raise ConfigError(f"line {no}: want `Ctor -> GET URL; reply DEF ARGS; fail DEF ARGS`")
+        self.ctor, self.src = ctor, line.strip()
+
+    def args_for(self, ev, body, which):
+        out = []
+        for a in (self.reply_args if which == "reply" else self.fail_args):
+            if a.startswith("{"):
+                out.append(ev[int(a[1:-1])])
+            else:
+                v = body
+                for k in a[2:].split("."):
+                    v = v[k]
+                if not isinstance(v, int) or isinstance(v, bool):
+                    raise ValueError(f"{a} is not an Int")
+                out.append(v)
+        return out
+
+    def url_for(self, ev):
+        url = self.url
+        for i, a in enumerate(ev[1:], 1):
+            url = url.replace("{%d}" % i, str(a))
+        return url
+
+
+def load_config(text, defs):
+    """Parse and validate a `.host` file against the module: every request constructor the module
+    can send needs exactly one endpoint, and reply/fail definitions must exist with matching types."""
+    eps, problems = {}, []
+    for no, line in enumerate(text.splitlines(), 1):
+        if line.strip() and not line.strip().startswith("#"):
+            ep = Endpoint(line, no)
+            eps[ep.ctor] = ep
+    reqs = net_requests(defs)
+    for ctor, types in reqs.items():
+        if ctor not in eps:
+            problems.append(f"request {ctor} has no endpoint in the host config")
+    for ctor, ep in eps.items():
+        if ctor not in reqs:
+            problems.append(f"endpoint for {ctor}, which the module never sends")
+            continue
+        for which, name, args in (("reply", ep.reply, ep.reply_args), ("fail", ep.fail, ep.fail_args)):
+            d = defs.get(name)
+            if d is None:
+                problems.append(f"{ctor}: {which} definition {name!r} does not exist")
+                continue
+            got = [reqs[ctor][int(a[1:-1]) - 1] if a.startswith("{") else "Int" for a in args]
+            want = [t for _, t in d.params]
+            if got != want:
+                problems.append(f"{ctor}: {which} {name} takes {want}, the config gives {got}")
+    if problems:
+        raise ConfigError("; ".join(problems))
+    return eps
+
+
+class HttpNet:
+    """Real requests. A timeout, a non-2xx status or a decode error becomes the `fail` call."""
+
+    def __init__(self, endpoints, timeout=2.0):
+        self.endpoints, self.timeout = endpoints, timeout
+
+    def __call__(self, seq, ev):
+        import urllib.request
+        ep = self.endpoints[ev[0]]
+        try:
+            req = urllib.request.Request(ep.url_for(ev), method=ep.method)
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                body = json.loads(r.read())
+            return [(ep.reply, ep.args_for(ev, body, "reply"))]
+        except Exception:
+            return [(ep.fail, ep.args_for(ev, None, "fail"))]
+
+
+class SimNet:
+    """A hostile network for tests, seeded: each request's reply may be dropped, duplicated,
+    delayed (held back and released later, out of order) or failed. `answer(ev)` gives the
+    JSON body a well-behaved server would send."""
+
+    def __init__(self, endpoints, answer, seed=0, p_drop=0.15, p_dup=0.2, p_delay=0.3, p_fail=0.1):
+        self.endpoints, self.answer, self.rng = endpoints, answer, random.Random(seed)
+        self.p = (p_drop, p_dup, p_delay, p_fail)
+        self.held = []
+
+    def __call__(self, seq, ev):
+        ep, r = self.endpoints[ev[0]], self.rng.random
+        p_drop, p_dup, p_delay, p_fail = self.p
+        if r() < p_drop:
+            return []
+        failed = r() < p_fail
+        try:
+            call = (ep.fail, ep.args_for(ev, None, "fail")) if failed else \
+                (ep.reply, ep.args_for(ev, self.answer(ev), "reply"))
+        except (KeyError, TypeError, ValueError):            # an undecodable reply is a failure
+            call = (ep.fail, ep.args_for(ev, None, "fail"))
+        calls = [call, call] if r() < p_dup else [call]
+        if r() < p_delay:
+            self.held += calls
+            return []
+        return calls
+
+    def release(self):
+        """Deliver some held-back replies, in a random order."""
+        self.rng.shuffle(self.held)
+        k = self.rng.randint(0, len(self.held))
+        out, self.held = self.held[:k], self.held[k:]
+        return out
 
 
 class _Lazy:
@@ -154,7 +298,8 @@ def _ordered_events(world, defs):
 
 
 class Host:
-    def __init__(self, defs, db=":memory:", clock=None, sinks=None, gate=True, channel_sinks=None):
+    def __init__(self, defs, db=":memory:", clock=None, sinks=None, gate=True, channel_sinks=None,
+                 net=None, reports=None, endpoints=None):
         self.defs = defs
         self.interp = Interp(defs)
         self.clock = clock or (lambda: int(time.time()))
@@ -167,8 +312,18 @@ class Host:
         if "channel" not in cols:              # a database from before channels
             self.db.execute("alter table outbox add column channel text not null default 'audit'")
         # Verification licenses running: only clean definitions are served (gate=False serves all).
-        self.reports = analyse(defs, mutation=False)
+        self.reports = reports or analyse(defs, mutation=False)
         self.gate = gate
+        # The network is policy: every request the module can send needs a configured endpoint,
+        # checked now, at startup (endpoints=None with net requests in the module is refused too).
+        reqs = net_requests(defs)
+        if reqs and endpoints is None:
+            raise ConfigError("the module sends " + ", ".join(sorted(reqs)) + " on net, and there is no host config")
+        self.endpoints = endpoints or {}
+        self.net = net                         # a sink returning the reply calls; None = HttpNet
+        if reqs and self.net is None:
+            self.net = HttpNet(self.endpoints)
+        self.inbox = []                        # replies waiting to become top-level calls
 
     # --- the world in SQLite
     def init(self, world_src):
@@ -304,11 +459,26 @@ class Host:
         n = 0
         rows = self.db.execute("select seq, event, channel from outbox where delivered=0 order by seq").fetchall()
         for seq, ev, ch in rows:
+            ev = _tuplify(json.loads(ev))
+            if ch == "net":                    # a request; whatever comes back is a later call
+                self.inbox += self.net(seq, ev)
             for sink in (self.sinks if ch == "audit" else self.channel_sinks.get(ch, [])):
-                sink(seq, _tuplify(json.loads(ev)))
+                sink(seq, ev)
             self.db.execute("update outbox set delivered=1 where seq=?", (seq,))
             n += 1
         return n
+
+    def pump(self, extra=()):
+        """Run replies as new top-level calls (each one atomic and logged like any other call),
+        then deliver what they emitted. Returns the replies' results."""
+        with self.lock:
+            self.inbox += list(extra)
+            results = []
+            while self.inbox:
+                name, args = self.inbox.pop(0)
+                results.append((name, args, self.call(name, args)))
+                self._flush()
+            return results
 
     # --- determinism
     def replay(self):
@@ -357,6 +527,8 @@ HOST_EFFECTS = {   # how this host realises each effect the module can name
     "clock": "wall clock, seconds; read once per call, recorded in `log`",
     "audit": "SQLite table `outbox`; delivered to stdout after commit (at-least-once)",
     "console": "SQLite table `outbox` (channel console); one line per event on stdout after commit (at-least-once)",
+    "net": "SQLite table `outbox` (channel net); each event is an HTTP request from the host config, sent "
+           "after commit (at-least-once); the reply or failure arrives as a new top-level call",
 }
 
 
@@ -366,13 +538,44 @@ def manifest_text(host):
     lines = ["module may use: " + ", ".join(allu), "host provides:"]
     for root in sorted({u.split(".")[0] for u in allu}):
         lines.append(f"  {root:<8} {HOST_EFFECTS.get(root, 'SQLite table `cell`, one transaction per call')}")
-    lines.append("nothing else: the module cannot name any other effect.")
+    for ctor, ep in sorted(host.endpoints.items()):
+        pattern = ep.url
+        for i in range(1, 10):
+            pattern = pattern.replace("{%d}" % i, "*")
+        lines.append(f"  net: {ctor} -> {ep.method} {pattern}  reply {ep.reply}, fail {ep.fail}")
+    lines.append("nothing else: the module cannot name any other effect or endpoint.")
     lines.append("")
     for n, v in m.items():
         mark = "serve" if v["served"] else "BLOCK"
         lines.append(f"{mark} {n} {' '.join(v['params'])}  proven {v['proven']}  "
                      f"uses {', '.join(v['uses']) or '-'}  fails {', '.join(v['fails']) or '-'}")
     return "\n".join(lines)
+
+
+ASSUMPTIONS = [
+    "Calls run one at a time (a lock in this process; `begin immediate` across processes). The proofs "
+    "assume serial top-level calls.",
+    "Every event is delivered at least once, after its call commits. A crash between delivering and marking "
+    "an event sends it again (measured: at most one duplicate per kill -9). Consumers dedupe on `seq`.",
+    "The order of events across channels is audit first, then channels in declaration order. Specs fix the "
+    "order within a channel only.",
+    "`clock.now` is the wall clock in seconds, read once per call and recorded for replay.",
+]
+NET_ASSUMPTIONS = [
+    "A network reply becomes a new top-level call. The host decodes each `$.field` as an Int; a timeout, "
+    "a non-2xx status or anything that isn't an Int becomes the `fail` call. Kern never sees bytes.",
+    "There is no request timeout: a reply that never arrives, or one the module refuses, leaves the "
+    "request pending (docs/HOST.md has the measured count).",
+]
+
+
+def host_facts(host):
+    """The data for render.host_html: effects the module uses, endpoints, assumptions."""
+    used = sorted({u.split(".")[0] for v in host.manifest().values() for u in v["uses"]})
+    effects = {u: HOST_EFFECTS.get(u, "SQLite table `cell`, one transaction per call") for u in used}
+    eps = [(c, ep.method, ep.url, ep.reply, ep.fail) for c, ep in sorted(host.endpoints.items())]
+    asm = ASSUMPTIONS + (NET_ASSUMPTIONS if host.endpoints else [])
+    return {"effects": effects, "endpoints": eps, "assumptions": asm}
 
 
 # --- the console: one call per line on stdin, outbox on stdout
@@ -464,23 +667,39 @@ def serve(host, port=8080, ready=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m kern.host")
-    ap.add_argument("cmd", choices=["serve", "repl", "replay", "manifest"])
+    ap.add_argument("cmd", choices=["serve", "repl", "replay", "manifest", "page"])
+    ap.add_argument("--html", help="page: where to write the proof page with the host section")
     ap.add_argument("file")
     ap.add_argument("--db", default=":memory:")
     ap.add_argument("--world")
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--no-gate", action="store_true", help="also serve definitions that are not proven clean")
+    ap.add_argument("--config", help="host config (endpoints); default FILE.host next to the module")
     a = ap.parse_args(argv)
     try:
         defs = check_module(parse_module(open(a.file).read()))
     except ParseError as e:
         print(f"{a.file}: {e}", file=sys.stderr)
         return 2
-    host = Host(defs, a.db, gate=not a.no_gate)
+    import os
+    cfg = a.config or os.path.splitext(a.file)[0] + ".host"
+    try:
+        endpoints = load_config(open(cfg).read(), defs) if os.path.exists(cfg) else None
+        host = Host(defs, a.db, gate=not a.no_gate, endpoints=endpoints)
+    except ConfigError as e:
+        print(f"{a.file}: host refuses to start: {e}", file=sys.stderr)
+        return 2
     if a.world and not host.init(a.world):
         print("note: database already has a world; --world ignored", file=sys.stderr)
     if a.cmd == "manifest":
         print(manifest_text(host))
+    elif a.cmd == "page":
+        from . import render, why
+        whys = {n: why.status({}, d, defs) for n, d in defs.items()}
+        reports = analyse(defs)
+        with open(a.html or "proof.html", "w") as f:
+            f.write(render.page(reports, whys, a.file, host=host_facts(host)))
+        print(f"proof page with host section: {a.html or 'proof.html'}")
     elif a.cmd == "replay":
         bad = host.replay()
         n = host.db.execute("select count(*) from log").fetchone()[0]

@@ -311,3 +311,186 @@ def test_host_delivers_channels_after_commit_and_replays_them():
     assert h.replay() == []
     h.db.execute("update outbox set event = ? where channel = 'console'", (json.dumps(["Line", "A", 6]),))
     assert any("outbox differs" in m or "differs" in m for m in h.replay())
+
+
+# --- H3/H4: requests are events, replies are calls (examples/limits.k, limits.host)
+
+from kern.host import ConfigError, HttpNet, SimNet, load_config, manifest_text  # noqa: E402
+
+LIMITS = check_module(parse_module(open("examples/limits.k").read()))
+LIMITS_REPORTS = analyse(LIMITS, mutation=False)
+CONFIG = "Fetch -> GET http://127.0.0.1:{port}/limit/{1}; reply got_limit {1} {2} $.value; fail limit_failed {1} {2}"
+LIMITS_WORLD = "A:500@u1 B:500@u2 C:500@u3 K:0@u9"
+
+
+def limits_host(net, port=1, **kw):
+    eps = load_config(CONFIG.replace("{port}", str(port)), LIMITS)
+    ticks = iter(range(1000, 10**9))
+    h = Host(LIMITS, ":memory:", clock=lambda: next(ticks), sinks=[], reports=LIMITS_REPORTS,
+             endpoints=eps, net=net(eps) if callable(net) and not isinstance(net, HttpNet) else net, **kw)
+    h.init(LIMITS_WORLD)
+    return h
+
+
+def test_hostile_network_cannot_break_the_invariants():
+    """Item 5: 1000 seeded runs; replies dropped, duplicated, delayed, reordered, failed or garbled."""
+    stats = {"runs": 0, "calls": 0, "replies": 0, "applied": 0, "dup_or_old": 0, "dup_refused": 0,
+             "faults": 0, "replay_mismatch": 0, "stuck_pending": 0}
+    for run in range(1000):
+        rng = random.Random(run)
+        values = lambda ev, rng=rng: rng.choice([{"value": rng.randint(0, 900)}, {"value": -1}, {"value": "x"}, {}])
+        h = limits_host(lambda eps, run=run: SimNet(eps, values, seed=run))
+        applied, latest = set(), {}
+        for _ in range(25):
+            a = rng.choice("ABC")
+            op = rng.random()
+            if op < 0.35:
+                r = h.call("request_limit", [a])
+                if r["status"] == "ok":
+                    latest[a] = latest.get(a, 0) + 1
+            elif op < 0.65:
+                r = h.call("withdraw", [a, "K", rng.choice([1, 50, 200, 600])])
+            elif op < 0.75:
+                r = h.call("reset_day", [a])
+            else:
+                r = {"status": "ok"}
+            stats["calls"] += 1
+            stats["faults"] += r.get("fault") == "module"
+            h.flush()
+            for name, args, res in h.pump(h.net.release() if rng.random() < 0.5 else []):
+                stats["replies"] += 1
+                stats["faults"] += res.get("fault") == "module"
+                key = (args[0], args[1])
+                if key in applied or args[1] != latest.get(args[0]):
+                    stats["dup_or_old"] += 1
+                    stats["dup_refused"] += res.get("refused") == "Stale"
+                elif res["status"] == "ok":
+                    applied.add(key)
+                    stats["applied"] += 1
+        stats["replay_mismatch"] += bool(h.replay())
+        stats["stuck_pending"] += sum(h.load().maps.get("pending", {}).values())   # dropped replies: no timeout
+        stats["runs"] += 1
+    print(stats)
+    assert stats["faults"] == 0 and stats["replay_mismatch"] == 0
+    assert stats["dup_or_old"] > 500 and stats["dup_refused"] == stats["dup_or_old"]
+    assert stats["applied"] > 1000                                     # not vacuous
+
+
+def test_config_is_checked_at_startup():
+    """Item 6: a request with no endpoint, an endpoint nobody sends, or a reply def with the wrong
+    types are refused before anything runs."""
+    with pytest.raises(ConfigError, match="no host config"):
+        Host(LIMITS, ":memory:", sinks=[], reports=LIMITS_REPORTS)
+    with pytest.raises(ConfigError, match="has no endpoint"):
+        load_config("", LIMITS)
+    with pytest.raises(ConfigError, match="never sends"):
+        load_config(CONFIG + "\nPing -> GET http://x/; reply got_limit {1} {2} $.v; fail limit_failed {1} {2}", LIMITS)
+    with pytest.raises(ConfigError, match="takes"):
+        load_config("Fetch -> GET http://x/{1}; reply got_limit {1} $.value; fail limit_failed {1} {2}", LIMITS)
+    with pytest.raises(ConfigError, match="does not exist"):
+        load_config("Fetch -> GET http://x/{1}; reply nope {1}; fail limit_failed {1} {2}", LIMITS)
+
+
+def test_manifest_lists_every_endpoint():
+    h = limits_host(lambda eps: SimNet(eps, lambda ev: {"value": 1}))
+    assert "net: Fetch -> GET http://127.0.0.1:1/limit/*  reply got_limit, fail limit_failed" in manifest_text(h)
+
+
+def test_real_http_reply_and_failure():
+    """One run against a real local server: a 200 sets the limit, a 500 becomes limit_failed."""
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Risk(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/limit/A":
+                body, code = b'{"value": 300}', 200
+            else:
+                body, code = b"no", 500
+            self.send_response(code)
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), Risk)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        h = limits_host(None, port=srv.server_address[1])
+        assert isinstance(h.net, HttpNet)
+        h.call("request_limit", ["A"])
+        h.call("request_limit", ["B"])
+        h.flush()
+        results = {name: res["status"] for name, args, res in h.pump()}
+        assert results == {"got_limit": "ok", "limit_failed": "ok"}
+        w = h.load()
+        assert w.maps["limit"]["A"] == 300 and w.maps["pending"] == {"A": 0, "B": 0}
+        assert h.call("withdraw", ["A", "K", 200])["status"] == "ok"
+        assert h.call("withdraw", ["B", "K", 1])["refused"] == "OverLimit"
+        assert h.replay() == []
+    finally:
+        srv.shutdown()
+
+
+# --- item 8: crash recovery (a real process, killed with SIGKILL during a flush)
+
+CHILD = r"""
+import os, sys, time
+sys.path.insert(0, os.getcwd())
+from kern.host import Host
+from kern.syntax import parse_module
+from kern.wf import check_module
+db, log = sys.argv[1], sys.argv[2]
+def slow(seq, ev):
+    with open(log, "a") as f:
+        f.write(f"{seq}\n"); f.flush(); os.fsync(f.fileno())
+    time.sleep(0.02)
+defs = check_module(parse_module(open("examples/escrow_s2.k").read()))
+Host(defs, db, sinks=[slow]).flush()
+"""
+
+
+def test_kill_during_flush_redelivers_with_at_most_one_duplicate_per_kill(tmp_path):
+    import os
+    import signal
+    import subprocess
+    import sys
+    import time
+    db, log = str(tmp_path / "e.db"), str(tmp_path / "delivered.txt")
+    h = Host(ESCROW, db, clock=lambda: 1, sinks=[])
+    h.init(WORLD)
+    for _ in range(40):
+        assert h.call("transfer", ["A", "B", 1])["status"] == "ok"      # 40 committed, undelivered events
+    h.db.close()
+    script = tmp_path / "child.py"
+    script.write_text(CHILD)
+    lines = lambda: open(log).read().split() if os.path.exists(log) else []
+    kills = 0
+    for stop_after in (5, 15, 27):                                     # kill -9 three times mid-flush
+        p = subprocess.Popen([sys.executable, str(script), db, log], cwd=os.getcwd())
+        while len(lines()) < stop_after and p.poll() is None:
+            time.sleep(0.005)
+        p.send_signal(signal.SIGKILL)
+        p.wait()
+        kills += 1
+    subprocess.run([sys.executable, str(script), db, log], cwd=os.getcwd(), check=True)   # restart, finish
+    got = [int(x) for x in lines()]
+    dups = len(got) - len(set(got))
+    assert sorted(set(got)) == list(range(1, 41))                      # every committed event delivered
+    assert dups <= kills, (dups, kills)
+    print({"events": 40, "kills": kills, "deliveries": len(got), "duplicates": dups})
+
+
+# --- H5: the proof page says what the host assumes, as assumed
+
+def test_proof_page_host_section_is_assumed_not_proven():
+    from kern import render
+    from kern.host import host_facts
+    h = limits_host(lambda eps: SimNet(eps, lambda ev: {"value": 1}))
+    section = render.host_html(host_facts(h))
+    assert "assumed, not proven" in section and "✔" not in section
+    assert "GET <code>http://127.0.0.1:1/limit/{1}</code>" in section and "at least once" in section
+    assert section.count("badge warn'>assumed</span>") == len(host_facts(h)["assumptions"])
+    plain = render.host_html(host_facts(host()))                   # escrow: no network
+    assert "Network endpoints" not in plain and "network reply" not in plain
