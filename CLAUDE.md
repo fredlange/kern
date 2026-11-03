@@ -11,7 +11,10 @@ Latest audit against them (status per fundamental, ranked gaps):
 [docs/FIXES.md](docs/FIXES.md). Scaling an app in three sizes, with a pre-registered scorecard:
 [docs/SCALE.md](docs/SCALE.md). How Kern reaches the OS (SQLite state, outbox, recorded clock,
 HTTP/console, replay; `kern/host.py`): [docs/HOST.md](docs/HOST.md); next PoC plan with a
-pre-registered scorecard: [docs/HOST_PLAN.md](docs/HOST_PLAN.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
+pre-registered scorecard: [docs/HOST_PLAN.md](docs/HOST_PLAN.md). Kern vs behaviour-identical TS and Go,
+tokens to write and read: [docs/COMPARE.md](docs/COMPARE.md) (`compare/`). Pre-registered challenges
+per bet (seeded bugs, cold author, spec gaming, blind proof pages, second domain, prover stress):
+[docs/CHALLENGE.md](docs/CHALLENGE.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
 
 ## Goal (as stated by Fredrik)
 
