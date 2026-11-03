@@ -27,7 +27,7 @@ transfer from:Account to:Account amount:Int        header
   need amount > 0 else BadAmount                    refuses with BadAmount
   keep ledger.total                                  same value before and after
   ensure ledger.balance' to = ledger.balance to + amount   ' = after the call
-  emit TransferDone from to amount _                 exactly these audit events; _ = any value
+  emit TransferDone from to amount clock.now         exactly these audit events (_ = any value)
   eg A:500@u1 B:0@u1 | transfer A B 100 -> ok | A:400 B:100   executed example
 body
   have = ledger.balance from
@@ -96,7 +96,13 @@ lines were added; see docs/FIXES.md.)
    counterexamples confirmed in the interpreter. `payout` adds two `emit` lines and
    proves them from `transfer`'s spec alone. If `transfer` had no `emit` clause,
    `payout`'s would show as unprovable rather than pass. The `.why` entries are
-   re-anchored in `ledger_v4.why`.
+   re-anchored in `ledger_v4.why`. A timestamp mutant (`clock.now` → `0`) still
+   survives, because `_` accepts any time.
+5. `ledger_v5.k`: the emit clauses say `clock.now` instead of `_`. Time is one value
+   per top-level call (`clock.now` reads the same everywhere inside it and advances
+   between calls, refused calls included), so the spec can state the timestamp.
+   Guarantees catch 10/14 (v4: 9/14); the timestamp mutant is caught. Payout's two
+   events share a timestamp; their order is fixed by position in the log.
 
 ## Built-in versus missing
 
@@ -104,8 +110,9 @@ The prototype has one hard-coded domain: handlers for `ledger`, `clock` and `aud
 written in Python. It has only `Int` and `Account` types and only straight-line
 bodies with guards. A small type checker covers the six built-in types. There are no
 written frame conditions: the frame is *inferred* (`writes`), and the page says which
-written balances no guarantee describes. The spec cannot pin the timestamp of an event
-(`_` is the only option there), nor say *when* a call succeeds.
+written balances no guarantee describes. The spec cannot say *when* a call
+succeeds. Within one call there is a single time; a call that needs distinct instants
+would need a separate advancing operation (not built).
 
 ## Roadmap
 

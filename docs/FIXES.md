@@ -347,3 +347,49 @@ or +23–24 where the definition has its own body need (transfer 107 → 131, wi
 - `test_f2_caller_proof_does_not_read_callee_body` now pins the full inferred
   interface a modular call reads (`uses`, `writes` *and* `lifted`), not just the
   first two.
+
+## Clock: one time per top-level call
+
+Decided after the fix pass (the open question since the `emit` feature). Same
+protocol: a pre-change snapshot, three strict xfails that had to XPASS, and a
+snapshot diff with every line explained.
+
+- **Change:**
+  - **Interpreter:** `clock.now` reads `world.clock` without advancing it.
+    `Interp.run` advances the clock by one *after* each call, refused calls
+    included. A bad call (rejected at the boundary or a runtime error) doesn't
+    advance it, because it didn't happen.
+  - **Prover:** the call's time is one symbolic value in the pre-state, shared with
+    callees.
+  - **Specs:** `clock.now` is a pure read, so specs may use it. `clock.now'` is
+    rejected, since the time is the same before and after.
+  - **Lifting:** conditions involving `clock.now` are lifted, even after writes.
+  - **Mutants:** new one, `clock.now` → `0`.
+  - **Example worlds:** take `now:N`, so a counterexample that depends on the time
+    replays (`eg A:1@u1 B:847@u1 now:8 | …`).
+  - **Random tests:** draw the time from a separate random stream, so every random
+    world is unchanged.
+  - **New example:** `ledger_v5.k` (v4 with `clock.now` instead of `_` in the emit
+    clauses), with `ledger_v5.why` re-anchored from v4's (same text).
+- **Evidence:**
+  - `test_clock_spec_pins_the_timestamp`: rejected before; now proven, and a body
+    emitting timestamp 0 is refuted with a replayed counterexample.
+  - `test_clock_deadline_is_lifted_to_callers`: `need clock.now <= expires` was
+    invisible to callers.
+  - `test_clock_timestamp_mutant_survives_underscore_but_not_clock_now`.
+
+  All three went XPASS. New tests: one value per call with ticks between calls
+  (payout's two events both get 7, clock 8 after); no after-state; a
+  time-dependent counterexample carries `now:N` and replays. Updated: a refused
+  call now advances the clock (rollback test); totals +1 for the timestamp mutant.
+- **Snapshot diff (all explained):**
+  - Every body that emits `clock.now` gains one mutant, `clock.now` → `0`. It
+    *survives* wherever the spec says `_` or nothing about the audit log: v2/v3/v4
+    transfer (e.g. v4 9/13 → 9/14) and `ledger_large`'s transfer, settle and deposit
+    (they still use `_`).
+  - **v5 transfer: guarantees 10/14**, the timestamp mutant caught. v5 payout:
+    12/12.
+  - Random-test counts are unchanged everywhere (separate time stream). Build hashes
+    are identical. Tests: 81/2 → 87/2.
+- **Cost:** payout's two events share a timestamp; their order is still fixed by
+  position. `clock.now` in an emit clause costs 2 tokens more than `_` (10 vs 8).

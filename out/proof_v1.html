@@ -31,9 +31,9 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>A:500@u1 B:0@u2 | transfer A B 100 -&gt; SameOwner</code> <span class='okc'>✔</span></li>
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 185 succeeded and were checked against every guarantee; refused: SameOwner 153, BadAmount 91, Insufficient 71.</p>
-<p class='failc'>Guarantee violated:</p><pre>eg A:137@u1 B:582@u2 C:867@u1 | transfer B B 2   # breaks: ensure ledger.balance&#x27; from = ledger.balance from - amount
-eg A:137@u1 B:582@u2 C:867@u1 | transfer B B 2   # breaks: ensure ledger.balance&#x27; to = ledger.balance to + amount
-eg A:449@u1 B:679@u1 C:520@u2 | transfer B B 120   # breaks: ensure ledger.balance&#x27; from = ledger.balance from - amount</pre>
+<p class='failc'>Guarantee violated:</p><pre>eg A:137@u1 B:582@u2 C:867@u1 now:63 | transfer B B 2   # breaks: ensure ledger.balance&#x27; from = ledger.balance from - amount
+eg A:137@u1 B:582@u2 C:867@u1 now:63 | transfer B B 2   # breaks: ensure ledger.balance&#x27; to = ledger.balance to + amount
+eg A:449@u1 B:679@u1 C:520@u2 now:32 | transfer B B 120   # breaks: ensure ledger.balance&#x27; from = ledger.balance from - amount</pre>
 <h3>Spec strength</h3><p class='muted'>Not measured until every guarantee holds.</p>
 <details><summary>Why (2)</summary><p class='failc'>Written for 7b0680f6; the definition or its inferred interface has changed since (now eb414491). Confirm or update.</p><p class='warnc'>These read like obligations. Anything that must be obeyed belongs in a need, keep, ensure or emit, not only in prose:</p><ul><li>same-owner rule: cross-customer transfers must go through payments.send, which runs AML screening</li></ul><ul><li>same-owner rule: cross-customer transfers must go through payments.send, which runs AML screening</li><li>Insufficient carries the shortfall so support can tell the customer how much is missing</li></ul></details>
 </section>
@@ -43,16 +43,16 @@ eg A:449@u1 B:679@u1 C:520@u2 | transfer B B 120   # breaks: ensure ledger.balan
 <p class='warnc'>No guarantee says what the new balance of <code>to</code>, <code>house</code> is.</p>
 <h3>Refuses when</h3><table><tr><td><code>fee</code> &lt; 0</td><td class='fail-name'>→ <code>BadAmount</code></td></tr><tr><td><code>amount</code> ≤ 0</td><td class='fail-name'>→ <code>BadAmount</code> <span class='muted'>(from transfer)</span></td></tr><tr><td>owner of <code>from</code> ≠ owner of <code>to</code></td><td class='fail-name'>→ <code>SameOwner</code> <span class='muted'>(from transfer)</span></td></tr><tr><td>balance of <code>from</code> &lt; <code>amount</code></td><td class='fail-name'>→ <code>Insufficient</code> <span class='muted'>(from transfer)</span></td></tr><tr><td><code>fee</code> ≤ 0</td><td class='fail-name'>→ <code>BadAmount</code> <span class='muted'>(from transfer)</span></td></tr><tr><td>owner of <code>from</code> ≠ owner of <code>house</code></td><td class='fail-name'>→ <code>SameOwner</code> <span class='muted'>(from transfer)</span></td></tr></table><p class='muted'>A refusal undoes everything the call did.</p>
 <h3>Guarantees</h3><ul class='g'>
-<li class='conditional'><span class='ic'>!</span><div><div>total money in the ledger is unchanged</div><div class='how'>Proven only if the guarantees of <code>transfer</code> hold — and they currently do not.</div><div class='src'><code>keep ledger.total</code></div></div></li>
-<li class='conditional'><span class='ic'>!</span><div><div>balance of <code>from</code> <em>after</em> = balance of <code>from</code> <em>before</em> − <code>amount</code> − <code>fee</code></div><div class='how'>Proven only if the guarantees of <code>transfer</code> hold — and they currently do not.</div><div class='src'><code>ensure ledger.balance&#x27; from = ledger.balance from - amount - fee</code></div></div></li>
+<li class='conditional'><span class='ic'>!</span><div><div>total money in the ledger is unchanged</div><div class='how'>Proven only if the guarantees of <code>transfer</code> hold — and they are not proven.</div><div class='src'><code>keep ledger.total</code></div></div></li>
+<li class='conditional'><span class='ic'>!</span><div><div>balance of <code>from</code> <em>after</em> = balance of <code>from</code> <em>before</em> − <code>amount</code> − <code>fee</code></div><div class='how'>Proven only if the guarantees of <code>transfer</code> hold — and they are not proven.</div><div class='src'><code>ensure ledger.balance&#x27; from = ledger.balance from - amount - fee</code></div></div></li>
 </ul>
 <h3>Examples <span class='muted'>1/1 pass, executed against build d8d99a9c</span></h3><ul class='ex'>
 <li><code>A:500@u1 B:0@u1 H:0@u1 | payout A B H 100 5 -&gt; ok | A:395 B:100 H:5</code> <span class='okc'>✔</span></li>
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 77 succeeded and were checked against every guarantee; refused: BadAmount 173, SameOwner 163, Insufficient 87.</p>
-<p class='failc'>Guarantee violated:</p><pre>eg A:137@u1 B:582@u2 C:867@u1 | payout B B B 5 7   # breaks: ensure ledger.balance&#x27; from = ledger.balance from - amount - fee
-eg A:561@u1 B:623@u2 C:980@u1 | payout C C A 14 409   # breaks: ensure ledger.balance&#x27; from = ledger.balance from - amount - fee
-eg A:816@u2 B:639@u2 C:189@u1 | payout A A B 558 116   # breaks: ensure ledger.balance&#x27; from = ledger.balance from - amount - fee</pre>
+<p class='failc'>Guarantee violated:</p><pre>eg A:137@u1 B:582@u2 C:867@u1 now:63 | payout B B B 5 7   # breaks: ensure ledger.balance&#x27; from = ledger.balance from - amount - fee
+eg A:561@u1 B:623@u2 C:980@u1 now:32 | payout C C A 14 409   # breaks: ensure ledger.balance&#x27; from = ledger.balance from - amount - fee
+eg A:816@u2 B:639@u2 C:189@u1 now:85 | payout A A B 558 116   # breaks: ensure ledger.balance&#x27; from = ledger.balance from - amount - fee</pre>
 <h3>Spec strength</h3><p class='muted'>Not measured until every guarantee holds.</p>
 <h3>Relies on</h3><p><code>transfer</code> — through their specs only, not their code.</p>
 <details><summary>Why (1)</summary><p class='failc'>Written for ac5c63bb; the definition or its inferred interface has changed since (now a15ed3b2). Confirm or update.</p><ul><li>the fee is a second transfer so it appears as its own ledger line in the customer&#x27;s statement</li></ul></details>

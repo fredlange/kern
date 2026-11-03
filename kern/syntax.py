@@ -166,6 +166,7 @@ class Example:
     outcome: tuple         # ('ok',) or (Ctor, [ints])
     after: dict            # account -> balance
     src: str
+    now: int = 0           # the call's time (clock.now), written `now:N` in the world
 
 
 @dataclass
@@ -200,6 +201,21 @@ class Def:
 WORLD_ITEM = re.compile(r"^([A-Z]\w*):(\d+)(?:@(\w+))?$")
 
 
+NOW_ITEM = re.compile(r"^now:(\d+)$")
+
+
+def split_now(src):
+    """Take an optional `now:N` item out of a world: (rest, N)."""
+    items, now = [], 0
+    for item in src.split():
+        m = NOW_ITEM.match(item)
+        if m:
+            now = int(m.group(1))
+        else:
+            items.append(item)
+    return " ".join(items), now
+
+
 def parse_world(src, line_no, with_owner=True):
     w = {}
     for item in src.split():
@@ -214,14 +230,15 @@ def parse_example(src, line_no):
     parts = [p.strip() for p in src.split("|")]
     if len(parts) not in (2, 3) or "->" not in parts[1]:
         raise ParseError("eg WORLD | call args -> outcome [| AFTER]", line_no)
-    world = parse_world(parts[0], line_no)
+    world_src, now = split_now(parts[0])
+    world = parse_world(world_src, line_no)
     call_src, out_src = [s.strip() for s in parts[1].split("->")]
     call = call_src.split()
     args = [int(a) if a.isdigit() else a for a in call[1:]]
     out = out_src.split()
     outcome = ("ok",) if out == ["ok"] else (out[0], [int(x) for x in out[1:]])
     after = parse_world(parts[2], line_no, with_owner=False) if len(parts) == 3 else {}
-    return Example(world, (call[0], args), outcome, after, src)
+    return Example(world, (call[0], args), outcome, after, src, now)
 
 
 HEADER = re.compile(r"^([a-z]\w*)((?:\s+\w+:\w+)*)\s*(?:->\s*(\w+))?\s*$")

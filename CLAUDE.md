@@ -110,7 +110,7 @@ kern/views.py     iface / spec / editor views + token counts; English templates
 kern/render.py    proof page HTML + terminal output
 kern/why.py       .why store, interface-anchored hash, staleness, orphans, obligation lint
 kern/baseline.py  ratchet baseline (<module>.strength): flags weakened specs
-examples/ledger_v1..v4.k, ledger.why, ledger_v4.why    the demo loop (see README)
+examples/ledger_v1..v5.k, ledger.why, ledger_v4/v5.why    the demo loop (see README)
 examples/ledger_large.k   7 defs, 4-deep chain; F9 token measurements
 tests/test_fundamentals.py  adversarial audit tests, one section per fundamental
 ```
@@ -128,9 +128,12 @@ for token counts).
 - Frames are *inferred* (`writes`), not written; a guarantee still can't say *when* a
   call succeeds, so mutants that change refusal conditions are caught only by
   examples (v4 transfer: guarantees 9/13, together 13/13).
-- Audit spec (`emit`) is exact-sequence only; `_` is the only way to mention the
-  timestamp (`clock.now` advances per read; whether it should be fixed per call is
-  an open question). No way to say "emits nothing". `eg` can't assert audit events.
+- Time: `clock.now` is one value per top-level call (it ticks after each call, refused
+  ones included; a bad call doesn't tick). Specs may read it; it has no after-state.
+  There is no operation for distinct instants inside one call (add `clock.tick` if
+  needed). Example worlds take `now:N`.
+- Audit spec (`emit`) is exact-sequence only; no way to say "emits nothing"; `eg`
+  can't assert audit events.
 - Lifted refusal conditions (`body need`) stop at the first ledger write; later ones
   that read balances aren't visible to callers. Agent views show only a definition's
   *own* body needs (inherited ones measured at ~2x the spec-view tokens).

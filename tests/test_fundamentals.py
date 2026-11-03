@@ -128,7 +128,8 @@ def test_f2_hidden_callee_failure_rolls_back_whole_call():
     out, after = Interp(defs).run("payout", ["A", "B", "H", 100, 5], w)
     assert out == ("Insufficient", [5])
     # the caller's own object is rolled back, not just the returned value (fixed, step 2)
-    assert w.bal == snap.bal and w.audit == snap.audit and w.clock == snap.clock
+    assert w.bal == snap.bal and w.audit == snap.audit
+    assert w.clock == snap.clock + 1          # time passes for refused calls too (clock step)
     assert after.bal == snap.bal
 
 
@@ -265,7 +266,7 @@ def test_f3_removed_guarantees_are_surfaced(tmp_path):                   # fixed
     reps = analyse(defs, baseline=baseline.load(base))
     assert render._status(reps["transfer"]) == ("warn", "Weaker than baseline")
     msg = " ".join(reps["transfer"]["regression"])
-    assert "keep ledger.total" in msg and "guarantee strength fell from 9/13 to 3/13" in msg
+    assert "keep ledger.total" in msg and "guarantee strength fell from 9/14 to 3/14" in msg   # 14: + timestamp mutant
     # payout's text did not change, but its proof rested on transfer's deleted ensures
     assert reps["payout"]["regression"] == ["was clean at the baseline, is not now"]
 
@@ -587,8 +588,8 @@ def test_f8_counterexample_is_a_valid_eg_line_that_replays():
 def test_f8_ill_formed_mutants_are_not_counted_as_kills():              # fixed (step 3)
     defs = parse_module(V3)
     m = check.mutation_score(defs, defs["transfer"])
-    # 12 well-formed body mutants + 1 payload mutant (step 6); the ill-formed one is listed, not counted
-    assert m["total"] == 13 and m["ill_formed"] == ["drop `have = ledger.balance from`"]
+    # 12 well-formed body mutants + 1 payload (step 6) + 1 timestamp (clock); ill-formed: listed, not counted
+    assert m["total"] == 14 and m["ill_formed"] == ["drop `have = ledger.balance from`"]
 
 
 def test_f8_failure_payloads_are_mutated():                             # fixed (step 6)
@@ -597,9 +598,9 @@ def test_f8_failure_payloads_are_mutated():                             # fixed 
 
 
 def test_f8_surviving_mutants_point_at_the_missing_guarantee():
-    """The ratchet's survivor signal works: v3's survivors are exactly the audit mutants, and
-    adding `emit` (v4) kills them."""
-    for src, want in ((V3, 3), (V4, 0)):
+    """The ratchet's survivor signal works: v3's survivors are exactly the audit mutants; `emit`
+    with `_` (v4) leaves only the timestamp one; `emit … clock.now` kills that too."""
+    for src, want in ((V3, 4), (V4, 1), (TIMED, 0)):
         defs = parse_module(src)
         surv = check.mutation_score(defs, defs["transfer"])["survived"]
         assert len(surv) == want and all("audit.emit" in s for s in surv)
@@ -668,3 +669,80 @@ def test_incidental_why_for_unknown_name_is_a_clean_error(capsys):      # fixed 
     from kern.__main__ import main
     assert main(["why", "examples/ledger_v4.k", "nosuch", "--why", "examples/ledger_v4.why"]) == 2
     assert "no definition named `nosuch`" in capsys.readouterr().err
+
+
+# =====================================================================================
+# Clock: one time per top-level call (docs/FIXES.md, "Clock")
+# =====================================================================================
+
+TIMED = V4.replace("  emit TransferDone from to amount _\n  eg A:500@u1 B:0@u1 | transfer",
+                   "  emit TransferDone from to amount clock.now\n  eg A:500@u1 B:0@u1 | transfer", 1)
+
+
+def test_clock_spec_pins_the_timestamp():                                # clock step
+    defs, reps = analysed(TIMED)
+    assert statuses(reps["transfer"]) == ["proven"] * 4
+    bad = TIMED.replace("audit.emit (TransferDone from to amount clock.now)", "audit.emit (TransferDone from to amount 0)")
+    _, reps = analysed(bad)
+    g = [g for g in reps["transfer"]["guarantees"] if g["kind"] == "emit"][0]
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+
+
+def test_clock_deadline_is_lifted_to_callers():                          # clock step
+    defs = parse_module("""
+pay to:Account amount:Int expires:Int
+  ensure ledger.balance' to = ledger.balance to + amount
+body
+  need clock.now <= expires else Expired
+  ledger.credit to amount
+twice to:Account amount:Int expires:Int
+body
+  pay to amount expires
+  pay to amount expires
+""")
+    got = [(code(c), k) for c, k, *_ in __import__("kern.infer", fromlist=["lifted"]).lifted(defs, defs["twice"])]
+    assert ("clock.now <= expires", "Expired") in got
+
+
+def test_clock_timestamp_mutant_survives_underscore_but_not_clock_now():  # clock step
+    v4 = parse_module(V4)
+    timed = parse_module(TIMED)
+    m4 = check.mutation_score(v4, v4["transfer"])
+    m5 = check.mutation_score(timed, timed["transfer"])
+    assert any("clock.now" in s and "→ `0`" in s for s, _ in m4["guarantee_missed"])
+    assert not any("clock.now" in s for s, _ in m5["guarantee_missed"])
+
+
+def test_clock_is_one_value_per_call_and_advances_between_calls():
+    defs = parse_module(V4)
+    w = World({"A": 500, "B": 0, "H": 0}, {"A": "u1", "B": "u1", "H": "u1"}, 7)
+    out, _ = Interp(defs).run("payout", ["A", "B", "H", 100, 5], w)
+    assert out == ("ok",) and [ev[-1] for ev in w.audit] == [7, 7] and w.clock == 8
+    out, _ = Interp(defs).run("transfer", ["A", "B", 10], w)
+    assert w.audit[-1][-1] == 8 and w.clock == 9
+
+
+def test_clock_has_no_after_state():
+    with pytest.raises(WellFormedError, match="the time is the same before and after"):
+        check_module(parse_module("f a:Account\n  ensure clock.now' = clock.now\nbody\n  ledger.credit a 0\n"))
+
+
+def test_clock_counterexample_carries_the_time_and_replays():
+    """A refutation that depends on the time must say which time, or its eg line would not replay."""
+    defs, reps = analysed("""
+late to:Account amount:Int
+  ensure ledger.balance' to = ledger.balance to + amount
+body
+  need clock.now < 5 else Late
+  ledger.credit to amount
+  ledger.credit to (clock.now - clock.now)
+  x = clock.now
+  need x < 3 else Later
+  ledger.credit to (3 - 3)
+""")
+    assert statuses(reps["late"]) == ["proven"]          # the time is one value: x = clock.now < 3 holds
+    defs, reps = analysed(TIMED.replace("audit.emit (TransferDone from to amount clock.now)",
+                                        "audit.emit (TransferDone from to amount 7)"))
+    cx = [g for g in reps["transfer"]["guarantees"] if g["kind"] == "emit"][0]["counterexample"]
+    ex = parse_example(cx["eg"][3:], None)
+    assert cx["confirmed_by_interpreter"] and ex.now != 7          # replays at a time other than 7

@@ -15,7 +15,7 @@ def run_examples(defs, d):
     interp, out = Interp(defs), []
     for ex in d.examples:
         try:
-            w = World.from_example(ex.world)
+            w = World.from_example(ex.world, ex.now)
             outcome, after = interp.run(ex.call[0], ex.call[1], w)
             ok = (outcome[0] == ex.outcome[0] and (ex.outcome[0] == "ok" or list(outcome[1]) == ex.outcome[1])
                   and all(after.bal[a] == b for a, b in ex.after.items()))
@@ -38,10 +38,12 @@ def _rand_args(d, accts, rnd):
 
 def proptest(defs, d, n=500, seed=1):
     rnd, interp = random.Random(seed), Interp(defs)
+    times = random.Random(seed + 1_000_003)     # separate stream: adding time must not reshuffle worlds
     stats = {"runs": n, "succeeded": 0, "failures": {}, "violations": []}
     for _ in range(n):
         accts = ["A", "B", "C"]
-        w = World({a: rnd.randint(0, 1000) for a in accts}, {a: rnd.choice(["u1", "u2"]) for a in accts})
+        w = World({a: rnd.randint(0, 1000) for a in accts}, {a: rnd.choice(["u1", "u2"]) for a in accts},
+                  times.randint(0, 100))
         args = _rand_args(d, accts, rnd)
         before = copy.deepcopy(w)
         try:
@@ -53,7 +55,7 @@ def proptest(defs, d, n=500, seed=1):
             stats["succeeded"] += 1
             for kind, c in interp.holds(d, args, before, after):
                 if len(stats["violations"]) < 3:
-                    world = " ".join(f"{a}:{before.bal[a]}@{before.own[a]}" for a in accts)
+                    world = " ".join(f"{a}:{before.bal[a]}@{before.own[a]}" for a in accts) + f" now:{before.clock}"
                     stats["violations"].append({"clause": f"{kind} {c}",
                                                 "eg": f"eg {world} | {d.name} {' '.join(map(str, args))}"})
         else:
@@ -88,6 +90,8 @@ def _expr_mutants(e, params):
             yield f"`{e[1]}` → `{p}`", ("name", p, e[2])
     if k == "int":
         yield f"`{e[1]}` → `{e[1] + 1}`", ("int", e[1] + 1)
+    if k == "name" and e[1] == "clock.now":
+        yield "`clock.now` → `0`", ("int", 0)
 
 
 def mutants(d):

@@ -1,0 +1,5 @@
+transfer@45611b66
+  same-owner rule: cross-customer transfers must go through payments.send, which runs AML screening
+  Insufficient carries the shortfall so support can tell the customer how much is missing
+payout@859f530b
+  the fee is a second transfer so it appears as its own ledger line in the customer's statement

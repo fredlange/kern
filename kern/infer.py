@@ -138,14 +138,15 @@ def lifted(defs, d, seen=None):
     Spec needs are already in the interface; this adds the *body-level* ones (own `need`s and,
     transitively, callees' needs), so callers and the prover can see when a call refuses. A
     condition is lifted only when it can be stated in the pre-state: it comes before any ledger
-    write, or it does not read balances at all; and it never involves `clock.now`.
+    write, or it does not read balances at all. `clock.now` is fine anywhere: it is the time of
+    the whole top-level call, the same value in every state the call passes through.
     Returns [(cond, ctor, payload or None, origin)], origin = "" for d's own body."""
     seen = (seen or set()) | {d.name}
     out, lets, clean = [], {}, True               # lets: name -> (expr in pre-state terms, usable)
 
     def pre_state(e):
         bad = [n for n in _names(e) if n in lets and not lets[n][1]]
-        if bad or "clock.now" in _names(e):
+        if bad:
             return None
         e2 = subst(e, {n: v for n, (v, _) in lets.items()})
         return e2 if clean or not _reads_state(e2) else None

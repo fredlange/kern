@@ -4,7 +4,7 @@ The prover and the interpreter only agree on well-formed, well-typed definitions
 nothing reaches them without passing this check. It rejects:
   * unknown names, wrong arity, a variable applied to arguments
   * a `let` that shadows a parameter, an earlier `let`, a handler or a definition
-  * specs that read body `let`s, call write/clock/audit handlers or definitions, or
+  * specs that read body `let`s, call write/audit handlers or definitions, or
     use primes outside `ensure`; `_` outside the top level of an `emit` argument
   * recursion (no termination measures yet)
   * type errors: Int, Account, Owner, Bool, Event, Unit (e.g. `from + to`)
@@ -27,7 +27,8 @@ SIG = {                                       # handler -> (argument types, resu
     "clock.now": ([], "Int"),
     "audit.emit": (["Event"], "Unit"),
 }
-SPEC_READS = {"ledger.balance", "ledger.owner", "ledger.total"}
+SPEC_READS = {"ledger.balance", "ledger.owner", "ledger.total", "clock.now"}   # time is fixed per call
+NO_AFTER_STATE = {"clock.now"}                                                 # ... so it has no `'`
 ANY = "Any"
 WILD = ("name", "_", False)
 
@@ -92,6 +93,8 @@ class _Checker:
                 self.err(where, f"`{name}'`: only handler reads have an after-state")
             return scope[name]
         if name in HANDLERS:
+            if primed and name in NO_AFTER_STATE:
+                self.err(where, f"`{name}'`: the time is the same before and after a call")
             if spec and name not in SPEC_READS:
                 self.err(where, f"specs may only read state; `{name}` has an effect")
             want, result = SIG[name]

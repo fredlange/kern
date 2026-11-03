@@ -62,7 +62,8 @@ def editor(reports, name, whys):
 
 # ---------- English rendering for the human proof page (templates, no model) ----------
 
-NAMES = {"ledger.balance": "balance of {0}", "ledger.owner": "owner of {0}", "ledger.total": "total money in the ledger"}
+NAMES = {"ledger.balance": "balance of {0}", "ledger.owner": "owner of {0}", "ledger.total": "total money in the ledger",
+         "clock.now": "the time of the call"}
 OPS = {"=": "=", "!=": "≠", ">=": "≥", "<=": "≤", ">": "&gt;", "<": "&lt;", "+": "+", "-": "−", "and": "and", "or": "or"}
 NEG = {"=": "!=", "!=": "=", ">=": "<", "<=": ">", ">": "<=", "<": ">="}
 EFFECTS = {"ledger.write": "the ledger (read and write)", "ledger.read": "the ledger (read only)",

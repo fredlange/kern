@@ -3,6 +3,7 @@ prover uses only the callee's spec (needs, ensures, keeps), never its body — t
 "read the interface, not the code" rule the agent follows."""
 from __future__ import annotations
 
+import copy
 import itertools
 
 import z3
@@ -19,11 +20,12 @@ class Sym:
     (the handler can only append): ("ev", Ctor, [z3 args]) or ("opaque", callee) when a callee
     emits events its spec does not describe."""
 
-    def __init__(self, bal, own, total, audit=()):
+    def __init__(self, bal, own, total, audit=(), now=None):
         self.bal, self.own, self.total, self.audit = bal, own, total, list(audit)
+        self.now = now if now is not None else z3.Int("now")   # the call's time; never changes
 
     def copy(self):
-        return Sym(self.bal, self.own, self.total, self.audit)
+        return Sym(self.bal, self.own, self.total, self.audit, self.now)
 
 
 WILD = ("name", "_", False)
@@ -80,7 +82,7 @@ class Prover:
             S.total = S.total + sign * a[1]
             return None
         if name == "clock.now":
-            return fresh_int("now")
+            return S.now
         if name == "audit.emit":
             S.audit = S.audit + [a[0] if isinstance(a[0], tuple) else ("opaque", "audit.emit")]
             return None
@@ -176,6 +178,7 @@ class Prover:
             elif r == z3.sat:
                 nice = z3.Solver()
                 nice.add(*self.pc, z3.Not(g))
+                nice.add(pre.now >= 0, pre.now <= 1000)
                 for p, t in d.params:
                     v = params[p]
                     nice.add(v >= 0, v <= 1000) if t == "Int" else nice.add(v >= 0, v <= 3)
@@ -245,11 +248,12 @@ class Prover:
                 args.append(letters[v])
             else:
                 args.append(v)
-        w = World.from_example(world)
+        now = m.eval(pre.now, model_completion=True).as_long()
+        w = World.from_example(world, now)
         interp = Interp(self.defs)
-        before = World(dict(w.bal), dict(w.own))
+        before = copy.deepcopy(w)
         outcome, after = interp.run(d.name, args, w)
-        world_src = " ".join(f"{a}:{b}@{o}" for a, (b, o) in world.items())
+        world_src = " ".join(f"{a}:{b}@{o}" for a, (b, o) in world.items()) + (f" now:{now}" if now else "")
         after_src = " ".join(f"{a}:{after.bal[a]}" for a in world)
         out_src = "ok" if outcome == ("ok",) else " ".join([outcome[0], *map(str, outcome[1])])
         violated = interp.holds(d, args, before, after) if outcome == ("ok",) else []

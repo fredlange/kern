@@ -16,8 +16,8 @@ class World:
     audit: list = field(default_factory=list)
 
     @classmethod
-    def from_example(cls, w):
-        return cls({a: b for a, (b, _) in w.items()}, {a: o for a, (_, o) in w.items()})
+    def from_example(cls, w, now=0):
+        return cls({a: b for a, (b, _) in w.items()}, {a: o for a, (_, o) in w.items()}, now)
 
 
 class Fail(Exception):
@@ -45,7 +45,7 @@ def _credit(w, a, n):
 
 
 def _now(w):
-    w.clock += 1
+    """The time of the current top-level call: the same value for every read inside it."""
     return w.clock
 
 
@@ -141,13 +141,15 @@ class Interp:
         snap = copy.deepcopy(world)
         try:
             self.call_def(self.defs[name], args, world)
-            return ("ok",), world
+            outcome = ("ok",)
         except Fail as f:
             _restore(world, snap)
-            return (f.ctor, f.args_), world
+            outcome = (f.ctor, f.args_)
         except BaseException:          # runtime errors are atomic too: nothing the call did survives
-            _restore(world, snap)
+            _restore(world, snap)      # (and no time passes: the call did not happen)
             raise
+        world.clock += 1               # time passes between calls, refused ones included
+        return outcome, world
 
     def holds(self, d, args, pre, post):
         """Which keep/ensure/emit clauses fail for this (pre, post) pair. Returns [(kind, clause source)]."""
