@@ -441,3 +441,50 @@ Definitions with #6: 7/55 = 13% (size 2: 3/26 = 12%).
 6. **The app is mine.** The specs, the program and the measurements were all
    written by the same agent. A second author, or your domain, would test bets 2
    and 3.
+
+## Correction to the reading ratio (found while preparing the review)
+
+The size-2 and size-3 reading ratios above counted `need as` / `emit as` lines as
+read. A reader can't use them: an agent editing purchase saw reserve's spec view say
+`need as transfer buyer escrow amount`, and transfer's spec wasn't in the editor
+view. So part of the gain was deferral, not skipped bodies. That's the F1 gap again,
+in a new form.
+
+**Fix:** a definition's *spec view* (what its callers read) now shows references
+expanded into the conditions and events they stand for. The author's own source and
+editor view keep the compact reference. Definitions without references are
+unchanged, so size 1 doesn't move. The other honest option, loading the referenced
+specs into the editor view, was measured too and is worse (median 0.78 at size 2,
+0.75 at size 3).
+
+| reading ratio (corrected) | size 1 | size 2 | size 3 |
+|---|---|---|---|
+| median | 0.69 | 0.66 | 0.61 |
+| depth 1 | 0.81 | 0.80 | 0.83 |
+| depth 2 | 0.59 | 0.64 | 0.62 |
+| depth 3 | 0.63 | 0.52 | 0.51 |
+| depth 4 | – | – | 0.39 |
+| deepest | 0.69 | 0.53 | 0.47 |
+
+- **Size 2 restated** (no references) scores the same for the reader: median 0.66,
+  depth 1/2/3 of 0.81/0.65/0.48. References therefore save the *author's* source (5287 → 4662
+  tokens) and keep strength, but they don't reduce what a caller reads. The earlier
+  claim that they improved the reading ratio is withdrawn.
+- **Verdicts against the pre-registered rules, redone with corrected numbers:**
+  - **Size 2 vs 1:** median, depth 1, depth 3 and deepest improve. Depth 2 rises
+    0.59 → 0.64, but like for like it's flat: cancel 0.59 → 0.59, split 0.60 → 0.61,
+    tip 0.56 → 0.53. purchase and refund moved from depth 3 to 2 with higher ratios.
+  - **Size 3 vs 2:** median, depth 2, depth 3 and deepest improve, and depth 4 is
+    new at 0.39. Depth 1 rises: four definitions are equal, capture is better,
+    withdraw is worse (it gained the KYC need), and new thin wrappers joined.
+  - So the stop rule still isn't triggered. The central-claim numbers are less
+    favourable than the uncorrected ones: at depth 4 an agent loads about 40% of the
+    code below it, not a third.
+
+**Two smaller things for the record:**
+- `need as` expands at parse time, so a caller's build hash changes when the
+  referenced callee's spec changes. That's deliberate (its why entries should go
+  stale), but it's a change from "a hash covers only this definition's text".
+- Tests: 163 collected = 161 passed + 2 expected failures. The passed counts quoted
+  mid-run above (140/149/150) came from runs at different points while tests were
+  being added.

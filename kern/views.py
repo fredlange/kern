@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from .infer import fmt_fails, fmt_uses, fmt_writes
-from .syntax import NEG, _side, atom_code, code, flat, negate
+from .syntax import NEG, _side, atom_code, code, emit_code, flat, negate
 
 try:
     import anthropic
@@ -43,11 +43,31 @@ def iface(r, why):
 def spec(r, why):
     """What a caller that must *reason about* the definition reads: interface + guarantees + proof status."""
     d = r["def"]
-    lines = [iface(r, why)]
-    lines += [f"  {l}" for l in d.src_lines["spec"] if not l.startswith("eg ")]
+    lines = [iface(r, why)] + [f"  {l}" for l in spec_lines(d)]
     lines += [f"  {l}" for l in body_needs(r)]
     lines.append(_proof_line(r))
     return "\n".join(lines)
+
+
+def spec_lines(d):
+    """The spec clauses a *reader* gets. A `need as X …` / `emit as X …` line is shown expanded:
+    otherwise a caller could not tell when the call refuses (or what it emits) without loading X's
+    spec as well. Definitions without references get their source lines unchanged."""
+    src = [l for l in d.src_lines["spec"] if not l.startswith("eg ")]
+    if not d.ref_origin:
+        return src
+    needs = [f"need {code(n[1])} else {' '.join([n[2]] + [atom_code(a) for a in n[3]])}" for n in d.needs]
+    emits = [f"emit {emit_code(ev)}" for ev in d.emits]
+    out, done = [], set()
+    for l in src:
+        kind = l.split(" ", 1)[0]
+        if kind in ("need", "emit"):
+            if kind not in done:
+                out += needs if kind == "need" else emits
+                done.add(kind)
+            continue
+        out.append(l)
+    return out
 
 
 def editor(reports, name, whys):

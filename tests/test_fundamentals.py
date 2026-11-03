@@ -1130,7 +1130,12 @@ def test_s2_need_as_expands_to_the_callees_spec_needs():
     defs = parse_module(ESCROW2)
     restated = parse_module(open("examples/escrow_s1.k").read())
     assert defs["reserve"].needs == restated["reserve"].needs                      # same conditions
-    assert "need as transfer buyer escrow amount" in views.spec(analysed(ESCROW2)[1]["reserve"], NO_WHY)
+    defs2, reps = analysed(ESCROW2)
+    # the author's source keeps the reference; a reader's spec view gets the conditions themselves,
+    # or a caller could not tell when reserve refuses without also loading transfer's spec
+    assert "need as transfer buyer escrow amount" in views.editor(reps, "reserve", no_whys(defs2))
+    spec_view = views.spec(reps["reserve"], NO_WHY)
+    assert "need as" not in spec_view and "need buyer != escrow else SameAccount" in spec_view
 
 
 def test_s2_need_as_follows_the_spec_arguments_not_the_body():
