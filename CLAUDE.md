@@ -118,6 +118,8 @@ examples/ledger_large.k   7 defs, 4-deep chain; F9 token measurements
 examples/escrow_s1.k      scale size 1 (docs/SCALE.md): escrow with branches
 examples/escrow_s2.k      scale size 2: declared state, invariants, `need as` / `emit as`
 examples/escrow_s3.k      scale size 3: 55 defs, pure functions (-> Int) usable in specs, `distinct`
+examples/limits.k, .host  host demo: limits fetched from a risk service over `net` (docs/HOST.md)
+kern/host.py              host: SQLite state, outbox + channels, net endpoints, replay, `page`
 kern/scorecard.py         `kern score FILE.k`: the per-size scorecard of docs/SCALE.md
 kern/host.py              OS boundary (docs/HOST.md): SQLite state, outbox, recorded clock,
                           HTTP + console front ends, replay, permission manifest, proof gate
@@ -167,7 +169,11 @@ for token counts).
 - Mutation tests use 150 random runs per mutant; the `settle` audit mutant needed 500
   to be caught by random tests (the prover now catches it).
 - The obligation lint for `why` is a keyword heuristic.
-- Tier ○ (runtime-checked) and record/replay are not implemented (roadmap 4).
+- Tier ○ (runtime-checked) and record/replay exist only in the host (`kern/host.py`: SQLite,
+  replay, invariants checked at the keys a call wrote). Output channels (`channel console`,
+  `emit console Line x`) are exact per channel, unordered across channels. Network requests are
+  `net` events with endpoints in a `.host` file; replies arrive as new calls; no request timeout
+  (a lost reply leaves the request pending). Delivery is at-least-once. docs/HOST.md has the scorecard.
 - Application arguments must be atoms; nested calls need parentheses. An open
   design question is whether to parse by arity instead, using known interfaces.
 - The `.why` file is chosen with `--why`, defaulting to `<module>.why`.

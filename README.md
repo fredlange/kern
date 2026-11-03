@@ -13,6 +13,8 @@ python -m kern why    examples/ledger_v3.k transfer --why examples/ledger.why
 python -m kern run    examples/ledger_v3.k "transfer A B 100" --world "A:500@u1 B:0@u1"
 python -m kern baseline examples/ledger_v4.k     # record guarantee strength; check then flags drops
 python -m kern score examples/escrow_s3.k        # the scale scorecard (docs/SCALE.md; sizes s1, s2, s3)
+python -m kern.host repl examples/escrow_s2.k --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"   # run it for real (docs/HOST.md)
+python -m kern.host manifest examples/limits.k   # effects and network endpoints the module can reach
 ```
 
 Tests: `pip install pytest`, then `pytest` from the repo root runs

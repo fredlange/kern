@@ -61,12 +61,12 @@ python -m kern.host replay   examples/escrow_s2.k --db e.db
    level), `console.emit (Line x)` in a body and `emit console Line x` in a spec. Each channel is
    an exact sequence, the order across channels is unspecified, and a channel the spec never
    names is unconstrained. The outbox has a `channel` column; `console` goes to stdout.
-3. **The prover crashes on unknown handlers** (`prove.py`, `raise ValueError("prover: unknown …")`),
+3. **The prover crashes on unknown handlers** (still true; H2/H3 needed none) (`prove.py`, `raise ValueError("prover: unknown …")`),
    Declared handlers with assumed specs (roadmap 1) are needed only for observations *inside* a call
    (environment variables, file reads, randomness). Console and network don't need them if output is a
    channel `emit` and replies arrive as new calls; see [HOST_PLAN.md](HOST_PLAN.md).
-4. **Effect labels have no resource** (`net.send` rather than `net.send host`), so the manifest
-   can't yet narrow network or file access.
+4. ~~**Effect labels have no resource.**~~ The manifest now lists every network endpoint, from the
+   host config. File access still has no effect at all.
 5. **Int and Account only.** Real requests need Text and records. The plan is for the host to
    decode them against a declared schema at the boundary, the same way `run()` already
    type-checks arguments, so Kern never parses bytes.
@@ -80,7 +80,10 @@ python -m kern.host replay   examples/escrow_s2.k --db e.db
 | 2 | Lazy state fixes the scaling | **pass**. `transfer`, 300 calls, 300/300 ok, replay matches. In memory: 0.034 / 0.033 / 0.031 ms per call at 50 / 500 / 5000 accounts (0.9×; before H1 it was 75×). File-backed SQLite: 0.282 / 0.327 / 0.330 ms (1.17×). A timing-free check: the SQL statements per call are the same at 50 and 5000 accounts (`test_a_call_does_not_read_the_whole_world`) |
 | 3 | Channels cost nothing for existing code | **pass** after H2: escrow_s1/s2/s3 are clean (10/10, 26/26, 55/55); spec-view token counts and build hashes of every definition are identical to before H2 (1626 / 4572 / 9198 tokens) |
 | 4 | A channel is cheap in a spec | **pass**: `emit console Line x` costs 6 tokens vs 5 for `emit Line x` (+1). HOST.md's earlier `emit console.Line x` would cost +2 |
-| 7 | Network needs no declared handlers | *at H2:* `prove.py` +50 / −27 lines, all channel-keyed `emit` (per-channel event lists, per-channel goals, per-channel opaque callees). Final count at H3 below |
+| 5 | A hostile network can't break the invariants | **pass.** 1000 seeded runs of `examples/limits.k`: 25,000 calls, 5,394 replies (dropped, duplicated, delayed, released out of order, failed, or garbled: negative, non-Int, missing). **0** invariant faults, **668/668** duplicate or stale replies refused with `Stale`, and `replay` matches **1000/1000** runs. Plus one run against a real local `HTTPServer` (a 200 sets the limit, a 500 becomes `limit_failed`) |
+| 6 | The manifest is the policy | **pass.** `manifest` lists every endpoint (`net: Fetch -> GET http://127.0.0.1:9/limit/*  reply got_limit, fail limit_failed`). The host refuses to start, exit 2, when a request has no endpoint, when there is no config, when an endpoint names a constructor the module never sends, and when a reply or fail definition is missing or has the wrong types |
+| 7 | Network needs no declared handlers | **pass.** `prove.py`: +51 / −27 lines in H2, all channel-keyed `emit` (per-channel event lists, per-channel goals, per-channel opaque callees), and **0 lines** in H3. No handler was declared or modelled for the network |
+| 8 | Crash recovery | **pass.** A real child process flushes 40 committed events through a sink that writes, fsyncs and then sleeps. That puts every kill inside the window between delivering and marking, which is the worst case. Three `kill -9`s mid-flush, then a restart: all 40 delivered, 43 deliveries, **3 duplicates = 1 per kill** |
 
 **How H1 works:**
 - **Lazy world.** `host.LazyWorld` is a `World` whose stores read SQLite on demand. A read cache is
@@ -109,3 +112,31 @@ python -m kern.host replay   examples/escrow_s2.k --db e.db
 - **Effect label per channel** (`console`), so `uses` and the manifest separate them.
 - **Host:** delivers audit first, then channels in declaration order. That is a convention, and
   the page says the order across channels isn't guaranteed.
+
+**How H3–H5 work:**
+- **Requests are events on `net`.** The `.host` file next to the module (`limits.host`) maps each
+  request constructor to `METHOD URL; reply DEF ARGS; fail DEF ARGS`. ARGS are `{i}` (the event's
+  i-th argument) or `$.field` (an Int field of the JSON reply).
+- **Replies are calls.** After commit, `flush` sends each request. `pump` runs whatever comes back
+  as an ordinary logged top-level call, so replay covers it. Kern never sees bytes: a timeout, a
+  non-2xx status or a non-Int becomes the `fail` call.
+- **Simulation:** `SimNet` is seeded. It drops, duplicates, delays or fails each reply, and
+  `release()` lets held-back replies go in a random order.
+- **The page:** `python -m kern.host page FILE.k --html X` writes the proof page plus a Host
+  section: effects, endpoints and assumptions, every line marked *assumed*, none ✔
+  (`render.host_html`, fixed templates).
+
+**Findings:**
+- **The plan's demo design needed one change to pass item 5.** With only `pending` as a flag, a
+  delayed reply to an *old* request would be accepted while a *newer* request is pending. In
+  `limits.k` each request carries a sequence number (`req.get a`), and `got_limit` and
+  `limit_failed` need both `pending = 1` and a matching number.
+- **Liveness isn't covered.** A dropped or refused reply (BadValue) leaves `pending = 1`, and
+  `request_limit` then refuses `AlreadyPending` for good. In the 1000 runs, **1,952 accounts ended
+  pending**. Invariants hold; progress doesn't. It needs a timeout call (for example, the host
+  calls `limit_failed` after N seconds) or a `cancel_request` definition. Not built.
+- **Requests are at-least-once too.** A crash during `flush` re-sends a request, so the risk
+  service must tolerate duplicates. The reply side is safe (Stale); the request side relies on
+  the server.
+- **This is a proof of concept on one process.** There's no sandbox (the Python host can do
+  anything; see "Permission manifest" above), no concurrent calls, and no Text or records.
