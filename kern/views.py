@@ -146,13 +146,22 @@ def en_ensure(e):
     return en(e, tense=_has_prime(e))
 
 
+def negate(e):
+    """The negation as an expression (De Morgan over and/or), or None if it needs a `not`."""
+    if e[0] != "bin":
+        return None
+    if e[1] in NEG:
+        return ("bin", NEG[e[1]], e[2], e[3])
+    if e[1] in ("and", "or"):
+        l, r = negate(e[2]), negate(e[3])
+        return ("bin", "or" if e[1] == "and" else "and", l, r) if l and r else None
+    return None
+
+
 def en_refusal(need, lets):
     cond = need[1]
-    if cond[0] == "bin" and cond[1] in NEG:
-        neg = ("bin", NEG[cond[1]], cond[2], cond[3])
-        text = en(neg, lets)
-    else:
-        text = f"not ({en(cond, lets)})"
+    neg = negate(cond)
+    text = en(neg, lets) if neg else f"not ({en(cond, lets)})"
     detail = f" ({', '.join(en(a, lets) for a in need[3])})" if need[3] else ""
     return text, f"{need[2]}{detail}"
 

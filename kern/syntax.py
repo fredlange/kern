@@ -178,6 +178,7 @@ class Def:
     keeps: list = field(default_factory=list)
     ensures: list = field(default_factory=list)
     emits: list = field(default_factory=list)     # [(Ctor, [arg exprs])]; empty = audit unconstrained
+    complete: bool = False                         # `ok otherwise`: the spec needs are every refusal
     examples: list = field(default_factory=list)
     body: list = field(default_factory=list)
     src_lines: dict = field(default_factory=dict)   # section -> [source lines]
@@ -187,6 +188,8 @@ class Def:
         parts = (self.params, self.ret, self.needs, self.keeps, self.ensures, self.body)
         if self.emits:                      # only when present, so older definitions keep their hash
             parts += (self.emits,)
+        if self.complete:
+            parts += ("ok otherwise",)
         canon = repr(parts)
         return hashlib.sha256(canon.encode()).hexdigest()[:8]
 
@@ -289,8 +292,14 @@ def parse_module(text: str) -> dict:
             cur.emits.append(parse_ctor(rest, no, "emit"))
         elif word == "eg":
             cur.examples.append(parse_example(rest, no))
+        elif word == "ok":
+            if rest.split() != ["otherwise"]:
+                raise ParseError("the clause is `ok otherwise` (succeeds whenever the needs hold)", no)
+            if cur.complete:
+                raise ParseError("`ok otherwise` appears twice", no)
+            cur.complete = True
         else:
-            raise ParseError(f"unknown clause {word!r} (need/keep/ensure/emit/eg, then body)", no)
+            raise ParseError(f"unknown clause {word!r} (need/keep/ensure/emit/ok/eg, then body)", no)
     return defs
 
 

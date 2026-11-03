@@ -167,6 +167,14 @@ class Interp:
             bad.append(("emit", "; ".join(emit_code(ev) for ev in d.emits)))
         return bad
 
+    def unstated_refusal(self, d, args, before, outcome):
+        """`ok otherwise` is broken by this run: every spec `need` held, yet the call refused."""
+        if not d.complete or outcome == ("ok",):
+            return False
+        env = {p: a for (p, _), a in zip(d.params, args)}
+        w = copy.deepcopy(before)
+        return all(self.ev(n[1], env, w) for n in d.needs)
+
     def emitted_ok(self, d, env, pre, post):
         """The call appended exactly the events its `emit` clauses list, in order; `_` matches anything."""
         got = post.audit[len(pre.audit):]

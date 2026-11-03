@@ -393,3 +393,81 @@ snapshot diff with every line explained.
     are identical. Tests: 81/2 → 87/2.
 - **Cost:** payout's two events share a timestamp; their order is still fixed by
   position. `clock.now` in an emit clause costs 2 tokens more than `_` (10 vs 8).
+
+## `ok otherwise`: a spec can say when a call succeeds
+
+This closes F3's remaining gap ("a guarantee can't say *when* a call succeeds"). It
+is opt-in, and a definition that opts in restates every refusal itself; nothing is
+inherited. Same protocol: a pre-change snapshot (tests, check output for v3/v4/v5,
+build hashes), the change, then a diff.
+
+- **Change:**
+  - **Syntax:** a spec line `ok otherwise` (4 tokens with indent and newline; `else ok`,
+    `only these` and `succeeds otherwise` cost the same). It means: if every spec
+    `need` holds, the call succeeds. Spec needs already run as guards, so a
+    refusal is written once, in the spec, and enforced by that line.
+  - **Prover:** records every refusal point after the spec needs: body `need`s,
+    and each callee's spec needs at the call. The goal is that none of them can
+    fail on a path where the spec needs held. It has its own premise, not the
+    success path.
+  - **Callees:** a callee that can refuse beyond its spec (a body `need`, or a
+    callee that refuses) and has no `ok otherwise` makes the claim *unknown*:
+    "relies on transfer, whose spec does not say when it refuses". This mirrors
+    `emit`.
+  - **Counterexamples:** confirmed only when the interpreter's replay refuses
+    with every spec need true. Random tests report the same thing as a violation.
+  - **Proof page:** "succeeds whenever the needs above hold: it refuses for no
+    other reason". When the claim is proven, the lifted "(from X)" and
+    "passed through" rows are dropped from "Refuses when"; when it isn't, they
+    stay.
+  - **Hash:** includes the marker only when present. Unmarked definitions keep
+    their hashes.
+- **New examples:**
+  - `ledger_v6.k`: transfer moves `Insufficient` into its spec and adds
+    `ok otherwise`. Payout restates all its refusals but keeps `fee >= 0`.
+  - `ledger_v7.k`: payout says `fee > 0`.
+  - `.why` files copied from v5 and re-anchored (same text).
+- **Evidence:**
+  - **v6 payout ✗**, `eg A:1@u1 B:253@u1 | payout A B B 1 0 -> BadAmount`, replayed:
+    transfer refuses a zero fee, which payout's spec allowed. In v5 the same bug
+    gives a clean page. Random tests find it too (2 violations).
+  - **v7:** both claims are proven. Payout's `Insufficient (amount + fee - balance
+    from)` holds only through transfer's `ensure` (the second call needs
+    `balance' from >= fee` after the first debited `amount`).
+  - **Unmarked definitions are unchanged:** `check` output for v3, v4 and v5 is
+    byte-identical before and after, and so are all build hashes.
+- **Mutation numbers, read carefully:**
+  - **v7 transfer: guarantees 10/10** (v5: 10/14). The four v5 survivors are *not*
+    caught. They're gone: the `need` they mutated left the body. Mutants are
+    body-only, so anything moved into the spec drops out of the spec-strength
+    measurement. That's a measurement gap, not new strength.
+  - **What the obligation itself catches**, measured by keeping a redundant body
+    need: 12/14. `>=` → `>` and `from` → `to` are killed by `ok otherwise`. The
+    two survivors (drop the need, flip its payload) are equivalent mutants,
+    because the spec guard runs first.
+  - **v7 payout:** 12/12, as in v5.
+- **Default on or not, measured:** `ok otherwise` added to every definition of v5
+  and `ledger_large`, nothing else changed. **1 of 9 passes** (`deposit`). The
+  other eight are ✗ with replayed counterexamples, e.g.
+  `rebalance A B 0 -> BadAmount` and `month_end A B B 0 1 -> FeeTooLarge`. Hence
+  opt-in.
+- **Cost (tokens):**
+
+  | | v5 | v7 |
+  |---|---|---|
+  | transfer, full definition | 233 | 235 |
+  | transfer, spec view | 133 | 135 |
+  | payout, spec view | 97 | 163 |
+  | payout, editor view | 281 | 349 |
+
+  Restating is what costs: payout's spec grows by 66 tokens, and each level of a
+  call chain (settle, month_end) would repeat the same conditions.
+- **Not done:**
+  - Inheriting callee refusals. This needs a readable pre-state form for
+    conditions after a write: payout's second-call condition depends on
+    transfer's effect and on aliasing between `to` and `house`.
+  - Mutating spec lines.
+- **Tidying:** the `ok` claim is never promoted to ◐ tested-only, because random
+  successes can't test a claim about refusals. Refusal rows negate `and`/`or` by
+  De Morgan ("amount ≤ 0 or fee ≤ 0", not "not (amount > 0 and fee > 0)").
+- **Tests:** 87/2 → 97/2 (10 new, `test_f3_ok_otherwise_*`).

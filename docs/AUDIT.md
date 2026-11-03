@@ -12,14 +12,15 @@ Token counts use the `anthropic==0.34.2` tokenizer (an older one, so approximate
 ## Status after the fix pass
 
 Every suggested fix has been made; [FIXES.md](FIXES.md) has each step with its
-before/after evidence. Tests: **81 passed, 2 xfailed** (was 37 passed, 23 xfailed).
+before/after evidence. Tests: **97 passed, 2 xfailed** (was 37 passed, 23 xfailed; 81/2 after the
+fix pass, 87/2 after the clock, 97/2 after `ok otherwise`).
 The two remaining strict xfails are tier ○ and record/replay, both roadmap step 4.
 
 | # | At audit | After fixes | What closed it | What remains |
 |---|---|---|---|---|
 | F1 | partial | **holds** | lifted refusal conditions (`body need`) in views, prover and page | conditions after the first write that read balances aren't liftable; views show only own body needs (inherited ones ≈ 2× tokens) |
 | F2 | violated | **holds** | well-formedness pass (no shadowing, no recursion); in-place rollback on any exception | recursion is rejected rather than supported |
-| F3 | partial | **partial** | inferred write set on page and views; "no guarantee about the new balance of …"; baseline flags removed guarantees | a guarantee can't say *when* a call succeeds |
+| F3 | partial | **holds** (opt-in) | inferred write set on page and views; "no guarantee about the new balance of …"; baseline flags removed guarantees; `ok otherwise` (FIXES.md) proves a call refuses only as its spec says | only for definitions that opt in; callers restate callee refusals (+66 tokens for payout) |
 | F4 | holds / partial | **holds** | pure specs; bad calls rejected at the boundary; every valid outcome is ok or an inferred failure | — |
 | F5 | partial | **holds** (except ○) | tiers ∅ ? ◐; strength headline = guarantees; ✗ only when replayed | ○ runtime-checked (roadmap 4) |
 | F6 | partial | **holds** | interface-anchored why; orphans reported; obligation lint; `content_hash` | the lint is a keyword heuristic |

@@ -25,14 +25,15 @@ Tests: `pip install pytest`, then `pytest` from the repo root runs
 ```
 transfer from:Account to:Account amount:Int        header
   need amount > 0 else BadAmount                    refuses with BadAmount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
   keep ledger.total                                  same value before and after
   ensure ledger.balance' to = ledger.balance to + amount   ' = after the call
   emit TransferDone from to amount clock.now         exactly these audit events (_ = any value)
+  ok otherwise                                       optional: succeeds whenever the needs hold
   eg A:500@u1 B:0@u1 | transfer A B 100 -> ok | A:400 B:100   executed example
 body
-  have = ledger.balance from
-  need have >= amount else Insufficient (amount - have)
-  ledger.debit from amount
+  ledger.debit from amount                          a body may have `need`s too; under
+                                                    `ok otherwise` they must never fire
 ```
 
 - `uses` (effects) and `fails` (failure set) are **inferred**. The agent never writes them.
@@ -58,6 +59,7 @@ body
 | Examples | run in the interpreter |
 | Random tests | 500 random worlds and inputs; every guarantee is checked on each success |
 | Proofs | symbolic execution to Z3. Calls are verified *modularly*, from the callee's spec and inferred interface, never its body |
+| Refusals | with `ok otherwise`, proven to refuse only where a spec `need` fails |
 | Tiers | ✔ proven, ✗ refuted (replayed), ? unconfirmed or no answer, ! relies on a broken callee, ◐ tested only, ∅ never succeeds |
 | Trust | a modular proof is downgraded if a callee's guarantees are broken |
 | Counterexamples | rendered as `eg` lines and replayed in the interpreter; only a replayed one counts as ✗ |
@@ -103,6 +105,16 @@ lines were added; see docs/FIXES.md.)
    between calls, refused calls included), so the spec can state the timestamp.
    Guarantees catch 10/14 (v4: 9/14); the timestamp mutant is caught. Payout's two
    events share a timestamp; their order is fixed by position in the log.
+6. `ledger_v6.k`: transfer moves `need ledger.balance from >= amount else Insufficient …`
+   into its spec and adds `ok otherwise`, a proven claim that it refuses for no other
+   reason. Payout opts in too and restates all its refusals, but keeps `need fee >= 0`.
+   Payout's claim is refuted with `eg … | payout A B B 1 0 -> BadAmount` (transfer
+   refuses a zero fee), replayed in the interpreter. In v5 the same bug shows a clean page.
+7. `ledger_v7.k`: payout says `fee > 0`, and everything is proven. Its `Insufficient`
+   condition is proven only through transfer's `ensure`. The cost is tokens: payout's
+   spec view goes from 97 to 163, because a caller that opts in restates its callees'
+   refusals. Transfer's 10/10 strength is not an improvement: the mutated `need` left the
+   body (see docs/FIXES.md).
 
 ## Built-in versus missing
 
@@ -110,8 +122,9 @@ The prototype has one hard-coded domain: handlers for `ledger`, `clock` and `aud
 written in Python. It has only `Int` and `Account` types and only straight-line
 bodies with guards. A small type checker covers the six built-in types. There are no
 written frame conditions: the frame is *inferred* (`writes`), and the page says which
-written balances no guarantee describes. The spec cannot say *when* a call
-succeeds. Within one call there is a single time; a call that needs distinct instants
+written balances no guarantee describes. A spec can say *when* a call succeeds
+only by opting in with `ok otherwise`, and a caller must then restate its callees'
+refusals (none are inherited). Within one call there is a single time; a call that needs distinct instants
 would need a separate advancing operation (not built).
 
 ## Roadmap

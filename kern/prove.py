@@ -8,7 +8,7 @@ import itertools
 
 import z3
 
-from .infer import ANY_ACCOUNT, lifted, uses, writes
+from .infer import ANY_ACCOUNT, callees, fails, lifted, uses, writes
 from .run import Interp, World
 from .syntax import code, emit_code
 
@@ -96,7 +96,9 @@ class Prover:
         self.relied_on.add(callee.name)
         env = {p: v for (p, _), v in zip(callee.params, args)}
         for n in callee.needs:                     # success path: callee's guards passed
-            self.pc.append(self.sev(n[1], env, S))
+            self.refusal_point(self.sev(n[1], env, S))
+        if not callee.complete and self.refuses_beyond_spec(callee):
+            self.opaque_refusers.append(callee.name)   # it may refuse for reasons its spec omits
         for cond, *_ in lifted(self.defs, callee):  # ... and its inferred body-level guards
             self.pc.append(self.sev(cond, env, S))
         pre = S.copy()
@@ -119,6 +121,25 @@ class Prover:
                 S.audit = S.audit + [("opaque", callee.name)]
         return None
 
+    def refuses_beyond_spec(self, d):
+        """Can `d` refuse other than through its spec needs? (a body need, or a callee that refuses)"""
+        return any(s[0] == "need" for s in d.body) or \
+            any(fails(self.defs, self.defs[c]) for c in callees(self.defs, d))
+
+    def refusal_point(self, cond):
+        """A place where the call can refuse: assume it passes (success path), and remember the
+        state it was reached in, for the `ok otherwise` goal."""
+        self.refusals.append((list(self.pc), cond))
+        self.pc.append(cond)
+
+    def ok_goal(self):
+        """`ok otherwise`: no refusal point after the spec needs can fail. Returns (goal, reason)."""
+        if self.opaque_refusers:
+            who = ", ".join(dict.fromkeys(self.opaque_refusers))
+            return None, f"relies on {who}, whose spec does not say when it refuses (no `ok otherwise`)"
+        reach = [z3.And(*pc, z3.Not(c)) for pc, c in self.refusals]
+        return z3.Not(z3.Or(*reach)) if reach else z3.BoolVal(True), None
+
     def emit_goal(self, d, env, pre, S):
         """The appended events must be exactly d.emits, in order. Returns (z3 goal, reason-if-unknowable)."""
         opaque = [e[1] for e in S.audit if e[0] == "opaque"]
@@ -140,11 +161,15 @@ class Prover:
         env = {p: z3.Int(p) for p, _ in d.params}
         params = dict(env)
         self.pc, S = [], pre.copy()
+        self.refusals, self.opaque_refusers = [], []
         own_pc = []                                # the definition's own needs, without callee specs
-        for s in d.needs + d.body:
+        for i, s in enumerate(d.needs + d.body):
             if s[0] == "need":
                 own_pc.append(self.sev(s[1], env, S))
-                self.pc.append(own_pc[-1])
+                if i < len(d.needs):               # spec needs are the stated refusals
+                    self.pc.append(own_pc[-1])
+                else:                              # a body need may only fire if the spec says so
+                    self.refusal_point(own_pc[-1])
             elif s[0] == "let":
                 env[s[1]] = self.sev(s[2], env, S)
             else:
@@ -152,32 +177,41 @@ class Prover:
         results = []
         goals = [("keep", c, code(c), self.sev(c, env, pre) == self.sev(c, env, S)) for c in d.keeps] + \
                 [("ensure", c, code(c), self.sev(c, env, pre, S)) for c in d.ensures]
-        unknowable = None
+        premise = {}                               # goal kind -> what it may assume (default: success)
+        unknowable = []
+        if d.complete:
+            g, why_unknown = self.ok_goal()
+            if why_unknown:
+                unknowable.append({"kind": "ok", "expr": None, "clause": "otherwise", "status": "unknown",
+                                   "reason": why_unknown})
+            else:
+                goals.insert(0, ("ok", None, "otherwise", g))
+                premise["ok"] = []                 # it is about the runs that refuse
         if d.emits:
             g, why_unknown = self.emit_goal(d, env, pre, S)
             text = ", then ".join(emit_code(ev) for ev in d.emits)
             if why_unknown:
-                unknowable = {"kind": "emit", "expr": d.emits, "clause": text, "status": "unknown",
-                              "reason": why_unknown}
+                unknowable.append({"kind": "emit", "expr": d.emits, "clause": text, "status": "unknown",
+                                   "reason": why_unknown})
             else:
                 goals.append(("emit", d.emits, text, g))
         vacuous = self.vacuity(own_pc)
         if vacuous:
             out = [{"kind": kind, "expr": c, "clause": text, "status": "vacuous", "reason": vacuous}
                    for kind, c, text, _ in goals]
-            if unknowable:
-                out.append(dict(unknowable, status="vacuous", reason=vacuous))
+            out += [dict(u, status="vacuous", reason=vacuous) for u in unknowable]
             return out, sorted(self.relied_on)
         for kind, c, text, g in goals:
+            assumed = premise.get(kind, self.pc)
             solver = z3.Solver()
             solver.set("timeout", 5000)
-            solver.add(*self.pc, z3.Not(g))
+            solver.add(*assumed, z3.Not(g))
             r = solver.check()
             if r == z3.unsat:
                 results.append({"kind": kind, "expr": c, "clause": text, "status": "proven"})
             elif r == z3.sat:
                 nice = z3.Solver()
-                nice.add(*self.pc, z3.Not(g))
+                nice.add(*assumed, z3.Not(g))
                 nice.add(pre.now >= 0, pre.now <= 1000)
                 for p, t in d.params:
                     v = params[p]
@@ -185,14 +219,13 @@ class Prover:
                     if t == "Account":
                         nice.add(z3.Select(pre.bal, v) >= 0, z3.Select(pre.bal, v) <= 1000,
                                  z3.Select(pre.own, v) >= 0, z3.Select(pre.own, v) <= 1)
-                cx = self.find_cex(d, nice, solver, params, pre)
+                cx = self.find_cex(d, nice, solver, params, pre, kind)
                 # a counterexample the interpreter does not reproduce is not evidence of a bug
                 results.append({"kind": kind, "expr": c, "clause": text, "counterexample": cx,
                                 "status": "refuted" if cx["confirmed_by_interpreter"] else "unconfirmed"})
             else:
                 results.append({"kind": kind, "expr": c, "clause": text, "status": "unknown"})
-        if unknowable:
-            results.append(unknowable)
+        results += unknowable
         return results, sorted(self.relied_on)
 
     def vacuity(self, own_pc):
@@ -210,14 +243,14 @@ class Prover:
         who = ", ".join(sorted(self.relied_on))
         return f"no input succeeds given the specs of {who} (they contradict each other or its needs)"
 
-    def find_cex(self, d, nice, solver, params, pre):
+    def find_cex(self, d, nice, solver, params, pre, kind=None):
         """A modular proof only knows a callee's spec, so the first model may pick inputs on which a
         callee's *body* refuses (e.g. an empty account). If replay does not confirm it, ask for a
         model with well-funded accounts and small amounts, which callee bodies rarely refuse.
         Whichever is used, the page reports whether the interpreter confirmed it."""
         if nice.check() != z3.sat:
-            return self.render_cex(d, solver.model(), params, pre)
-        cx = self.render_cex(d, nice.model(), params, pre)
+            return self.render_cex(d, solver.model(), params, pre, kind)
+        cx = self.render_cex(d, nice.model(), params, pre, kind)
         if cx["confirmed_by_interpreter"]:
             return cx
         opt = z3.Optimize()
@@ -228,12 +261,12 @@ class Prover:
             else:
                 opt.minimize(params[p])
         if opt.check() == z3.sat:
-            cx2 = self.render_cex(d, opt.model(), params, pre)
+            cx2 = self.render_cex(d, opt.model(), params, pre, kind)
             if cx2["confirmed_by_interpreter"]:
                 return cx2
         return cx
 
-    def render_cex(self, d, m, params, pre):
+    def render_cex(self, d, m, params, pre, kind=None):
         """Turn a Z3 model into an `eg` line, then replay it in the interpreter to confirm."""
         letters, owners, world, args = {}, {}, {}, []
         for p, t in d.params:
@@ -256,7 +289,10 @@ class Prover:
         world_src = " ".join(f"{a}:{b}@{o}" for a, (b, o) in world.items()) + (f" now:{now}" if now else "")
         after_src = " ".join(f"{a}:{after.bal[a]}" for a in world)
         out_src = "ok" if outcome == ("ok",) else " ".join([outcome[0], *map(str, outcome[1])])
-        violated = interp.holds(d, args, before, after) if outcome == ("ok",) else []
+        if kind == "ok":                           # it must refuse although the spec needs hold
+            violated = interp.unstated_refusal(d, args, before, outcome)
+        else:
+            violated = interp.holds(d, args, before, after) if outcome == ("ok",) else []
         emitted = ", ".join(" ".join(map(str, ev)) if isinstance(ev, tuple) else str(ev)
                             for ev in after.audit) if outcome == ("ok",) else ""
         return {"eg": f"eg {world_src} | {d.name} {' '.join(map(str, args))} -> {out_src} | {after_src}",

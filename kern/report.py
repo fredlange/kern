@@ -48,7 +48,9 @@ def analyse(defs, mutation=True, baseline=None):
     for r in reports.values():
         p = r["props"]
         for g in r["guarantees"]:
-            if g["status"] == "unknown" and p["succeeded"] >= TESTED_MIN and not p["violations"]:
+            # not `ok otherwise`: it is about refusals, which successful runs cannot exercise
+            if g["status"] == "unknown" and g["kind"] != "ok" and p["succeeded"] >= TESTED_MIN \
+                    and not p["violations"]:
                 g["status"], g["tested"] = "tested", p["succeeded"]
     for r in reports.values():
         if mutation and _clean(r):

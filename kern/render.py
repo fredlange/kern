@@ -38,6 +38,8 @@ def _guarantee_text(g, d):
     kind, e = g["kind"], g["expr"]
     if kind == "emit":
         return en_emits(e)
+    if kind == "ok":
+        return "succeeds whenever the needs above hold: it refuses for no other reason"
     return f"{en(e)} is unchanged" if kind == "keep" else en_ensure(e)
 
 
@@ -89,13 +91,15 @@ def card(r, why):
         cond, _ = en_refusal(n, lets)
         detail = f" <span class='muted'>with</span> {', '.join(en(a, lets) for a in n[3])}" if n[3] else ""
         rows.append((cond, f"<code>{html.escape(n[2])}</code>{detail}"))
-    for cond, ctor, payload, origin in r["lifted"]:
+    ok = next((g for g in r["guarantees"] if g["kind"] == "ok"), None)
+    complete = ok is not None and ok["status"] in ("proven", "conditional")
+    for cond, ctor, payload, origin in ([] if complete else r["lifted"]):
         if origin:                                  # own body needs are already listed above
             text, _ = en_refusal(("need", cond, ctor, payload or []), {})
             rows.append((text, f"<code>{html.escape(ctor)}</code> <span class='muted'>(from {origin})</span>"))
     stated = {(origin, ctor) for _, ctor, _, origin in r["lifted"]}
     own = {n[2] for n in d.needs + d.body if n[0] == "need"}
-    for c in r["callees"]:
+    for c in ([] if complete else r["callees"]):
         inherited = [k for k in inferred_fails(r["defs"], r["defs"][c])
                      if k not in own and not any(k == ctor for _, ctor in stated)]
         if inherited:
@@ -104,7 +108,9 @@ def card(r, why):
     if rows:
         out.append("<h3>Refuses when</h3><table>" + "".join(
             f"<tr><td>{cond}</td><td class='fail-name'>→ {f}</td></tr>" for cond, f in rows)
-            + "</table><p class='muted'>A refusal undoes everything the call did.</p>")
+            + "</table><p class='muted'>A refusal undoes everything the call did."
+            + (" It refuses for no other reason (see <code>ok otherwise</code> below)." if complete else "")
+            + "</p>")
 
     out.append("<h3>Guarantees</h3><ul class='g'>")
     for g in r["guarantees"]:

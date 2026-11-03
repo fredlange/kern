@@ -271,6 +271,112 @@ def test_f3_removed_guarantees_are_surfaced(tmp_path):                   # fixed
     assert reps["payout"]["regression"] == ["was clean at the baseline, is not now"]
 
 
+# ---- F3, continued: `ok otherwise` lets a spec say *when* a call succeeds -----------
+
+V5 = open("examples/ledger_v5.k").read()
+V6 = open("examples/ledger_v6.k").read()
+V7 = open("examples/ledger_v7.k").read()
+
+
+def _ok(rep):
+    return [g for g in rep["guarantees"] if g["kind"] == "ok"][0]
+
+
+def test_f3_ok_otherwise_is_proven_through_a_modular_call():
+    """payout restates every refusal; its Insufficient condition holds only via transfer's ensure
+    (the second call needs balance' from >= fee, after the first debited `amount`)."""
+    defs, reps = analysed(V7)
+    assert _ok(reps["transfer"])["status"] == "proven" and _ok(reps["payout"])["status"] == "proven"
+    assert reps["transfer"]["clean"] and reps["payout"]["clean"]
+
+
+def test_f3_ok_otherwise_refutes_an_unstated_refusal():
+    """v6 payout says `fee >= 0`, but transfer refuses a zero fee. Nothing could flag that before."""
+    defs, reps = analysed(V6)
+    g = _ok(reps["payout"])
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+    ex = parse_example(g["counterexample"]["eg"][3:], None)
+    assert ex.outcome[0] == "BadAmount" and ex.call[1][-1] == 0             # the zero fee
+    assert any(v["clause"] == "ok otherwise" for v in reps["payout"]["props"]["violations"])
+
+
+def test_f3_ok_otherwise_needs_callees_that_say_when_they_refuse():
+    """Same rule as `emit`: a claim about a callee's refusals needs the callee's spec to make one."""
+    src = V5.replace("  need fee >= 0 else BadAmount\n", V7.split("payout", 1)[1].split("keep")[0].split("\n", 1)[1])
+    defs, reps = analysed(src)
+    g = _ok(reps["payout"])
+    assert g["status"] == "unknown" and "transfer, whose spec does not say when it refuses" in g["reason"]
+
+
+def test_f3_ok_otherwise_is_never_promoted_to_tested_only():
+    """◐ means "held in N random successes"; that says nothing about refusals."""
+    defs, reps = analysed("""
+loose to:Account amount:Int
+  ensure ledger.balance' to = ledger.balance to + amount
+body
+  need amount < 100000 else Big
+  ledger.credit to amount
+
+wrap to:Account amount:Int
+  ok otherwise
+  ensure ledger.balance' to = ledger.balance to + amount
+body
+  loose to amount
+""")
+    assert reps["wrap"]["props"]["succeeded"] >= 50                       # promotion would apply
+    g = _ok(reps["wrap"])
+    assert g["status"] == "unknown" and "loose, whose spec does not say when it refuses" in g["reason"]
+
+
+@pytest.mark.parametrize("cond", ["have > amount", "ledger.balance to >= amount"])
+def test_f3_ok_otherwise_catches_a_body_need_that_can_fire(cond):
+    """A body need that may refuse where the spec needs pass is a broken claim."""
+    src = V7.replace("body\n  ledger.debit from amount\n",
+                     f"body\n  have = ledger.balance from\n  need {cond} else Insufficient 0\n  ledger.debit from amount\n", 1)
+    defs, reps = analysed(src)
+    g = _ok(reps["transfer"])
+    assert g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+    assert reps["payout"]["guarantees"][0]["status"] == "conditional"        # trust propagates
+
+
+def test_f3_ok_otherwise_redundant_body_need_is_allowed():
+    src = V7.replace("body\n  ledger.debit from amount\n",
+                     "body\n  have = ledger.balance from\n  need have >= amount else Insufficient 0\n"
+                     "  ledger.debit from amount\n", 1)
+    assert _ok(analysed(src)[1]["transfer"])["status"] == "proven"
+
+
+def test_f3_ok_otherwise_mutants_that_add_refusals_are_caught():
+    """With the redundant body need kept, the obligation itself kills `>=` → `>` and `from` → `to`.
+    The two survivors (drop it, flip its payload) are equivalent: the spec guard runs first."""
+    src = V7.replace("body\n  ledger.debit from amount\n",
+                     "body\n  have = ledger.balance from\n  need have >= amount else Insufficient (amount - have)\n"
+                     "  ledger.debit from amount\n", 1)
+    m = analysed(src, mutation=True)[1]["transfer"]["mutation"]
+    assert (m["guarantee_killed"], m["total"]) == (12, 14)
+    assert sorted(d for d, _ in m["guarantee_missed"]) == [
+        "`-` → `+` in payload of `need have >= amount else Insufficient (amount - have)`",
+        "drop `need have >= amount else Insufficient (amount - have)`"]
+
+
+def test_f3_ok_otherwise_is_opt_in_and_hashed():
+    """Without the marker nothing changes (hashes included); with it, the hash changes."""
+    assert {n: d.hash for n, d in parse_module(V5).items()} == {"transfer": "683e3393", "payout": "9b00a7f7"}
+    plain, marked = parse_module(V7.replace("  ok otherwise\n", "")), parse_module(V7)
+    assert plain["transfer"].hash != marked["transfer"].hash
+    assert all("ok" not in [g["kind"] for g in r["guarantees"]] for r in analysed(V5)[1].values())
+    with pytest.raises(ParseError):
+        parse_module(V7.replace("  ok otherwise\n", "  ok sometimes\n", 1))
+
+
+def test_f3_ok_otherwise_page_and_views():
+    defs, reps = analysed(V7)
+    card = render.card(reps["payout"], NO_WHY)
+    assert "refuses for no other reason" in card and "(from transfer)" not in card
+    assert "ok otherwise" in views.spec(reps["payout"], NO_WHY)
+    assert "(from transfer)" in render.card(analysed(V6)[1]["payout"], NO_WHY)   # unproven: keep showing them
+
+
 # =====================================================================================
 # F4. Derive, don't declare: uses / fails inference
 # =====================================================================================

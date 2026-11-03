@@ -60,6 +60,11 @@ def proptest(defs, d, n=500, seed=1):
                                                 "eg": f"eg {world} | {d.name} {' '.join(map(str, args))}"})
         else:
             stats["failures"][outcome[0]] = stats["failures"].get(outcome[0], 0) + 1
+            if interp.unstated_refusal(d, args, before, outcome) and len(stats["violations"]) < 3:
+                world = " ".join(f"{a}:{before.bal[a]}@{before.own[a]}" for a in accts) + f" now:{before.clock}"
+                got = " ".join([outcome[0], *map(str, outcome[1])])
+                stats["violations"].append({"clause": "ok otherwise",
+                                            "eg": f"eg {world} | {d.name} {' '.join(map(str, args))} -> {got}"})
     return stats
 
 

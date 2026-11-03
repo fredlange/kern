@@ -31,7 +31,7 @@ page are the same mechanism. The prover follows the same rule: calls are verifie
 ## Design rules (decided)
 
 1. A definition has four layers, stored and loaded separately: **interface**
-   (header, `uses`, `fails`), **spec** (`need`/`keep`/`ensure`/`eg`), **body**, and
+   (header, `uses`, `fails`), **spec** (`need`/`keep`/`ensure`/`emit`/`ok otherwise`/`eg`), **body**, and
    **why**.
 2. **The agent never writes what the compiler can infer.** `uses` (effects) and
    `fails` (failure set) are inferred, transitively through callees.
@@ -110,7 +110,7 @@ kern/views.py     iface / spec / editor views + token counts; English templates
 kern/render.py    proof page HTML + terminal output
 kern/why.py       .why store, interface-anchored hash, staleness, orphans, obligation lint
 kern/baseline.py  ratchet baseline (<module>.strength): flags weakened specs
-examples/ledger_v1..v5.k, ledger.why, ledger_v4/v5.why    the demo loop (see README)
+examples/ledger_v1..v7.k, ledger.why, ledger_v4..v7.why  the demo loop (see README)
 examples/ledger_large.k   7 defs, 4-deep chain; F9 token measurements
 tests/test_fundamentals.py  adversarial audit tests, one section per fundamental
 ```
@@ -125,9 +125,15 @@ for token counts).
 - Types: only `Int` and `Account` parameters (plus internal Owner/Bool/Event/Unit); no
   records, no return values. Recursion is rejected (no termination measures yet).
 - Bodies are straight-line plus guards only: no branches, `match` or loops.
-- Frames are *inferred* (`writes`), not written; a guarantee still can't say *when* a
-  call succeeds, so mutants that change refusal conditions are caught only by
-  examples (v4 transfer: guarantees 9/13, together 13/13).
+- Frames are *inferred* (`writes`), not written.
+- `ok otherwise` (opt-in) says a call succeeds whenever its spec needs hold. A caller that
+  opts in must restate every refusal (payout's spec view: 97 → 163 tokens); nothing is
+  inherited, and every refusing callee must be marked too. Only 1 of 9 existing defs passed
+  with it on by default. Moving a `need` into the spec removes its mutants (mutants are
+  body-only), so v7 transfer's 10/10 is a smaller denominator, not more strength
+  (docs/FIXES.md). Without the marker, refusal mutants are caught only by examples. If a
+  body or callee need contradicts the spec needs outright, the claim shows ∅ "never succeeds"
+  rather than ✗ (both red, different wording).
 - Time: `clock.now` is one value per top-level call (it ticks after each call, refused
   ones included; a bad call doesn't tick). Specs may read it; it has no after-state.
   There is no operation for distinct instants inside one call (add `clock.tick` if
