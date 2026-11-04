@@ -20,4 +20,4 @@ regex = "1"
 sha2 = "0.10"
 
 [dev-dependencies]
-serde_json = { version = "1", features = ["preserve_order"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }   # float_roundtrip: exact float parsing (pyrandom vectors)

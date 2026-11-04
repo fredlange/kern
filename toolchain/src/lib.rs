@@ -9,3 +9,4 @@ pub type Int = i128;
 
 pub mod pyrepr;
 pub mod syntax;
+pub mod pyrandom;
