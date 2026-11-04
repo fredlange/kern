@@ -1,6 +1,14 @@
-//! `kern`: the command-line front end (port of kern/__main__.py, in progress).
+//! `kern`: the command-line front end. `kern host ...` and `kern mcp` are the host and the MCP server; everything
+//! else is kern::cli (port of kern/__main__.py).
 
 fn main() {
-    eprintln!("kern (Rust port in progress): no commands yet; use `python -m kern` meanwhile");
-    std::process::exit(2);
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let code = match argv.first().map(|s| s.as_str()) {
+        Some("host") | Some("mcp") => {
+            eprintln!("kern {}: not ported to the Rust toolchain yet (use `python -m kern.{}`)", argv[0], argv[0]);
+            2
+        }
+        _ => kern::cli::main(&argv),
+    };
+    std::process::exit(code);
 }
