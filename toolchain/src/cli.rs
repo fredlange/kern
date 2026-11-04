@@ -189,8 +189,16 @@ pub fn main_with(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
         }
     };
     if a.cmd == "build" {
-        let _ = writeln!(err, "error: `kern build` is not ported to the Rust toolchain yet (use `python -m kern build`)");
-        return 1;
+        return match crate::emit_rust::emit(&a.file, a.out.as_deref()).and_then(|d| crate::emit_rust::build(&d)) {
+            Ok(bin) => {
+                let _ = writeln!(out, "{}", bin);
+                0
+            }
+            Err(e) => {
+                let _ = writeln!(err, "error: {}", e);
+                1
+            }
+        };
     }
     let defs = match load(&a.file, &IndexMap::new()) {
         Ok(d) => d,
