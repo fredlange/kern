@@ -1,0 +1,12 @@
+services:
+  portal:
+    build:
+      context: ../..
+      dockerfile: examples/random-portal/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - portal-data:/data
+    restart: unless-stopped
+volumes:
+  portal-data:

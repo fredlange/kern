@@ -14,6 +14,7 @@ and run it, what it shows, and what `kern check` says about it today.
 | [limits/](limits/) | withdrawals limited by an outside risk service over HTTP | the network as an effect, replies as calls, the permission manifest |
 | [batch/](batch/) | sweeps, subscription renewals and installments over a range | bounded loops with invariants |
 | [raffle/](raffle/) | a random draw from a pot | the smallest assumed handler |
+| [random-portal/](random-portal/) | a React page of jokes and puns from public APIs, with votes; Docker image | a Kern backend for a web app, real HTTP replies as calls, the proof page served by the app |
 
 Every project has a `proof-pages/` folder with its generated proof pages. Regenerate one with
 `kern check FILE --html proof-pages/NAME.html`.

@@ -1,0 +1,60 @@
+:root {
+  --bg: #fbf7ef;
+  --fg: #1d1b16;
+  --muted: #6b665b;
+  --card: #ffffff;
+  --line: #e6dfcf;
+  --accent: #d9480f;
+  --joke: #1971c2;
+  --pun: #2f9e44;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17160f;
+    --fg: #f1ede3;
+    --muted: #a39d8f;
+    --card: #221f17;
+    --line: #3a3528;
+    --accent: #ff8a4c;
+    --joke: #74c0fc;
+    --pun: #8ce99a;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.page { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 2rem; margin: 0; letter-spacing: -0.02em; }
+.tag { color: var(--muted); margin: 4px 0 24px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+.fetch { display: inline-flex; gap: 4px; }
+.order { margin-left: auto; display: inline-flex; gap: 4px; }
+button {
+  font: inherit; cursor: pointer; border-radius: 8px; padding: 8px 14px;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+}
+button:disabled { opacity: 0.6; cursor: progress; }
+button.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+button.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.note { padding: 10px 12px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); }
+.note.bad { border-color: var(--accent); }
+.items { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.item {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 16px; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px;
+}
+.meta { grid-column: 1 / -1; display: flex; gap: 8px; font-size: 0.85rem; color: var(--muted); }
+.badge { font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.badge.joke { color: var(--joke); }
+.badge.pun { color: var(--pun); }
+.text { margin: 0; }
+.missing { color: var(--muted); font-style: italic; }
+.vote { align-self: center; background: transparent; color: var(--fg); border-color: var(--line); min-width: 64px; }
+.empty { color: var(--muted); text-align: center; padding: 32px; }
+footer { margin-top: 40px; color: var(--muted); font-size: 0.9rem; }
+footer a { color: var(--accent); }

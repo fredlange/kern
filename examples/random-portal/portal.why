@@ -1,0 +1,9 @@
+request@0b88e770
+  the slot is reserved at request time and travels in the event, so the reply writes a parameter key; a computed key would leave the invariants unproven
+  one request per source at a time keeps the public APIs from being hammered by a button-masher
+store@9ba1bdfe
+  the reply carries src and slot back from the event, so one definition serves every source
+give_up@dd413476
+  a dropped reply would otherwise leave the source pending forever (the host has no request timeout)
+upvote@057c3699
+  votes are anonymous: Kern has no identity for page visitors yet, so one person can vote many times

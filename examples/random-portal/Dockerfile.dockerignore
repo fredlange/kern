@@ -1,0 +1,13 @@
+**
+!pyproject.toml
+!README.md
+!kern/**
+!examples/random-portal/portal.k
+!examples/random-portal/portal.host
+!examples/random-portal/portal.why
+!examples/random-portal/nginx.conf
+!examples/random-portal/entrypoint.sh
+!examples/random-portal/web/**
+examples/random-portal/web/node_modules
+examples/random-portal/web/dist
+**/__pycache__
