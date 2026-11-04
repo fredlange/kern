@@ -19,6 +19,20 @@ from .wf import check_module
 TESTED_MIN = 50          # random successes needed before an unproven guarantee shows as ◐
 
 
+def _store_kept(reports, store):
+    """The quantified module-invariant assumption about `store` is justified only if every
+    definition that writes the store proves the invariant (kern-90's review of S4)."""
+    for r in reports.values():
+        ws = r["writes"]
+        writes_it = any(w.split(".")[0] == store for w in ws if "." in w) or (store == "ledger" and any("." not in w for w in ws))
+        if writes_it and any(g["kind"] == "invariant" and g["status"] != "proven" for g in r["guarantees"]):
+            return False
+        if writes_it and any(g["kind"] == "loop" and g["clause"].startswith("module invariant") and g["status"] != "proven"
+                             for g in r["guarantees"]):
+            return False
+    return True
+
+
 def _clean(r):
     return all(g["status"] == "proven" for g in r["guarantees"]) and all(e["pass"] for e in r["examples"]) \
         and not r["props"]["violations"]
@@ -108,7 +122,8 @@ def analyse(defs, mutation=True, baseline=None, cache=None):
     while changed:
         changed = False
         for r in reports.values():
-            weak = [c for c in r["relied_on"] if not _clean(reports[c])]
+            weak = [c for c in r["relied_on"] if (not _store_kept(reports, c[len("invariant on "):])
+                                                  if c.startswith("invariant on ") else not _clean(reports[c]))]
             for g in r["guarantees"]:
                 if g["status"] == "proven" and weak:
                     g["status"], g["blocked_by"] = "conditional", weak

@@ -153,6 +153,22 @@ def parse_expr(src: str, line_no=None):
     return e
 
 
+_ATOM = r"(\([^()]*\)|\S+)"                      # a bound: a name, a number, or (parenthesised)
+FOR_SUFFIX = re.compile(rf"^(.*) for ([a-z]\w*) from {_ATOM} to {_ATOM}$")
+FOR_LOOP = re.compile(rf"^for ([a-z]\w*) from {_ATOM} to {_ATOM}$")
+
+
+def parse_clause(src: str, line_no):
+    """An ensure / loop-invariant clause: `E [when C] [for j from A to B]` -> expr or
+    ("all", j, A, B, expr): E (when C) holds for every j in [A, B). Bounds are atoms, because
+    `from` and `to` are common parameter names."""
+    m = FOR_SUFFIX.match(src.strip())
+    if m:
+        return ("all", m.group(2), parse_expr(m.group(3), line_no), parse_expr(m.group(4), line_no),
+                parse_expr(m.group(1), line_no))
+    return parse_expr(src, line_no)
+
+
 def parse_emit(src: str, line_no):
     """`emit Ctor ARGS [when COND]` -> (Ctor, args) or (Ctor, args, cond)."""
     if " when " in src:
@@ -182,6 +198,8 @@ def parse_need(src: str, line_no):
     if " else " not in src:
         raise ParseError("need must say what it fails with: need COND else Ctor", line_no)
     cond, fail = src.rsplit(" else ", 1)
+    if FOR_SUFFIX.match(cond.strip()):
+        raise ParseError("`for j from A to B` is only allowed at the end of an `ensure` or a loop `invariant`", line_no)
     f = parse_expr(fail, line_no)
     if f[0] == "name":
         ctor, args = f[1], []
@@ -386,7 +404,7 @@ def parse_module(text: str) -> dict:
         elif word == "keep":
             cur.keeps.append(parse_expr(rest, no))
         elif word == "ensure":
-            cur.ensures.append(parse_expr(rest, no))
+            cur.ensures.append(parse_clause(rest, no))
         elif word == "emit":
             first, _, after = rest.partition(" ")
             if first[:1].islower() and after:            # `emit console Line x`: a named channel
@@ -507,6 +525,20 @@ def _block(raw, i, indent):
         word, _, rest = line.partition(" ")
         if line == "else":
             raise ParseError("`else` without an `if`", no)
+        loop = FOR_LOOP.match(line)
+        if loop:                          # `for k from LO to HI`: leading `invariant` lines, then the body
+            inner, i = _sub(raw, i + 1, indent, no)
+            invs = [s[1] for s in inner if s[0] == "inv"]
+            rest_ = [s for s in inner if s[0] != "inv"]
+            if inner[:len(invs)] != [s for s in inner if s[0] == "inv"]:
+                raise ParseError("loop `invariant` lines must come first in the loop", no)
+            out.append(("for", loop.group(1), parse_expr(loop.group(2), no), parse_expr(loop.group(3), no),
+                        invs, rest_))
+            continue
+        if word == "invariant":
+            out.append(("inv", parse_clause(rest, no)))
+            i += 1
+            continue
         if word == "if":
             cond = parse_expr(rest, no)
             then, i = _sub(raw, i + 1, indent, no)
@@ -547,6 +579,8 @@ def code(e) -> str:
         return " ".join([head] + [atom_code(a) for a in e[2]])
     if k == "bin":
         return f"{_side(e[2], e[1], False, code)} {e[1]} {_side(e[3], e[1], True, code)}"
+    if k == "all":
+        return f"{code(e[4])} for {e[1]} from {atom_code(e[2])} to {atom_code(e[3])}"
     raise ValueError(e)
 
 
@@ -585,6 +619,8 @@ def flat(stmts):
         if s[0] == "if":
             yield from flat(s[2])
             yield from flat(s[3])
+        elif s[0] == "for":
+            yield from flat(s[5])
 
 
 def atom_code(e):
@@ -599,6 +635,10 @@ def emit_code(ev) -> str:
 def stmt_code(s) -> str:
     if s[0] == "if":
         return f"if {code(s[1])}"
+    if s[0] == "for":
+        return f"for {s[1]} from {atom_code(s[2])} to {atom_code(s[3])}"
+    if s[0] == "inv":
+        return f"invariant {code(s[1])}"
     if s[0] == "let":
         return f"{s[1]} = {code(s[2])}"
     if s[0] == "need":

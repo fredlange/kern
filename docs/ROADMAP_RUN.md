@@ -242,3 +242,139 @@ and 15 was run by hand:
 - There's no whole-file read tool.
 - **For C2:** the K-view arm must run with only `mcp__kern__*` tools allowed, and the
   transcript must be checked for file reads (C2 prep, S6).
+
+## S4: bounded loops with invariants (roadmap 1). This is a proposal for Fredrik.
+
+**Why:** batch work (sweep every expired hold, advance every subscription) can't be expressed.
+C5's feature 6 (revoke every credential of a holder) needs a loop too.
+
+**Proposed syntax.** Token costs were measured for the alternatives; all are within 2 tokens,
+so readability decided:
+
+| form | chosen | tokens | alternatives (tokens) |
+|---|---|---|---|
+| loop | `for k from LO to HI` (HI exclusive, both evaluated once, `k` immutable) | 8 | `for k in lo hi` 7, `each k from lo to hi` 8, `for k lo hi` 6 |
+| loop invariant (the loop's first line) | `invariant COND` | 16 | `keep …` 16, `holds …` 16, `so far …` 17 |
+| quantified clause | `ensure E [when C] for j from A to B` (for every j in [A, B)) | 25 | `ensure all j from lo to hi: …` 26, `… each j in lo hi: …` 25 |
+| per-iteration event (optional) | `emit Ev j for j from A to B` | 12 | `emit each Ev j …` 13 |
+
+- **The loop invariant reads like an `ensure` about "the state so far".** `x'` is the state
+  before iteration k, unprimed is the call's before-state, and k is the next index.
+- **`from` and `to` are common parameter names,** so loop and quantifier bounds must be atoms
+  (a name, a number, or parenthesised).
+
+**Prover:**
+- The invariant must hold on entry, at k = LO.
+- One arbitrary iteration with LO ≤ k < HI keeps it, with the stores the loop writes havocked.
+- After the loop, it holds at k = max(LO, HI).
+- **Inferred frame:** a state map written only at the loop variable keeps every key outside
+  [LO, k), so nobody writes that frame by hand (F4).
+- **Module invariants** are assumed for every key in the before-state and checked over
+  [LO, HI) after the loop, so they stay ✔ (kern-90's risk).
+- **Events emitted inside a loop** make that channel opaque. It's unconstrained and flagged,
+  and never ✔ (kern-90). The per-iteration form is optional for S4.
+- **Z3 unknown or timeout** stays `?` (or ◐), never ✔.
+
+**Example app:** `examples/batch.k`:
+- `sweep_expired`: expired holds go to an unclaimed-funds account;
+- `advance_subs`: due subscriptions are rolled forward;
+- `installments`: a fixed instalment, n times.
+
+A known gap to record: anything needing a *sum* ("the pool gains the sum of the expired holds")
+can't be stated, because there's no sum operator; only conservation between two accounts can.
+
+**Pass conditions (frozen before the code):**
+1. `examples/batch.k` is clean (every definition ✔), module invariants included, and every
+   page claim comes from a template.
+2. **Adversarial tests,** each refuted with a counterexample that replays:
+   - an invariant not kept by an iteration;
+   - an invariant false on entry;
+   - an off-by-one bound;
+   - a quantified `ensure` false at one key.
+3. **A loop-written map's frame is usable by callers:** a caller proves a key outside [LO, HI)
+   unchanged.
+4. **Events emitted in a loop are never ✔ for that channel,** and the page says why.
+5. **Floors:** the S2 digest over escrow s1–s3, ledger v3–v7, ledger_large and C6 (4,3,4,8) is
+   unchanged, and so are the build hashes.
+6. **Docs:** REFERENCE.md documents the forms and stays ≤ 2,500 tokens; GUIDE.md covers loops.
+7. The syntax is recorded as a **proposal** Fredrik can reject (the token table above).
+
+**Added after kern-90's review of S4** (before any S4 code):
+- **(a) The "for all keys" invariant assumption is justified only if every definition that
+  writes the store proves the invariant.** So a proof that uses it records
+  `invariant on STORE` as relied on, like a callee. Trust propagation downgrades it to `!` when
+  some writer of that store doesn't prove the invariant ✔.
+- **(b) One rule, everywhere:** unprimed = the state before the call; primed = the state at the
+  point the clause is about (after the call for `ensure`/`keep`, the start of the iteration for
+  a loop invariant).
+  - REFERENCE.md says so, and the page says "at the start of each iteration".
+  - Measured: sweep's conservation invariant is 26 tokens in this form and also 26 with an
+    `old` marker (`old ledger.balance escrow …`), so the choice is about reading, not tokens.
+    (A first draft of this line said 20 vs 22, written before measuring; corrected.)
+- **(c) Refusals inside a loop:**
+  - they're proven in the arbitrary iteration (invariant + LO ≤ k < HI + spec needs), not only
+    at entry;
+  - they're never lifted to callers;
+  - a loop that can refuse makes the definition refuse beyond its spec unless the spec says
+    `ok otherwise`, and `fails` includes the loop's failures.
+  - Refusal arguments computed from loop state are checked by `eg` only.
+- **Loop mutants (F8):** LO ± 1, HI ± 1, the key off by one (`k` → `k + 1` in a key), and an
+  emptied body. Otherwise strength is blind to the bugs loops introduce.
+
+New conditions:
+8. A proof that rests on the quantified invariant assumption shows `!` if some writer of the
+   store doesn't prove the invariant (a test with a deliberately unproven writer).
+9. **Loop mutants exist,** and batch.k's strength is reported with them, including what they
+   miss.
+10. **Timing for batch.k** (quantified goals are where check time can jump): `--quick` takes
+    ≤ 1 s per definition, and the full `check` time is reported. Every Z3 goal keeps its 5 s
+    timeout, and a timeout or unknown is `?`, never ✔.
+
+### S4 results
+
+1. **pass:** `examples/batch.k` (5 definitions) is clean: every guarantee ✔, including the
+   module invariants kept across loops and 24 loop-invariant goals.
+2. **pass,** tests `test_s4_*`:
+   - an invariant an iteration doesn't keep, and one false on entry, are refuted;
+   - an off-by-one bound (`0 to (n + 1)`) is refuted with a replayed `eg`;
+   - a wrong condition (`<=` → `<`) is refuted at the loop invariant, with the witness key in
+     the `eg` line (`sub_due.797:…`).
+   - **The replay needed a fix.** A quantified goal's failing key is a Z3 witness, not a
+     parameter, so counterexamples now carry every map key the model assigns (Store chains
+     and as-array tables). Before that fix, "drop the whole loop" survived as unconfirmed.
+3. **pass:** `sweep_elsewhere` proves `hold.get' other = hold.get other` from sweep's inferred
+   frame `hold.[lo,hi)`. Without `need other < lo or other >= hi` it isn't provable, which
+   is correct.
+4. **pass:** events in a loop make the channel opaque. An `emit` clause over them is
+   "unknown: it emits events inside a loop", and the terminal and page add a note even when
+   there's no clause.
+5. **pass:** the S2 digest is still `3cb0e5efa3b63fb8` over all 10 modules, and the build hashes
+   are unchanged.
+6. **pass:** REFERENCE.md (2,029 tokens) and GUIDE.md ("Loops", with a `kern clean` example) are
+   updated, and test_docs passes.
+7. **Proposal:** the syntax is recorded above with its token alternatives, for Fredrik to
+   accept or reject.
+8. **pass:** with an unproven writer of `hold` added (`spoil`), every proof in `sweep_expired`
+   becomes `!`, blocked by "invariant on hold".
+9. **Loop mutants exist** (bounds ± 1, `k` → `k + 1`, an emptied body). batch.k's strength with
+   them:
+
+| definition | guarantees | what survives, and why |
+|---|---|---|
+| sweep_expired | 11/18 | **`lo - 1` and `hi + 1` survive:** the frame is inferred, never stated, and a bounded quantifier can't say "every key outside [lo, hi)". **Dropping the transfer, or swapping escrow and pool, is caught only by examples:** the spec can't say "the pool gains the sum of the swept holds" (there's no sum). `hold.get k > 0` → `>= 0` survives because sweep can't say `ok otherwise` (its Insufficient condition needs a sum) |
+| advance_subs | 14/16 | `lo - 1` and `hi + 1` (the same frame gap) |
+| installments | 10/10 | — |
+| sweep_elsewhere | 3/7 | a weak wrapper spec (it promises only the key outside the range) |
+
+10. **pass:** full `check` of batch.k takes 8.6 s (1.7 s per definition); `--quick` takes 1.74 s
+    (0.35 s per definition, within ≤ 1 s). No goal timed out.
+
+**Findings, ranked:**
+1. **A spec can't state a frame.** "Every key outside [lo, hi) is unchanged" needs an unbounded
+   quantifier (`for j outside lo to hi`, or `except`). The prover infers the frame and
+   callers use it, but the definition itself is blind to violating it. That's the same
+   inferred-not-stated gap as writes in F3.
+2. **No sum.** Conservation is expressible only pairwise. A `sum j from A to B of E` form, with
+   loop-invariant support, would close the strongest survivors.
+3. **Events in loops** need the per-iteration form (`emit Ev j for j from A to B`). It's not
+   built; the channel is flagged instead.

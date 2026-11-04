@@ -129,6 +129,22 @@ def _block_mutants(body, same_type):
     for i, s in enumerate(body):
         put = lambda new: body[:i] + [new] + body[i + 1:]
         yield f"drop `{stmt_code(s)}`", body[:i] + body[i + 1:]
+        if s[0] == "for":                        # bounds +-1, the key off by one, an emptied body
+            var, lo, hi, invs, inner = s[1:]
+            one = ("int", 1)
+            for desc, m in ((f"`{code(lo)}` → `{code(lo)} + 1`", ("bin", "+", lo, one)),
+                            (f"`{code(lo)}` → `{code(lo)} - 1`", ("bin", "-", lo, one))):
+                yield f"{desc} in `{stmt_code(s)}`", put(("for", var, m, hi, invs, inner))
+            for desc, m in ((f"`{code(hi)}` → `{code(hi)} + 1`", ("bin", "+", hi, one)),
+                            (f"`{code(hi)}` → `{code(hi)} - 1`", ("bin", "-", hi, one))):
+                yield f"{desc} in `{stmt_code(s)}`", put(("for", var, lo, m, invs, inner))
+            shifted = _shift_var(inner, var)
+            if shifted != inner:
+                yield f"`{var}` → `{var} + 1` in the body of `{stmt_code(s)}`", put(("for", var, lo, hi, invs, shifted))
+            yield f"empty the body of `{stmt_code(s)}`", put(("for", var, lo, hi, invs, []))
+            for desc, m in _block_mutants(inner, same_type):
+                yield desc, put(("for", var, lo, hi, invs, m))
+            continue
         if s[0] == "if":
             for desc, m in _expr_mutants(s[1], same_type):
                 yield f"{desc} in `{stmt_code(s)}`", put(("if", m, s[2], s[3]))
@@ -150,6 +166,31 @@ def _block_mutants(body, same_type):
                     new = list(s)
                     new[3] = s[3][:k] + [m] + s[3][k + 1:]
                     yield f"{desc} in payload of `{stmt_code(s)}`", put(tuple(new))
+
+
+def _shift_var(stmts, var):
+    """Every use of the loop variable in a body as `var + 1` (the classic off-by-one in a key)."""
+    def sub(e):
+        if e == ("name", var, False):
+            return ("bin", "+", e, ("int", 1))
+        if e[0] == "bin":
+            return ("bin", e[1], sub(e[2]), sub(e[3]))
+        if e[0] == "app":
+            return ("app", e[1], [sub(a) for a in e[2]])
+        return e
+    out = []
+    for s in stmts:
+        if s[0] == "let":
+            out.append(("let", s[1], sub(s[2])))
+        elif s[0] == "need":
+            out.append(("need", sub(s[1]), s[2], [sub(a) for a in s[3]]))
+        elif s[0] == "if":
+            out.append(("if", sub(s[1]), _shift_var(s[2], var), _shift_var(s[3], var)))
+        elif s[0] == "do":
+            out.append(("do", sub(s[1])))
+        else:
+            out.append(s)
+    return out
 
 
 def mutation_score(defs, d, n_props=150):

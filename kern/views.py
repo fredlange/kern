@@ -108,17 +108,41 @@ def unguaranteed_writes(r):
     """Written balances (and state entries, `hold.id`) that no `ensure` describes the after-value of."""
     d, said = r["def"], set()
 
-    def walk(e):
+    def walk(e, quantified=None):
+        if e[0] == "all":                                   # `… for j from A to B` describes a range
+            return walk(e[4], (e[1], e[2], e[3]))
         if e[0] == "app" and e[1] == ("ledger.balance", True) and e[2][0][0] == "name":
             said.add(e[2][0][1])
         if e[0] == "app" and e[1][1] and e[1][0].endswith(".get") and e[2][0][0] == "name":
-            said.add(f"{e[1][0][:-4]}.{e[2][0][1]}")
+            x, key = e[1][0][:-4], e[2][0][1]
+            if quantified and key == quantified[0]:
+                said.add(f"{x}.[{code(quantified[1])},{code(quantified[2])})")
+            said.add(f"{x}.{key}")
         for sub in (e[2:4] if e[0] == "bin" else e[2] if e[0] == "app" else []):
-            walk(sub)
+            walk(sub, quantified)
     for c in d.ensures:
         walk(c)
     out = [p for p, _ in d.params if p in r["writes"] and p not in said]
     return out + sorted(w for w in r["writes"] if "." in w and w not in said)
+
+
+def loop_event_note(r):
+    """A definition that emits events inside a loop: the channel is unconstrained (no spec form for
+    per-iteration events yet) and must say so instead of looking silent."""
+    from .syntax import flat
+    from .infer import uses
+    defs, chans = r["defs"], set()
+    for s in flat(r["def"].body):
+        if s[0] != "for":
+            continue
+        for t in flat(s[5]):
+            if t[0] == "do" and t[1][0] == "app":
+                n = t[1][1][0]
+                if n == "audit.emit" or n.endswith(".emit"):
+                    chans.add(n.rsplit(".", 1)[0])
+                elif n in defs:
+                    chans |= {u for u in uses(defs, defs[n]) if u == "audit" or u in getattr(defs, "channels", [])}
+    return sorted(chans)
 
 
 def _has_prime(e):
@@ -136,6 +160,9 @@ def en(e, lets=None, tense=False):
     k = e[0]
     if k == "int":
         return str(e[1])
+    if k == "all":
+        return f"for every <code>{e[1]}</code> from {en(e[2], lets)} to {en(e[3], lets)} (not included): " + \
+            (en_ensure(e[4]) if tense else en(e[4], lets))
     if k == "name":
         if e[1] in lets:
             return en(lets[e[1]], lets, tense)
@@ -179,6 +206,8 @@ def en_emits(events):
 
 
 def en_ensure(e):
+    if e[0] == "all":
+        return en(e, tense=True)
     if e[0] == "bin" and e[1] == "when":          # `E when C`: C is about the before-state
         return f"<em>when</em> {en(e[3], tense=True)}: {en(e[2], tense=_has_prime(e[2]))}"
     return en(e, tense=_has_prime(e))

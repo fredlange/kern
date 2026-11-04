@@ -24,6 +24,7 @@ body
 | `need COND else Ctor ARGS` | refuse with `Ctor ARGS` unless COND holds |
 | `EXPR` | an effect: `ledger.debit a n`, `callee a b n`, `audit.emit (Ev a n)` |
 | `if COND`, then an indented block, optionally `else` and a block | branches |
+| `for k from LO to HI`, then an indented block | a loop: k = LO … HI−1 (bounds evaluated once). It starts with `invariant CLAUSE` lines; it can't be nested |
 | `result = EXPR` | a function's result (once per path) |
 
 ### Expressions
@@ -53,7 +54,9 @@ body
 | `invariant x:Type COND` | COND holds for every key, before and after every call. It may read state only at `x` |
 | `channel NAME` | another output stream: `NAME.emit (Ev …)` |
 
-**After-state:** in `ensure` only, write `ledger.balance' a` or `NAME.get' k`.
+**States:** an unprimed read is the state before the call. A primed read (`ledger.balance' a`,
+`NAME.get' k`) is the state the clause is about: after the call in `ensure`, at the start of
+each iteration in a loop `invariant`.
 
 ## Spec clauses
 
@@ -62,7 +65,7 @@ body
 | `need COND else Ctor ARGS` | runs before the body; the call refuses unless COND holds |
 | `ok otherwise` | claim: if every `need` holds, the call succeeds. Body and callee refusals must follow from the needs, and refusing callees must say `ok otherwise` too |
 | `keep EXPR` | same value before and after a successful call |
-| `ensure COND [when C]` | must hold after success; `'` reads the after-state, and `when C` (about the before-state) makes it conditional |
+| `ensure COND [when C] [for j from A to B]` | must hold after success; `when C` (about the before-state) makes it conditional, and `for j …` makes it hold for every j in [A, B). Bounds are atoms |
 | `emit [CHANNEL] Ctor ARGS [when C]` | the exact sequence the call appends to the channel (default `audit`). `_` matches any value. A channel with no `emit` clause is unconstrained |
 | `need as F ARGS`, `emit as F ARGS [when C]` | F's spec needs or emits, with F's parameters replaced by ARGS. Only right when F runs first |
 | `eg WORLD \| NAME ARGS -> OUTCOME [\| AFTER]` | an executed example |

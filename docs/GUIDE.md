@@ -219,6 +219,45 @@ print({n: r["clean"] for n, r in reports.items()})
 | `` `as F`: … `` / `as` references loop | `need as` / `emit as` must name a definition with the right number of arguments |
 | `recursive (f -> g -> f)` | no recursion yet (there are no termination measures) |
 
+## Loops
+
+A loop states what holds at the start of each iteration, with `k` as the next index:
+
+```kern clean
+state hold Int
+
+invariant o:Int hold.get o >= 0
+
+clear lo:Int hi:Int
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' j = 0 for j from lo to hi
+  eg hold.1:5 hold.2:7 | clear 1 3 -> ok | hold.1:0 hold.2:0
+body
+  for k from lo to hi
+    invariant ledger.total' = ledger.total
+    invariant hold.get' j = 0 for j from lo to k
+    hold.set k 0
+```
+
+**What the prover checks:**
+- The invariants hold when the loop starts.
+- One arbitrary iteration keeps them.
+- After the loop they hold with k = max(LO, HI).
+
+**What's inferred:**
+- A map written only at the loop key keeps every key outside [LO, HI), and callers can rely on
+  that (`writes hold.[lo,hi)`).
+- Module invariants are kept across the loop automatically, but only as long as every writer of
+  the store proves them; otherwise the proofs show `!`.
+
+**Known gaps:**
+- **Events emitted inside a loop can't be described.** The page says so.
+- **There's no sum,** so "the pool gains the sum of the swept holds" can't be stated (only
+  conservation between two accounts can).
+- **The frame can't be stated, only inferred,** so a mutant that sweeps one key too many survives
+  in the definition itself (`examples/batch.k`).
+
 ## Limits worth knowing
 
 - **Types:** Int and Account only. No text, records or loops. There's one hard-coded ledger,

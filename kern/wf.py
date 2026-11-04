@@ -83,6 +83,9 @@ class _Checker:
         if k == "app":
             (name, primed), args = e[1], e[2]
             return self.apply(name, primed, args, scope, where, spec, primed_ok, e)
+        if k == "all":
+            self.err(where, "`for j from A to B` is only allowed at the end of an `ensure` or a loop `invariant`")
+            return "Bool"
         self.err(where, f"cannot check {e}")
         return ANY
 
@@ -179,12 +182,7 @@ class _Checker:
             if TYPES and t in ("Unit", "Bool"):
                 self.err(f"keep {code(c)}", f"must be a value, got {t}")
         for c in d.ensures:
-            where = f"ensure {code(c)}"
-            if c[0] == "bin" and c[1] == "when":          # `E when C`: C is about the before-state
-                self.expect(where, self.ty(c[2], params, where, spec=True, primed_ok=True), "Bool")
-                self.expect(where, self.ty(c[3], params, where, spec=True), "Bool")
-            else:
-                self.expect(where, self.ty(c, params, where, spec=True, primed_ok=True), "Bool")
+            self.clause(c, params, f"ensure {code(c)}")
         for i, ch in d.emit_channel.items():
             if ch not in getattr(self.defs, "channels", []):
                 self.err(f"emit {ch} {d.emits[i][0]}", f"no channel named `{ch}` (declare `channel {ch}`)")
@@ -197,13 +195,43 @@ class _Checker:
         self.block(d.body, dict(params))
         return self.out
 
-    def block(self, stmts, scope):
+    def clause(self, c, scope, where):
+        """`E [when C] [for j from A to B]`: E may use after-state reads, C is about the before-state."""
+        if c[0] == "all":
+            for b in (c[2], c[3]):
+                self.expect(where, self.ty(b, scope, where, spec=True), "Int")
+            if c[1] in scope or c[1] in self.defs:
+                self.err(where, f"`{c[1]}` shadows an existing name")
+            scope = dict(scope, **{c[1]: "Int"})
+            c = c[4]
+        if c[0] == "bin" and c[1] == "when":
+            self.expect(where, self.ty(c[2], scope, where, spec=True, primed_ok=True), "Bool")
+            self.expect(where, self.ty(c[3], scope, where, spec=True), "Bool")
+        else:
+            self.expect(where, self.ty(c, scope, where, spec=True, primed_ok=True), "Bool")
+
+    def block(self, stmts, scope, in_loop=False):
         for s in stmts:
-            if s[0] == "if":
+            if s[0] == "inv":
+                self.err(f"invariant {code(s[1])}", "an `invariant` line belongs at the start of a `for` loop")
+            elif s[0] == "for":
+                where = f"for {s[1]} from {code(s[2])} to {code(s[3])}"
+                if in_loop:
+                    self.err(where, "nested loops are not supported yet")
+                for b in (s[2], s[3]):
+                    self.expect(where, self.ty(b, scope, where, spec=False), "Int")
+                if s[1] in scope or s[1] in self.used or is_handler(self.defs, s[1]) or s[1] in self.defs:
+                    self.err(where, f"`{s[1]}` shadows an existing name")
+                self.used.add(s[1])
+                inner = dict(scope, **{s[1]: "Int"})
+                for inv in s[4]:
+                    self.clause(inv, inner, f"invariant {code(inv)}")
+                self.block(s[5], inner, in_loop=True)
+            elif s[0] == "if":
                 where = f"if {code(s[1])}"
                 self.expect(where, self.ty(s[1], scope, where, spec=False), "Bool")
-                self.block(s[2], dict(scope))             # a branch's names stay in the branch,
-                self.block(s[3], dict(scope))             # but are never reused (self.used)
+                self.block(s[2], dict(scope), in_loop)    # a branch's names stay in the branch,
+                self.block(s[3], dict(scope), in_loop)    # but are never reused (self.used)
             elif s[0] == "let":
                 where = f"{s[1]} = {code(s[2])}"
                 t = self.ty(s[2], scope, where, spec=False)

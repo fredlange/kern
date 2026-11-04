@@ -7,7 +7,11 @@ from .syntax import flat, negate
 
 def _walk(e):
     yield e
-    if e[0] == "bin":
+    if e[0] == "all":                       # `… for j from A to B`
+        yield from _walk(e[2])
+        yield from _walk(e[3])
+        yield from _walk(e[4])
+    elif e[0] == "bin":
         yield from _walk(e[2])
         yield from _walk(e[3])
     elif e[0] == "app":
@@ -16,6 +20,10 @@ def _walk(e):
 
 
 def _stmt_exprs(s):
+    if s[0] == "for":
+        return [s[2], s[3]]
+    if s[0] == "inv":
+        return []
     if s[0] == "let":
         return [s[2]]
     if s[0] == "need":
@@ -85,28 +93,57 @@ def _account_param(e, d, lets):
 
 
 def writes(defs, d, seen=None):
-    """The balances a call can change, as parameter names (ANY_ACCOUNT = could be any account).
-    Writes only happen in body statements (the type checker forbids them inside expressions)."""
+    """The balances a call can change, as parameter names (ANY_ACCOUNT = could be any account), and
+    state entries `X.param`, `X.*`, or `X.[lo,hi)` for a map written only at the key of a loop
+    `for k from lo to hi` whose bounds are parameters or numbers (the loop's inferred frame)."""
     seen = (seen or set()) | {d.name}
     lets, out = {}, set()
-    for s in flat(d.body):              # either branch may run, so a write in any branch counts
-        if s[0] == "let":
-            lets[s[1]] = s[2]
-        if s[0] != "do" or s[1][0] != "app":
-            continue
-        name, args = s[1][1][0], s[1][2]
-        st = state_op(defs, name)
-        if name in WRITERS:
-            out.add(_account_param(args[0], d, lets))
-        elif st and st[1] == "set":                  # state writes are "X.param" (or "X.*")
-            out.add(f"{st[0]}.{_account_param(args[0], d, lets)}")
-        elif name in defs and name not in seen:
-            callee = defs[name]
-            idx = {p: i for i, (p, _) in enumerate(callee.params)}
-            for w in writes(defs, callee, seen):
-                x, dot, p = w.rpartition(".")
-                mapped = ANY_ACCOUNT if p == ANY_ACCOUNT else _account_param(args[idx[p]], d, lets)
-                out.add(f"{x}.{mapped}" if dot else mapped)
+    params = dict(d.params)
+
+    def bound(e):
+        if e[0] == "int":
+            return str(e[1])
+        return e[1] if e[0] == "name" and e[1] in params and e[1] not in lets else None
+
+    def key(e, loops):
+        while e[0] == "name" and e[1] in lets:
+            e = lets[e[1]]
+        if e[0] == "name" and e[1] in loops:
+            lo, hi = loops[e[1]]
+            return f"[{lo},{hi})" if lo is not None and hi is not None else ANY_ACCOUNT
+        return _account_param(e, d, lets)
+
+    def walk(stmts, loops):
+        for s in stmts:
+            if s[0] == "let":
+                lets[s[1]] = s[2]
+            elif s[0] == "if":
+                walk(s[2], loops)
+                walk(s[3], loops)
+            elif s[0] == "for":
+                walk(s[5], dict(loops, **{s[1]: (bound(s[2]), bound(s[3]))}))
+            elif s[0] == "do" and s[1][0] == "app":
+                name, args = s[1][1][0], s[1][2]
+                st = state_op(defs, name)
+                if name in WRITERS:
+                    out.add(_account_param(args[0], d, lets))
+                elif st and st[1] == "set":
+                    out.add(f"{st[0]}.{key(args[0], loops)}")
+                elif name in defs and name not in seen:
+                    callee = defs[name]
+                    idx = {p: i for i, (p, _) in enumerate(callee.params)}
+                    for w in writes(defs, callee, seen):
+                        x, dot, p = w.rpartition(".")
+                        if p.startswith("["):                 # a callee's loop range, mapped to our args
+                            ends = []
+                            for b in p[1:-1].split(","):
+                                ends.append(b if b.lstrip("-").isdigit() else bound(args[idx[b]]))
+                            out.add(f"{x}.[{ends[0]},{ends[1]})" if None not in ends else f"{x}.{ANY_ACCOUNT}")
+                            continue
+                        mapped = ANY_ACCOUNT if p == ANY_ACCOUNT else _account_param(args[idx[p]], d, lets)
+                        out.add(f"{x}.{mapped}" if dot else mapped)
+
+    walk(d.body, {})
     return out
 
 
@@ -128,8 +165,10 @@ def fmt_writes(ws, d):
     led = ledger_writes(ws)
     parts = ["any account"] if ANY_ACCOUNT in led else [p for p, _ in d.params if p in led]
     for x, ps in sorted(state_writes(ws).items()):
-        parts += [f"{x}.{'*' if ANY_ACCOUNT in ps else p}" for p in (["*"] if ANY_ACCOUNT in ps else
-                                                                   [q for q, _ in d.params if q in ps])]
+        if ANY_ACCOUNT in ps:
+            parts.append(f"{x}.*")
+            continue
+        parts += [f"{x}.{q}" for q, _ in d.params if q in ps] + [f"{x}.{p}" for p in sorted(ps) if p.startswith("[")]
     return " ".join(parts)
 
 
@@ -196,6 +235,11 @@ def lifted(defs, d, seen=None):
                 lets[s[1]] = (e if e is not None else s[2], e is not None)
             elif s[0] == "need":
                 add(s[1], s[2], s[3], "", guards)
+            elif s[0] == "inv":
+                continue
+            elif s[0] == "for":                       # a loop's refusals depend on earlier iterations:
+                if any(x[0] == "do" for x in flat(s[5])):  # never lifted; any effect ends lifting
+                    state["clean"] = False
             elif s[0] == "if":
                 g = pre_state(s[1])
                 ng = negate(g) if g is not None else None

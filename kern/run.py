@@ -122,6 +122,9 @@ class Interp:
         k = e[0]
         if k == "int":
             return e[1]
+        if k == "all":                          # every j in [A, B)
+            lo, hi = self.ev(e[2], env, pre, post), self.ev(e[3], env, pre, post)
+            return all(self.ev(e[4], dict(env, **{e[1]: v}), pre, post) for v in range(lo, hi))
         if k == "bin":
             op = e[1]
             if op == "and":
@@ -189,6 +192,11 @@ class Interp:
                 env[s[1]] = self.ev(s[2], env, world)
             elif s[0] == "if":
                 self.block(s[2] if self.ev(s[1], env, world) else s[3], env, world)
+            elif s[0] == "for":                 # bounds evaluated once; the variable is never assigned
+                lo, hi = self.ev(s[2], env, world), self.ev(s[3], env, world)
+                for v in range(lo, hi):
+                    env[s[1]] = v
+                    self.block(s[5], env, world)
             else:
                 self.ev(s[1], env, world)
 

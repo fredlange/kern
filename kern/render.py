@@ -43,6 +43,12 @@ def _guarantee_text(g, d):
         return en_emits(e)
     if kind == "ok":
         return "succeeds whenever the needs above hold: it refuses for no other reason"
+    if kind == "loop":
+        part, ast = e
+        when = "holds when the loop starts" if part == "entry" else "is kept by every iteration"
+        what = html.escape(ast[1]) if ast[0] == "module" else en_ensure(ast)
+        return (f"loop invariant ({when}; at the start of each iteration, primed reads are the current "
+                f"state and unprimed reads the state before the call): {what}")
     if kind == "invariant":
         var, t, cond = e
         return f"keeps the module invariant for every <code>{var}</code> ({t}): {en(cond)}"
@@ -91,8 +97,12 @@ def card(r, why):
                    f"<span class='muted'>Inferred; every other {'balance and state entry' if what == 'Changes' else 'balance'} is unchanged.</span></p>")
         silent = unguaranteed_writes(r)
         if silent:
-            out.append("<p class='warnc'>No guarantee says what the new balance of " +
+            out.append(f"<p class='warnc'>No guarantee says what the new {'value' if all('.' in x for x in silent) else 'balance'} of " +
                        ", ".join(f"<code>{p}</code>" for p in silent) + " is.</p>")
+    from .views import loop_event_note
+    for ch in loop_event_note(r):
+        out.append(f"<p class='warnc'>Events on <code>{html.escape(ch)}</code> emitted inside a loop are not "
+                   "described by any spec: a caller can't rely on them (there is no per-iteration emit form yet).</p>")
 
     rows = []
     origin = {id(n): d.ref_origin.get(("need", i)) for i, n in enumerate(d.needs)}
@@ -282,7 +292,11 @@ def terminal(reports, whys, orphans=None):
         if r["writes"]:
             silent = unguaranteed_writes(r)
             out.append(f"  writes {fmt_writes(r['writes'], r['def'])}" +
-                       (f"   (no guarantee about the new balance of {', '.join(silent)})" if silent else ""))
+                       (f"   (no guarantee about the new {'value' if all('.' in x for x in silent) else 'balance'} of "
+                        f"{', '.join(silent)})" if silent else ""))
+        from .views import loop_event_note
+        for ch in loop_event_note(r):
+            out.append(f"  {ch}: events emitted inside a loop are not described by any spec (no per-iteration emit form yet)")
         ex = r["examples"]
         out.append(f"  examples {sum(e['pass'] for e in ex)}/{len(ex)}   random tests {r['props']['succeeded']}/"
                    f"{r['props']['runs']} reached success, {len(r['props']['violations'])} violations")

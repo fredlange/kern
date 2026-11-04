@@ -1399,3 +1399,99 @@ def test_s2_quick_never_shows_an_unmeasured_strength(tmp_path):
     src = ESCROW1.replace("  eg A:500@u1 B:0@u2 | transfer A B 0 -> BadAmount\n", "")
     reps = analyse(parse_module(src), mutation=False, cache=tmp_path)       # changed: not shown
     assert "not measured" in render.terminal(reps, no_whys(reps)).split("\n\n")[0]
+
+
+# =====================================================================================
+# Roadmap run S4: bounded loops with invariants (docs/ROADMAP_RUN.md)
+# =====================================================================================
+
+BATCH = open("examples/batch.k").read()
+
+
+def _non_proven(reps, name):
+    return [g for g in reps[name]["guarantees"] if g["status"] != "proven"]
+
+
+def test_s4_batch_is_clean_invariants_included():
+    defs, reps = analysed(BATCH)
+    assert all(r["clean"] for r in reps.values())
+    assert any(g["kind"] == "loop" and g["clause"].startswith("module invariant") for g in reps["sweep_expired"]["guarantees"])
+
+
+@pytest.mark.parametrize("old,new,which", [
+    # an invariant that an iteration does not keep
+    ("    invariant ledger.balance' buyer = ledger.balance buyer - 10 * k\n",
+     "    invariant ledger.balance' buyer = ledger.balance buyer - 9 * k\n", "kept by every iteration"),
+    # an invariant false on entry
+    ("    invariant ledger.balance' seller = ledger.balance seller + 10 * k\n",
+     "    invariant ledger.balance' seller = ledger.balance seller + 10 * k + 1\n", "holds when the loop starts"),
+])
+def test_s4_wrong_loop_invariants_are_refuted(old, new, which):
+    assert old in BATCH
+    defs, reps = analysed(BATCH.replace(old, new))
+    bad = [g for g in _non_proven(reps, "installments") if which in g["clause"]]
+    assert bad and bad[0]["status"] in ("refuted", "unconfirmed")
+
+
+def test_s4_off_by_one_bound_is_refuted_and_replays():
+    defs, reps = analysed(BATCH.replace("  for k from 0 to n\n", "  for k from 0 to (n + 1)\n"))
+    bad = _non_proven(reps, "installments")
+    assert bad and any(g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"] for g in bad)
+
+
+def test_s4_quantified_ensure_false_at_one_key_is_refuted_with_the_key_in_the_eg_line():
+    src = BATCH.replace("    if sub_amount.get k > 0 and sub_due.get k <= clock.now\n",
+                        "    if sub_amount.get k > 0 and sub_due.get k < clock.now\n")
+    defs, reps = analysed(src)                 # caught at the loop invariant (the ensure follows from it)
+    g = [g for g in reps["advance_subs"]["guarantees"] if g["status"] == "refuted"]
+    assert g and g[0]["counterexample"]["confirmed_by_interpreter"] and "sub_due." in g[0]["counterexample"]["eg"]
+
+
+def test_s4_callers_use_the_loops_inferred_frame():
+    defs, reps = analysed(BATCH)
+    assert writes(defs, defs["sweep_elsewhere"]) >= {"hold.[lo,hi)"}
+    assert all(g["status"] == "proven" for g in reps["sweep_elsewhere"]["guarantees"])
+    no_frame = BATCH.replace("  need other < lo or other >= hi else InRange\n", "")
+    assert _non_proven(analysed(no_frame)[1], "sweep_elsewhere")                  # inside the range: not provable
+
+
+def test_s4_events_inside_a_loop_are_flagged_never_proven():
+    defs, reps = analysed(BATCH)
+    assert views.loop_event_note(reps["sweep_expired"]) == ["audit"]
+    assert "events emitted inside a loop are not described" in render.terminal(reps, no_whys(defs))
+    src = BATCH.replace("  keep ledger.total\n  ensure ledger.balance' buyer = ledger.balance buyer - 10 * n\n",
+                        "  keep ledger.total\n  ensure ledger.balance' buyer = ledger.balance buyer - 10 * n\n"
+                        "  emit Moved buyer seller 10 clock.now\n")
+    g = [g for g in analysed(src)[1]["installments"]["guarantees"] if g["kind"] == "emit"][0]
+    assert g["status"] != "proven" and "inside a loop" in g["reason"]
+
+
+def test_s4_invariant_assumption_relies_on_every_writer():
+    """kern-90: the for-all-keys assumption is justified only if every writer of the store proves the
+    invariant. An unproven writer of `hold` downgrades the loop's proofs to `!`."""
+    src = BATCH + """
+spoil id:Int
+body
+  hold.set id (0 - 1)
+"""
+    defs, reps = analysed(src)
+    assert any(g["kind"] == "invariant" and g["status"] != "proven" for g in reps["spoil"]["guarantees"])
+    assert {g["status"] for g in reps["sweep_expired"]["guarantees"]} == {"conditional"}
+    assert "invariant on hold" in reps["sweep_expired"]["guarantees"][0]["blocked_by"]
+
+
+@pytest.mark.parametrize("src,msg", [
+    ("f lo:Int hi:Int\nbody\n  for k from lo to hi\n    for m from lo to hi\n      ledger.total\n", "nested loops"),
+    ("f a:Account\n  need a != a for j from 0 to 1 else Bad\nbody\n  ledger.credit a 1\n", "only allowed at the end"),
+    ("f a:Account\nbody\n  invariant ledger.total' = ledger.total\n  ledger.credit a 1\n", "start of a `for` loop"),
+])
+def test_s4_loop_forms_are_checked(src, msg):
+    with pytest.raises((WellFormedError, ParseError), match=msg):
+        check_module(parse_module(src))
+
+
+def test_s4_loop_mutants_exist():
+    descs = [d for d, _ in check.mutants(parse_module(BATCH)["installments"])]
+    assert "`0` → `0 + 1` in `for k from 0 to n`" in descs and "`n` → `n - 1` in `for k from 0 to n`" in descs
+    assert "empty the body of `for k from 0 to n`" in descs
+    assert any(d.startswith("`k` → `k + 1`") for d in check.mutants(parse_module(BATCH)["sweep_expired"]) for d in [d[0]])

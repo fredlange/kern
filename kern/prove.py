@@ -65,6 +65,24 @@ class Path:
                     self.own + [cond])
 
 
+def _array_entries(m, v, limit=50):
+    """(key, value) pairs a model's array value spells out explicitly: Store chains, and the entry
+    table of an as-array function. The default (else) value is not a key."""
+    out = []
+    try:
+        while z3.is_store(v) and len(out) < limit:
+            out.append((v.arg(1).as_long(), v.arg(2).as_long()))
+            v = v.arg(0)
+        if z3.is_as_array(v):
+            fi = m[z3.get_as_array_func(v)]
+            for i in range(min(fi.num_entries(), limit)):
+                e = fi.entry(i)
+                out.append((e.arg_value(0).as_long(), e.value().as_long()))
+    except Exception:
+        return out
+    return out
+
+
 def fresh_int(p):
     return z3.Int(f"{p}{next(_fresh)}")
 
@@ -78,6 +96,11 @@ class Prover:
         k = e[0]
         if k == "int":
             return z3.IntVal(e[1])
+        if k == "all":                           # E for every j in [A, B)
+            j = z3.Int(f"{e[1]}_{next(_fresh)}")
+            lo, hi = self.sev(e[2], env, cur, post), self.sev(e[3], env, cur, post)
+            body = self.sev(e[4], dict(env, **{e[1]: j}), cur, post)
+            return z3.ForAll([j], z3.Implies(z3.And(lo <= j, j < hi), body))
         if k == "bin":
             l, r = self.sev(e[2], env, cur, post), self.sev(e[3], env, cur, post)
             op = e[1]
@@ -154,6 +177,17 @@ class Prover:
                 S.maps[x] = z3.Array(f"{x}{next(_fresh)}", z3.IntSort(), z3.IntSort())
                 continue
             for p in sorted(ps):
+                if p.startswith("["):              # the callee's loop wrote [lo, hi) only
+                    lo_s, hi_s = p[1:-1].split(",")
+                    lo, hi = (z3.IntVal(int(b)) if b.lstrip("-").isdigit() else env[b] for b in (lo_s, hi_s))
+                    old, j = S.maps[x], z3.Int(f"j_{next(_fresh)}")
+                    S.maps[x] = z3.Array(f"{x}_call{next(_fresh)}", z3.IntSort(), z3.IntSort())
+                    self.pc.append(z3.ForAll([j], z3.Implies(z3.Or(j < lo, j >= hi),
+                                                             z3.Select(S.maps[x], j) == z3.Select(old, j))))
+                    for g_text, g in self._module_invs_over({x}, S):   # the callee keeps them (relied on)
+                        self.pc.append(g)
+                        self.relied_on.add(f"invariant on {x}")
+                    continue
                 S.maps[x] = z3.Store(S.maps[x], env[p], fresh_int(f"{x}_{p}_"))
         for c in callee.ensures:
             self.pc.append(self.sev(c, env, pre, S))
@@ -214,6 +248,8 @@ class Prover:
         events = S.events(ch)
         emits = [ev for i, ev in enumerate(d.emits) if d.emit_channel.get(i, "audit") == ch]
         opaque = [e[1] for e in events if e[0] == "opaque"]
+        if "a loop" in opaque:
+            return None, "it emits events inside a loop, which a spec can't describe yet"
         if opaque:
             return None, f"relies on {', '.join(dict.fromkeys(opaque))}, whose spec does not say what it emits"
         if any(len(ev) > 2 for ev in emits) or any(len(a) > 3 for a in events):
@@ -255,6 +291,12 @@ class Prover:
     def invariants(self):
         return getattr(self.defs, "invariants", [])
 
+    def _stores_of(self, cond):
+        from .infer import _names
+        names = _names(cond)
+        out = {n[:-4] for n in names if n.endswith(".get")}
+        return out | ({"ledger"} if names & {"ledger.balance", "ledger.total"} else set())
+
     def invariant_touched(self, d, cond):
         """None if d writes nothing the invariant reads, "any" if it writes a computed key there,
         else True (its writes are all at parameters, where the invariant is then checked)."""
@@ -288,6 +330,11 @@ class Prover:
                     c = self.sev(s[1], p.env, p.S)
                     nxt += self.exec(s[2], p.fork(c)) + self.exec(s[3], p.fork(z3.Not(c)))
                     continue
+                if s[0] == "for":
+                    self.exec_loop(s, p)
+                    self.bind(p)
+                    nxt.append(p)
+                    continue
                 if s[0] == "need":                 # a body need may only fire if the spec says so
                     v = self.sev(s[1], p.env, p.S)
                     p.own.append(v)
@@ -300,6 +347,106 @@ class Prover:
             paths = nxt
         return paths
 
+    # --- loops --------------------------------------------------------------------------------
+
+    def _loop_effects(self, body, env, S):
+        """What one run of a loop body can change: ledger accounts (z3 values), maps written only at
+        the loop key (framed by range), maps written elsewhere (fully havocked), channels emitted on."""
+        from .syntax import flat
+        acc, ranged, full, chans = [], set(), set(), set()
+        for s in flat(body):
+            if s[0] != "do" or s[1][0] != "app":
+                continue
+            name, args = s[1][1][0], s[1][2]
+            st = state_op(self.defs, name)
+            if name in ("ledger.debit", "ledger.credit"):
+                acc.append(args[0])
+            elif st and st[1] == "set":
+                (ranged if args[0] == ("name", self._loop_var, False) else full).add(st[0])
+            elif name == "audit.emit":
+                chans.add("audit")
+            elif channel_op(self.defs, name):
+                chans.add(channel_op(self.defs, name))
+            elif name in self.defs:
+                callee = self.defs[name]
+                cenv = {p: a for (p, _), a in zip(callee.params, args)}
+                for w in writes(self.defs, callee):
+                    x, dot, q = w.rpartition(".")
+                    if not dot:
+                        acc.append(cenv[q] if q != ANY_ACCOUNT else None)
+                    else:
+                        full.add(x)
+                chans |= {u for u in uses(self.defs, callee) if u == "audit" or u in getattr(self.defs, "channels", [])}
+        return acc, ranged, full - ranged, chans
+
+    def _havoc(self, S, eff, env, lo, K):
+        """A state after some iterations: written stores fresh, maps written at the loop key equal
+        to S outside [lo, K) (the inferred frame). Returns (state, axioms)."""
+        acc, ranged, full, _ = eff
+        H, ax = S.copy(), []
+        for a in acc:
+            if a is None:
+                H.bal = z3.Array(f"bal{next(_fresh)}", z3.IntSort(), z3.IntSort())
+            else:
+                H.bal = z3.Store(H.bal, self.sev(a, env, S), fresh_int("bal_loop_"))
+        if acc:
+            H.total = fresh_int("total")
+        for x in ranged | full:
+            H.maps[x] = z3.Array(f"{x}_loop{next(_fresh)}", z3.IntSort(), z3.IntSort())
+            if x in ranged:
+                j = z3.Int(f"j_{next(_fresh)}")
+                ax.append(z3.ForAll([j], z3.Implies(z3.Or(j < lo, j >= K), z3.Select(H.maps[x], j) == z3.Select(S.maps[x], j))))
+        return H, ax
+
+    def _inv(self, invs, var, kval, env, S):
+        return [self.sev(c, dict(env, **{var: kval}), self.call_pre, S) for c in invs]
+
+    def _module_invs_over(self, stores, S):
+        """Module invariants that read a store the loop writes, for every key: kept automatically."""
+        from .infer import _names
+        out = []
+        for var, t, cond in self.invariants():
+            reads = _names(cond)
+            if any(f"{x}.get" in reads for x in stores) or ("ledger" in stores and reads & {"ledger.balance", "ledger.total"}):
+                j = z3.Int(f"m_{next(_fresh)}")
+                out.append((f"module invariant {var}:{t} {code(cond)}", z3.ForAll([j], self.sev(cond, {var: j}, S))))
+        return out
+
+    def exec_loop(self, s, p):
+        """for k from LO to HI with invariants: on entry (k = LO), kept by an arbitrary iteration
+        (LO <= k < HI, invariants assumed, written stores havocked), and after (k = max(LO, HI))."""
+        var, lo_e, hi_e, invs, body = s[1], s[2], s[3], s[4], s[5]
+        lo, hi = self.sev(lo_e, p.env, p.S), self.sev(hi_e, p.env, p.S)
+        self._loop_var = var
+        eff = self._loop_effects(body, p.env, p.S)
+        texts = [code(c) for c in invs]
+        stores = eff[1] | eff[2] | ({"ledger"} if eff[0] else set())
+        # entry
+        entry = self._inv(invs, var, lo, p.env, p.S) + [g for _, g in self._module_invs_over(stores, p.S)]
+        names = list(zip(texts, invs)) + [(t, ("module", t)) for t, _ in self._module_invs_over(stores, p.S)]
+        for (text, ast), g in zip(names, entry):
+            self.loop_goals.append(("loop", ("entry", ast), f"{text}  (holds when the loop starts)", [(g, list(p.pc))]))
+        # an arbitrary iteration
+        k = z3.Int(f"{var}_{next(_fresh)}")
+        H, ax = self._havoc(p.S, eff, p.env, lo, k)
+        head = self._inv(invs, var, k, p.env, H) + [g for _, g in self._module_invs_over(stores, H)]
+        it = Path(p.pc + [lo <= k, k < hi] + ax + head, H, dict(p.env, **{var: k}), list(p.refusals), list(p.opaque),
+                  p.own + [lo <= k, k < hi])
+        n_ref, n_opq = len(p.refusals), len(p.opaque)
+        for q in self.exec(body, it):
+            kept = self._inv(invs, var, k + 1, q.env, q.S) + [g for _, g in self._module_invs_over(stores, q.S)]
+            for (text, ast), g in zip(names, kept):
+                self.loop_goals.append(("loop", ("kept", ast), f"{text}  (kept by every iteration)", [(g, q.pc)]))
+            p.refusals += q.refusals[n_ref:]       # a refusal inside the loop is a refusal of the call
+            p.opaque += q.opaque[n_opq:]
+        # after the loop
+        K = z3.If(hi >= lo, hi, lo)
+        A, ax = self._havoc(p.S, eff, p.env, lo, K)
+        p.pc += ax + self._inv(invs, var, K, p.env, A) + [g for _, g in self._module_invs_over(stores, A)]
+        for ch in eff[3]:                          # events inside a loop are not described yet
+            A.append(ch, [("opaque", "a loop")])
+        p.S = A
+
     def prove(self, d, first_kill=False):
         """Prove every guarantee of d. With first_kill (mutation testing), stop at the first
         confirmed refutation: the caller only needs to know whether the mutant was caught."""
@@ -311,6 +458,14 @@ class Prover:
         params = dict(env)
         start = Path([], pre.copy(), env, [], [], [])
         self.bind(start)
+        self.call_pre, self.loop_goals = pre, []
+        from .syntax import flat as _flat
+        if any(s[0] == "for" for s in _flat(d.body)) or any(
+                "[" in w for c in callees(self.defs, d) for w in writes(self.defs, self.defs[c])):
+            for var, t, cond in self.invariants():   # held before the call at every key, provided every
+                j = z3.Int(f"pre_{next(_fresh)}")      # writer of the store keeps it: relied on, like a callee
+                self.pc.append(z3.ForAll([j], self.sev(cond, {var: j}, pre)))
+                self.relied_on |= {f"invariant on {x}" for x in self._stores_of(cond)}
         for var, t, cond in self.invariants():    # it held before the call, for every key; we use
             for p, pt in d.params:                # it for the keys the call can name
                 if pt == t:
@@ -332,6 +487,7 @@ class Prover:
                  for c in d.keeps] + \
                 [("ensure", c, code(c), per_path(lambda p: self.sev(c, p.env, pre, p.S))) for c in d.ensures]
         unknowable = []
+        goals += [(kind, c, text, cases) for kind, c, text, cases in self.loop_goals]
         for var, t, cond in self.invariants():
             touched = self.invariant_touched(d, cond)
             if touched is None:
@@ -431,6 +587,8 @@ class Prover:
         cx = self.render_cex(d, nice.model(), params, pre, kind)
         if cx["confirmed_by_interpreter"]:
             return cx
+        if any("forall" in a.sexpr() for a in nice.assertions()):
+            return cx                              # Z3 can't optimise over quantified constraints
         opt = z3.Optimize()
         opt.add(*nice.assertions())
         for p, t in d.params:
@@ -476,6 +634,12 @@ class Prover:
                 val = m.eval(z3.Select(arr, params[p]), model_completion=True).as_long()
                 if val:
                     maps.setdefault(x, {})[key] = val
+            if self.defs.states[x] == "Int":       # a quantified goal's witness key is no parameter:
+                for zk, val in _array_entries(m, m.eval(arr, model_completion=True)):   # take every key the
+                    if (x, zk) not in keys and abs(zk) <= 10**6:                  # model assigns
+                        keys.append((x, zk))
+                        if val:
+                            maps.setdefault(x, {})[zk] = val
         w = World.from_example(world, now, maps)
         interp = Interp(self.defs)
         before = w.copy()
