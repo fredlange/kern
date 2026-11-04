@@ -1,6 +1,6 @@
 # Kern runtime plan: compile Kern to Rust
 
-Status: 2026-11-04, R1 done (C1, C2, C3, P1 pass; M1 fails), R2 next. Owner: kern-90 session. The thresholds below were written
+Status: 2026-11-04, R1 done (C1, C2, C3, P1 pass; M1 failed as pre-registered and passes after a tuning run), R2 next. Owner: kern-90 session. The thresholds below were written
 **before** any runtime code ran; they are not edited after a run (add a dated note instead).
 
 ## Decision (Fredrik, 2026-11-04)
@@ -242,6 +242,33 @@ threshold of ≤ 96. This is the profile, recorded before any tuning:
 
 The tuning idea, for a separate run reported as tuning: store names once in an arena and index
 by hash → `u32`. Expected about 40 bytes, not yet measured.
+
+**M1 tuning run (2026-11-04, after the pre-registered M1 run failed).** This is reported as
+tuning. The pre-registered M1 result above stays ✗.
+- **The change.** Account names are stored once, in one byte arena with `u32` end offsets. The
+  index is an open-addressing table that holds only ids (load ≤ 3/4) and compares against the
+  arena. The hash is SipHash, keyed per process, so clients can't pick names that collide.
+- **Memory:**
+
+  | Module | Before | After | Note |
+  |---|---|---|---|
+  | escrow_s2 | 172 | **60** | 24 of the 60 are its three `state X Account` maps, 8 bytes each |
+  | ledger_v1 | 162 | **40** | no state maps |
+
+  Both are now under the ≤ 96 threshold. Accounts were added one at a time, so vector-doubling
+  peaks are included; `World::reserve` (for snapshot loads) avoids them.
+- **Correctness after the change:**
+  - C2: 0 divergences in 1,005,211 calls;
+  - fuzz.py: 0 in 78,533;
+  - planted bugs: 13 of 13 caught;
+  - runtime tests: 7 of 7;
+  - new unit tests for the name table (200k names, misses, empty and Unicode names, reserve):
+    3 of 3.
+- **Speed, possibly a small regression.** The bench loop never touches names, yet in 4 paired
+  runs (old binary built from 2b8cebb, alternating with the new one, same machine state) it
+  measured 14.7–16.3 ns for the old and 16.2–18.4 ns for the new: about 1.5 ns (~10%) slower,
+  4 of 4 pairs. The cause is unknown; memory placement of `bal` is a guess, not a finding. Both
+  stay within P1's ≤ 25 ns.
 
 **Not done in R1, and not hidden:**
 - `emit_rust.py` checks well-formedness only. The **proof gate** (refusing unclean definitions)

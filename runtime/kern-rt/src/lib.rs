@@ -5,7 +5,9 @@
 //! clock, assumed-handler providers with recording, and the driver. The semantics are those of the
 //! reference interpreter `kern/run.py`; docs/RUNTIME_PLAN.md lists the contract and the one
 //! deliberate divergence (Int is i64; leaving it is a fault).
+use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, VecDeque};
+use std::hash::BuildHasher;
 
 pub mod driver;
 
@@ -87,13 +89,108 @@ pub struct MapInfo {
     pub slot: usize,
 }
 
+// ---- account names: stored once, in one byte arena, with an index that holds only ids
+
+const EMPTY: u32 = u32::MAX;
+
+/// Interned account names. A `Vec<String>` plus a `HashMap<String, u32>` stored every name twice
+/// and cost about 160 bytes per account (docs/RUNTIME_PLAN.md, M1); this costs the name's bytes
+/// plus about 4 (offset) + 5-8 (open-addressing slots, load <= 3/4) bytes. The hash is keyed per
+/// process (SipHash via `RandomState`), so names sent by clients can't be chosen to collide.
+pub struct Names {
+    bytes: Vec<u8>,
+    ends: Vec<u32>,
+    slots: Vec<u32>,
+    hasher: RandomState,
+}
+
+impl Default for Names {
+    fn default() -> Self {
+        Names { bytes: Vec::new(), ends: Vec::new(), slots: Vec::new(), hasher: RandomState::new() }
+    }
+}
+
+impl Names {
+    pub fn len(&self) -> usize {
+        self.ends.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.ends.is_empty()
+    }
+    pub fn get(&self, id: u32) -> &str {
+        let i = id as usize;
+        let start = if i == 0 { 0 } else { self.ends[i - 1] as usize };
+        // only whole `&str`s are ever appended, so every slice between two ends is UTF-8
+        std::str::from_utf8(&self.bytes[start..self.ends[i] as usize]).expect("names are UTF-8")
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        (0..self.ends.len() as u32).map(move |i| self.get(i))
+    }
+    fn slot_of(&self, name: &str) -> usize {
+        self.hasher.hash_one(name) as usize & (self.slots.len() - 1)
+    }
+    pub fn find(&self, name: &str) -> Option<u32> {
+        if self.slots.is_empty() {
+            return None;
+        }
+        let mask = self.slots.len() - 1;
+        let mut i = self.slot_of(name);
+        loop {
+            let id = self.slots[i];
+            if id == EMPTY {
+                return None;
+            }
+            if self.get(id) == name {
+                return Some(id);
+            }
+            i = (i + 1) & mask;
+        }
+    }
+    /// Add a name that is not present yet; returns its id.
+    pub fn push(&mut self, name: &str) -> u32 {
+        debug_assert!(self.find(name).is_none());
+        let id = self.ends.len() as u32;
+        self.bytes.extend_from_slice(name.as_bytes());
+        self.ends.push(u32::try_from(self.bytes.len()).expect("name arena over 4 GiB"));
+        if (self.ends.len()) * 4 > self.slots.len() * 3 {
+            self.rehash((self.slots.len() * 2).max(16));
+        } else {
+            self.place(id);
+        }
+        id
+    }
+    fn place(&mut self, id: u32) {
+        let mask = self.slots.len() - 1;
+        let mut i = self.slot_of(self.get(id));
+        while self.slots[i] != EMPTY {
+            i = (i + 1) & mask;
+        }
+        self.slots[i] = id;
+    }
+    fn rehash(&mut self, size: usize) {
+        self.slots = vec![EMPTY; size];
+        for id in 0..self.ends.len() as u32 {
+            self.place(id);
+        }
+    }
+    /// Reserve room for `n` more names of about `avg_len` bytes (a snapshot load knows both).
+    pub fn reserve(&mut self, n: usize, avg_len: usize) {
+        self.bytes.reserve(n * avg_len);
+        self.ends.reserve(n);
+        let want = ((self.ends.len() + n) * 4 / 3 + 1).next_power_of_two().max(16);
+        if want > self.slots.len() {
+            self.rehash(want);
+        }
+    }
+}
+
 // ---- the world
 
 pub struct World {
     pub bal: Vec<i64>,
     pub owner: Vec<Owner>,
-    pub names: Vec<String>,
-    pub index: HashMap<String, u32>,
+    /// account names, stored once (see [`Names`])
+    pub names: Names,
     pub owners: Vec<String>,
     pub owner_index: HashMap<String, u32>,
     /// `state X Account`: dense, one entry per account; missing = 0
@@ -108,8 +205,7 @@ impl World {
         World {
             bal: Vec::new(),
             owner: Vec::new(),
-            names: Vec::new(),
-            index: HashMap::new(),
+            names: Names::default(),
             owners: Vec::new(),
             owner_index: HashMap::new(),
             amaps: vec![Vec::new(); n_amaps],
@@ -118,12 +214,22 @@ impl World {
         }
     }
 
+    /// Reserve room for `n` more accounts (a snapshot load knows how many).
+    pub fn reserve(&mut self, n: usize, avg_name_len: usize) {
+        self.bal.reserve(n);
+        self.owner.reserve(n);
+        self.names.reserve(n, avg_name_len);
+        for m in self.amaps.iter_mut() {
+            m.reserve(n);
+        }
+    }
+
     pub fn acct(&self, name: &str) -> Option<Acct> {
-        self.index.get(name).map(|&i| Acct(i))
+        self.names.find(name).map(Acct)
     }
 
     pub fn name(&self, a: Acct) -> &str {
-        &self.names[a.0 as usize]
+        self.names.get(a.0)
     }
 
     pub fn owner_name(&self, o: Owner) -> &str {
@@ -149,8 +255,7 @@ impl World {
         let id = self.bal.len() as u32;
         self.bal.push(balance);
         self.owner.push(o);
-        self.names.push(name.to_string());
-        self.index.insert(name.to_string(), id);
+        self.names.push(name);
         for m in self.amaps.iter_mut() {
             m.push(0);
         }
@@ -382,5 +487,46 @@ pub fn int(v: Val) -> i64 {
     match v {
         Val::Int(n) => n,
         Val::Acct(_) => unreachable!("checked at the boundary"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_find_every_name_and_only_those() {
+        let mut n = Names::default();
+        for i in 0..200_000u32 {
+            assert_eq!(n.push(&format!("A{i}")), i);
+        }
+        for i in 0..200_000u32 {
+            assert_eq!(n.find(&format!("A{i}")), Some(i));
+            assert_eq!(n.get(i), format!("A{i}"));
+        }
+        for miss in ["A200000", "B0", "", "A-1", "a0"] {
+            assert_eq!(n.find(miss), None, "{miss}");
+        }
+        assert_eq!(n.iter().count(), 200_000);
+    }
+
+    #[test]
+    fn names_handle_empty_and_unicode_and_reserve() {
+        let mut n = Names::default();
+        assert_eq!(n.find("x"), None);
+        n.reserve(10, 4);
+        let ids: Vec<u32> = ["", "Å", "kärna", "日本"].iter().map(|s| n.push(s)).collect();
+        assert_eq!(ids, vec![0, 1, 2, 3]);
+        assert_eq!((n.find(""), n.find("kärna"), n.get(3)), (Some(0), Some(2), "日本"));
+    }
+
+    #[test]
+    fn world_reopen_keeps_the_id() {
+        let mut w = World::new(1, 0);
+        let a = w.open("A", 5, "u1");
+        let b = w.open("B", 7, "u2");
+        assert_eq!(w.open("A", 9, "u3"), a);
+        assert_eq!((w.bal[a.0 as usize], w.bal[b.0 as usize], w.names.len(), w.amaps[0].len()), (9, 7, 2, 2));
+        assert_eq!(w.owner_name(w.owner[a.0 as usize]), "u3");
     }
 }

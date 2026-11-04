@@ -97,7 +97,7 @@ pub fn dump<M: Module>(w: &World) -> String {
                     .iter()
                     .enumerate()
                     .filter(|(_, v)| **v != 0)
-                    .map(|(i, v)| (w.names[i].clone(), *v))
+                    .map(|(i, v)| (w.names.get(i as u32).to_string(), *v))
                     .collect();
                 ks.sort();
                 for (k, v) in ks {
