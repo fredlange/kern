@@ -51,8 +51,9 @@ def handler_sat(defs, h):
     got = s.check()
     if got == z3.unsat:
         return "satisfiable"
-    if got == z3.sat:
-        return "unsatisfiable"
+    if got == z3.sat:                                  # say for which arguments
+        m = s.model()
+        return "unsatisfiable for " + ", ".join(f"{p} = {m.eval(env[p], model_completion=True)}" for p, _ in h.params)
     for vals in [(v,) * len(h.params) for v in (0, 1, 2, 5, 100)]:
         s = z3.Solver()
         s.add(*[env[p] == v for (p, _), v in zip(h.params, vals)], needs, z3.Not(z3.Exists([r], ens)))
@@ -187,7 +188,7 @@ def analyse(defs, mutation=True, baseline=None, cache=None):
     for r in reports.values():
         assumed = sorted(_assumptions(reports, r))
         r["assumptions"], r["handler_sat"] = assumed, sat
-        broken = [a for a in assumed if sat.get(a) == "unsatisfiable"]
+        broken = [a for a in assumed if str(sat.get(a, "")).startswith("unsatisfiable")]
         for g in r["guarantees"]:
             if g["status"] != "proven" or g["kind"] == "pre" or not assumed:
                 continue                      # a call-site need is about the caller's inputs

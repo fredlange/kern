@@ -270,7 +270,7 @@ def page(reports, whys, title, orphans=None, host=None):
            "Guarantees marked ⊙ are proven <em>assuming</em> these specs; the prover can't check them, the "
            "host checks them on every call.</p><ul>" +
            "".join(f"<li><code>{html.escape(h)}</code>: <code>{html.escape(sp)}</code> "
-                   f"<span class='{'failc' if sat == 'unsatisfiable' else 'muted'}'>(spec {html.escape(sat)})</span></li>"
+                   f"<span class='{'failc' if sat.startswith('unsatisfiable') else 'muted'}'>(spec {html.escape(sat)})</span></li>"
                    for _, h, sp, sat in lines) + "</ul></section>") if lines else ""
     cards = top + "\n".join(card(r, whys[n]) for n, r in reports.items()) + _orphan_html(orphans) + host_html(host)
     return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"

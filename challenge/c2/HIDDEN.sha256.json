@@ -1,0 +1,12 @@
+{
+ "common.py": "d1328288bad0fbf25d041cf6440feef879c6e7eccef961cb5524498a92d2abe2",
+ "grade.py": "2a36fe857d01291b88cb60eb6a707651280966991062b1c7afdb46f084762e17",
+ "harness.ts": "f57fbd7171192532bc14f8e7ce774cdc8ac0b46bdcf42ce30ad361733ec27fc8",
+ "hidden/T1.json": "ca7253709d0c29398039abca2bb207e22cf9946d9ab7a56611abd17cac796f9a",
+ "hidden/T2.json": "f5c5d0aac88df76c70c54422e2b408b611e0d49473663d76d9549493aacf58fa",
+ "hidden/T3.json": "06dd2cc8282f7edee06a5001d71e50f6c12012a80c2fe783433415978c5233f8",
+ "hidden/reference/solutions.json": "e7b9a7b76ae354cb7ce74385cda9fe98053158e611b76eeaab9b8b5ca0e012c3",
+ "make_hidden.py": "29ca1780e022949b62d8a562c7ae4e4eb67cb252dd685d4c49886100cf3535b8",
+ "run.py": "60ee008e79adb4ccb101150c936ec5ba27b725dd79253a0d5cffb6afdca89cbb",
+ "tasks.md": "bfacdbfa7e822d1a6842ddd89d47ca2d8b1b61c3258a4dd1f12b6d35b8ada850"
+}

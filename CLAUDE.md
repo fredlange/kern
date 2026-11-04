@@ -155,7 +155,9 @@ for token counts).
   records. Return values only for pure, total functions (`-> Int`, set `result`), which specs
   may call (modularly: uninterpreted + their ensures). Recursion is rejected (no termination measures yet).
 - Bodies are guards plus `if`/`else` blocks (the prover forks a path per branch; paths grow as
-  2^ifs per body). No `match` or loops. Specs have `ensure E when C` and `emit … when C`.
+  2^ifs per body) and bounded loops `for k from LO to HI` with `invariant` lines (a proposal, roadmap
+  run S4). The loop frame is inferred, never stated; there's no sum and no per-iteration emit form, and
+  loops can't be nested. No `match`. Specs have `ensure E when C` and `emit … when C`.
 - Frames are *inferred* (`writes`), not written.
 - `ok otherwise` (opt-in) says a call succeeds whenever its spec needs hold. A caller that
   opts in must restate every refusal (payout's spec view: 97 → 163 tokens); nothing is
@@ -181,6 +183,12 @@ for token counts).
 - Mutation tests use 150 random runs per mutant; the `settle` audit mutant needed 500
   to be caught by random tests (the prover now catches it).
 - The obligation lint for `why` is a keyword heuristic.
+- Assumed handlers (`handler rand.below n:Int -> Int` with need/ensure, no body; a proposal, roadmap run S5):
+  proofs that rely on them are ⊙ (coarse: every proven guarantee of a definition that reaches one).
+  The host provides them, checks the spec on every call and records each value for replay.
+- `check --quick` skips mutation testing; `.kern-cache/` reuses results by a conservative key. A full
+  cold `check` still misses C6's thresholds (docs/ROADMAP_RUN.md, S2). `kern.mcp` serves views and
+  structural edits to agents.
 - Tier ○ (runtime-checked) and record/replay exist only in the host (`kern/host.py`: SQLite,
   replay, invariants checked at the keys a call wrote). Output channels (`channel console`,
   `emit console Line x`) are exact per channel, unordered across channels. Network requests are

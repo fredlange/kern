@@ -1597,7 +1597,7 @@ def test_s5_assumed_specs_read_only_args_and_result(spec, msg):
 
 def test_s5_an_unsatisfiable_assumption_makes_callers_not_proven():
     defs, reps = analysed(RAFFLE.replace("  ensure result >= 0 and result < n\n", "  ensure result >= n and result < n\n"))
-    assert reps["draw_winner"]["handler_sat"]["rand.below"] == "unsatisfiable"
+    assert reps["draw_winner"]["handler_sat"]["rand.below"].startswith("unsatisfiable for n = ")
     assert all(g["status"] not in ("proven", "assumed") for g in reps["draw_winner"]["guarantees"] if g["kind"] != "pre")
 
 

@@ -57,12 +57,13 @@ def _ev_eq(x, y):
 class Path:
     """One way through a body: path condition, state, bindings, refusal points, own conditions."""
 
-    def __init__(self, pc, S, env, refusals, opaque, own):
+    def __init__(self, pc, S, env, refusals, opaque, own, draws=None):
         self.pc, self.S, self.env, self.refusals, self.opaque, self.own = pc, S, env, refusals, opaque, own
+        self.draws = list(draws or [])            # (handler, result term) in call order, for replay
 
     def fork(self, cond):
         return Path(self.pc + [cond], self.S.copy(), dict(self.env), list(self.refusals), list(self.opaque),
-                    self.own + [cond])
+                    self.own + [cond], self.draws)
 
 
 def _array_entries(m, v, limit=50):
@@ -155,6 +156,7 @@ class Prover:
                 self.loop_goals.append(("pre", (name, n[1]), f"{name}: need {code(n[1])} (at a call)", [(c, list(self.pc))]))
                 self.pc.append(c)
             r = fresh_int(name.replace(".", "_"))
+            self.draws.append((name, r))
             for c in h.ensures:
                 self.pc.append(self.sev(c, dict(env, result=r), S, S))
             self.relied_on.add(f"assumed {name}")
@@ -338,7 +340,7 @@ class Prover:
 
     def bind(self, p):
         """Point the per-path bookkeeping (used by modular_call and refusal_point) at path p."""
-        self.pc, self.refusals, self.opaque_refusers = p.pc, p.refusals, p.opaque
+        self.pc, self.refusals, self.opaque_refusers, self.draws = p.pc, p.refusals, p.opaque, p.draws
 
     def exec(self, stmts, path):
         """Symbolically run statements; an `if` forks the path. Returns the finished paths."""
@@ -515,7 +517,7 @@ class Prover:
             out = []
             for p in paths:
                 self.bind(p)                       # a function call in a clause adds to p's premise
-                out.append((fn(p), p.pc))
+                out.append((fn(p), p.pc, p.draws))
             return out
         goals = [("keep", c, code(c), per_path(lambda p: self.sev(c, p.env, pre) == self.sev(c, p.env, p.S)))
                  for c in d.keeps] + \
@@ -547,16 +549,16 @@ class Prover:
             emits = [ev for i, ev in enumerate(d.emits) if d.emit_channel.get(i, "audit") == ch]   # is not said
             emit_cases = per_path(lambda p: self.emit_goal(d, p.env, pre, p.S, ch))
             text = ("" if ch == "audit" else f"{ch} ") + ", then ".join(emit_code(ev) for ev in emits)
-            why_unknown = next((w for (g, w), _ in emit_cases if w), None)
+            why_unknown = next((w for (g, w), _, _ in emit_cases if w), None)
             if why_unknown:
                 unknowable.append({"kind": "emit", "expr": emits, "clause": text, "status": "unknown",
                                    "reason": why_unknown, "channel": ch})
             else:
                 goals.append(("emit", emits if ch == "audit" else ("channel", ch, emits), text,
-                              [(g, pc) for (g, _), pc in emit_cases]))
+                              [(g, pc, dr) for (g, _), pc, dr in emit_cases]))
         vacuous = self.vacuity(paths)
         if vacuous:                                # loop goals have premises of their own: still solved
-            if self.loop_goals:
+            if any(g[0] == "loop" for g in self.loop_goals):
                 vacuous = ("no input gets past a loop: its invariants can't all hold when it ends "
                            "(see the loop's own goals)")
             out = [self.solve(d, kind, c, text, cases, params, pre) if kind in ("loop", "pre") else
@@ -573,7 +575,8 @@ class Prover:
 
     def solve(self, d, kind, c, text, cases, params, pre):
         unknown = False
-        for g, assumed in cases:
+        for g, assumed, *rest in cases:
+            self._replay_draws = rest[0] if rest else []
             solver = z3.Solver()
             solver.set("timeout", 5000)
             solver.add(*assumed, z3.Not(g))
@@ -699,7 +702,16 @@ class Prover:
                         if val:
                             maps.setdefault(x, {})[zk] = val
         w = World.from_example(world, now, maps)
-        interp = Interp(self.defs)
+        draws = [m.eval(t, model_completion=True).as_long() for _, t in getattr(self, "_replay_draws", [])]
+        queue = list(draws)                        # the model's own draws, fed back in call order
+
+        def provider(name, args):
+            if queue:
+                return queue.pop(0)
+            from .run import PROVIDERS
+            import random as _r
+            return PROVIDERS[name](_r.Random(0), *args)
+        interp = Interp(self.defs, provider=provider)
         before = w.copy()
         try:
             outcome, after = interp.run(d.name, args, w)

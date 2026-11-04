@@ -1,0 +1,52 @@
+{
+ "T1": {
+  "kern": [
+   [
+    "",
+    "\nsettle escrow:Account buyer:Account seller:Account house:Account amount:Int part:Int fee:Int\n  need part > 0 and part <= amount else BadPart\nbody\n  capture escrow seller house part fee\n  if part < amount\n    release escrow buyer (amount - part)\n"
+   ]
+  ],
+  "ts": [
+   [
+    "",
+    "\nexport function settle(\n  c: C, escrow: Account, buyer: Account, seller: Account, house: Account, amount: number, part: number, fee: number,\n): void {\n  if (part <= 0 || part > amount) refuse({ kind: \"BadPart\" });\n  capture(c, escrow, seller, house, part, fee);\n  if (part < amount) release(c, escrow, buyer, amount - part);\n}\n"
+   ]
+  ]
+ },
+ "T2": {
+  "kern": [
+   [
+    "  else\n    move escrow seller (amount - fee)\n    move escrow house fee\n",
+    "  else\n    if amount >= 1000 and fee > 50\n      move escrow seller (amount - 50)\n      move escrow house 50\n    else\n      move escrow seller (amount - fee)\n      move escrow house fee\n"
+   ]
+  ],
+  "ts": [
+   [
+    "    move(c, escrow, seller, amount - fee);\n    move(c, escrow, house, fee);",
+    "    const f = amount >= 1000 && fee > 50 ? 50 : fee;\n    move(c, escrow, seller, amount - f);\n    move(c, escrow, house, f);"
+   ]
+  ]
+ },
+ "T3": {
+  "kern": [
+   [
+    "  need amount = 0 or from != to else SameAccount\n",
+    "  need from != to else SameAccount\n"
+   ],
+   [
+    "body\n  move buyer seller amount\n  audit.emit (Tipped seller amount clock.now)\n",
+    "body\n  if amount > 0\n    move buyer seller amount\n  audit.emit (Tipped seller amount clock.now)\n"
+   ]
+  ],
+  "ts": [
+   [
+    "  if (amount < 0) refuse({ kind: \"BadAmount\" });\n  if (amount > 0) transfer(c, from, to, amount);",
+    "  if (amount < 0) refuse({ kind: \"BadAmount\" });\n  if (from === to) refuse({ kind: \"SameAccount\" });\n  if (amount > 0) transfer(c, from, to, amount);"
+   ],
+   [
+    "  move(c, buyer, seller, amount);\n  c.audit.emit({ kind: \"Tipped\"",
+    "  if (amount !== 0) move(c, buyer, seller, amount);\n  c.audit.emit({ kind: \"Tipped\""
+   ]
+  ]
+ }
+}

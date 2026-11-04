@@ -550,3 +550,38 @@ over-strict, but it isn't edited (rule 1).
 **Coarseness to know about:** ⊙ marks *every* proven guarantee of a definition that reaches an
 assumed handler, not only those whose proof needed it. That's conservative; precise marking
 would need a re-proof without the assumption.
+
+**S5 follow-ups (kern-90's audit of checkpoint 05, which passed):**
+- **The vacuity explanation** "no input gets past a loop" had leaked into definitions without a
+  loop, because handler preconditions share the extra-goal list. It now appears only when there
+  is a loop goal.
+- **An unsatisfiable assumption says for which arguments,** e.g. "spec unsatisfiable for n = 5".
+- **Counterexamples that depend on a draw** now replay: each path records its handler results
+  in call order, and replay feeds the model's values back. kern-90's h4 and h6 went from `?` to
+  ✗.
+- **The coarse ⊙ is accepted for now** (kern-90). A later refinement: re-prove each ⊙ goal
+  without the assumed `ensure`, and if it still proves, show plain ✔.
+
+## S6: C2 prepared, not run
+
+`challenge/c2/`:
+- `tasks.md`, `run.py` (arm isolation, dry-run by default), `grade.py`, `common.py`,
+  `harness.ts`, `make_hidden.py`;
+- `hidden/` (reference solutions and 3 × 600 acceptance cases);
+- `HIDDEN.sha256.json` (10 files) and `PROTOCOL.md`.
+
+Everything kern-90 asked for:
+- **T3 says what callers must do:** every other operation keeps its behaviour, so `tip A A 0`
+  must still succeed. That makes T3's trap measurable.
+- **Tool isolation per arm,** checked from the transcript.
+- **The token metric** is defined, and all four usage numbers are reported.
+- **No one-run differences** are interpreted at N = 3.
+- **The property suite** derived from Kern specs is frozen, hashed and outside every workspace.
+
+`grade.py --validate` (no agents):
+- the references succeed (600/600 for each task);
+- untouched code fails;
+- a T3 "move only" variant is caught as breaking tip's `ok otherwise`, silently in Kern (spec
+  unchanged) and in TS (no spec).
+
+**Not run:** 27 runs need Fredrik's approval, and Fredrik freezes the final thresholds.
