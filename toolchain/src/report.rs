@@ -43,7 +43,7 @@ pub struct Report {
     pub mutation_note: Option<String>,
     pub clean: bool,
     /// filled by the baseline comparison (`check` against a .strength file)
-    pub regression: Vec<Py>,
+    pub regression: Vec<String>,
 }
 
 /// The tiers on the proof page.
