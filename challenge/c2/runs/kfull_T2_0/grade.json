@@ -1,0 +1,25 @@
+{
+ "arm": "kfull",
+ "task": "T2",
+ "kern_check_clean": true,
+ "acceptance": "600/600",
+ "success": true,
+ "guarantees_broken": {},
+ "guarantees_broken_silently": [],
+ "tokens": 18670,
+ "usage": {
+  "input_tokens": 8,
+  "cache_creation_input_tokens": 14682,
+  "cache_read_input_tokens": 40553,
+  "output_tokens": 3980
+ },
+ "tokens_with_cache_reads": 59223,
+ "cost_usd": 0.2051986,
+ "turns": 7,
+ "stop": "success",
+ "check_iterations": 1,
+ "first_check_clean": true,
+ "tool_calls": 6,
+ "valid": true,
+ "chained_bash_executed": 0
+}

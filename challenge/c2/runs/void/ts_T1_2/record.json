@@ -1,0 +1,37 @@
+{
+ "arm": "ts",
+ "task": "T1",
+ "seed": 2,
+ "model": "claude-opus-5-5",
+ "max_turns": 40,
+ "workspace": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_7ieynpb_",
+ "tool_hash": "b808c9dd0c367b190b612ed0ea0cf11aba35f44e7b5c5000ad491c557d4d4841",
+ "git_rev": "b43783a24b54adbf091d8b319c6cb05dbd79ea1e",
+ "kern_dirty": true,
+ "max_budget_usd": 4.0,
+ "tools": [
+  "Read(/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_7ieynpb_/**)",
+  "Edit(/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_7ieynpb_/**)",
+  "Write(/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_7ieynpb_/**)",
+  "Bash(node --test:*)"
+ ],
+ "prompt_sha256": "02d973e3d95079ae0908f1d95693b40fc5ffcf201fbb76c0a427e913b1f8d94f",
+ "tools_used": [
+  "Bash",
+  "Bash",
+  "Bash",
+  "Edit",
+  "Edit",
+  "Bash",
+  "Read",
+  "Read",
+  "Edit",
+  "Edit"
+ ],
+ "outside_arm": [],
+ "outside_workspace": [
+  "chained Bash command"
+ ],
+ "valid": false,
+ "exit": 0
+}

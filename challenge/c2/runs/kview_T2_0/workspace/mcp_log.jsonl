@@ -1,0 +1,7 @@
+{"tool": "kern_list", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_ke1pu6_x/escrow_s1.k"}, "response_tokens": 410, "response_chars": 1426}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_ke1pu6_x/escrow_s1.k", "name": "capture", "as": "editor"}, "response_tokens": 776, "response_chars": 2634}
+{"tool": "kern_callers", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_ke1pu6_x/escrow_s1.k", "name": "capture"}, "response_tokens": 34, "response_chars": 90}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_ke1pu6_x/escrow_s1.k", "name": "purchase", "as": "editor"}, "response_tokens": 835, "response_chars": 3036}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_ke1pu6_x/escrow_s1.k", "name": "refund", "as": "editor"}, "response_tokens": 1009, "response_chars": 3544}
+{"tool": "kern_edit", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_ke1pu6_x/escrow_s1.k", "ops": "[{'op': 'add', 'source': 'house_fee amount:Int fee:Int -> Int\\n  ensure result = 50 when amount >= 1000 and fee > 50\\n  ensure result = fee when amount < 1000 or fee <= 50\\nbody\\n  if amount >= 1000 a\u2026"}, "response_tokens": 107, "response_chars": 334}
+{"tool": "kern_check", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_ke1pu6_x/escrow_s1.k"}, "response_tokens": 122, "response_chars": 462}

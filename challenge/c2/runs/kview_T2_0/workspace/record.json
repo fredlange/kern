@@ -1,0 +1,38 @@
+{
+ "arm": "kview",
+ "task": "T2",
+ "seed": 0,
+ "model": "claude-opus-5-5",
+ "max_turns": 40,
+ "workspace": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_ke1pu6_x",
+ "tool_hash": "b808c9dd0c367b190b612ed0ea0cf11aba35f44e7b5c5000ad491c557d4d4841",
+ "git_rev": "b43783a24b54adbf091d8b319c6cb05dbd79ea1e",
+ "kern_dirty": true,
+ "max_budget_usd": 4.0,
+ "tools": [
+  "mcp__kern__kern_list",
+  "mcp__kern__kern_view",
+  "mcp__kern__kern_callers",
+  "mcp__kern__kern_why",
+  "mcp__kern__kern_check",
+  "mcp__kern__kern_run",
+  "mcp__kern__kern_edit",
+  "mcp__kern__kern_add",
+  "mcp__kern__kern_replace",
+  "mcp__kern__kern_remove"
+ ],
+ "prompt_sha256": "150866f9a54a12c03e38fa5ad3005f0a3ba0bcc391dc6895f6da1576695c341b",
+ "tools_used": [
+  "mcp__kern__kern_list",
+  "mcp__kern__kern_view",
+  "mcp__kern__kern_callers",
+  "mcp__kern__kern_view",
+  "mcp__kern__kern_view",
+  "mcp__kern__kern_edit",
+  "mcp__kern__kern_check"
+ ],
+ "outside_arm": [],
+ "outside_workspace": [],
+ "valid": true,
+ "exit": 0
+}

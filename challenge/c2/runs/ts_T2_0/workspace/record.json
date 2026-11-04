@@ -1,0 +1,37 @@
+{
+ "arm": "ts",
+ "task": "T2",
+ "seed": 0,
+ "model": "claude-opus-5-5",
+ "max_turns": 40,
+ "workspace": "/private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_63n70mdv",
+ "tool_hash": "b808c9dd0c367b190b612ed0ea0cf11aba35f44e7b5c5000ad491c557d4d4841",
+ "git_rev": "b43783a24b54adbf091d8b319c6cb05dbd79ea1e",
+ "kern_dirty": true,
+ "max_budget_usd": 4.0,
+ "tools": [
+  "Read(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_63n70mdv/**)",
+  "Edit(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_63n70mdv/**)",
+  "Write(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_63n70mdv/**)",
+  "Bash(node --test:*)"
+ ],
+ "prompt_sha256": "a920d76425b49189e5a75bf69ee74c28bf271961d0e2738eb802447ee6bdff48",
+ "tools_used": [
+  "Bash",
+  "Bash",
+  "Edit",
+  "Bash",
+  "Edit",
+  "Bash"
+ ],
+ "outside_arm": [],
+ "outside_workspace": [],
+ "chained_bash_executed": [
+  "cd /private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_63n70mdv; ls -R | grep -v node_modules | head -50; cat ts/escrow.ts; cat ts/escrow.test.ts",
+  "cd /private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_63n70mdv; cat ts/platform.ts",
+  "cd /private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_63n70mdv; cat >> ts/escrow.test.ts <<'EOF'\n\ntest(\"capture fee cap from 1000\", () => {\n  expectRun({ E: 2000, B: 0, H: 0 }, (c) => escr",
+  "cd /private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_63n70mdv; node --test ts/escrow.test.ts 2>&1 | tail -10"
+ ],
+ "valid": true,
+ "exit": 0
+}

@@ -1,0 +1,32 @@
+{
+ "arm": "kfull",
+ "task": "T3",
+ "seed": 2,
+ "model": "claude-opus-5-5",
+ "max_turns": 40,
+ "workspace": "/private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kfull_azlrflys",
+ "tool_hash": "b808c9dd0c367b190b612ed0ea0cf11aba35f44e7b5c5000ad491c557d4d4841",
+ "git_rev": "b43783a24b54adbf091d8b319c6cb05dbd79ea1e",
+ "kern_dirty": true,
+ "max_budget_usd": 4.0,
+ "tools": [
+  "Read(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kfull_azlrflys/**)",
+  "Edit(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kfull_azlrflys/**)",
+  "Write(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kfull_azlrflys/**)",
+  "Bash(/Users/fredriklange/code/kern/.venv/bin/python -m kern:*)"
+ ],
+ "prompt_sha256": "0c5f138c37f0e922e846bd53091d9d5f63c8125f43ad93ffc39fb0c663d18a0b",
+ "tools_used": [
+  "Read",
+  "Bash",
+  "Edit",
+  "Edit",
+  "Edit",
+  "Bash"
+ ],
+ "outside_arm": [],
+ "outside_workspace": [],
+ "chained_bash_executed": [],
+ "valid": true,
+ "exit": 0
+}

@@ -1,0 +1,29 @@
+{
+ "arm": "kview",
+ "task": "T1",
+ "kern_check_clean": true,
+ "acceptance": "600/600",
+ "success": true,
+ "guarantees_broken": {},
+ "guarantees_broken_silently": [],
+ "tokens": 11663,
+ "mcp": {
+  "calls": 5,
+  "response_tokens": 2382,
+  "check_iterations": 1
+ },
+ "usage": {
+  "input_tokens": 10,
+  "cache_creation_input_tokens": 9458,
+  "cache_read_input_tokens": 42596,
+  "output_tokens": 2195
+ },
+ "tokens_with_cache_reads": 54259,
+ "cost_usd": 0.1281232,
+ "turns": 6,
+ "stop": "success",
+ "check_iterations": 1,
+ "first_check_clean": true,
+ "tool_calls": 5,
+ "valid": true
+}

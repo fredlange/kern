@@ -124,7 +124,7 @@ with hidden acceptance cases:
 - **Kern only:** whether the first `kern check` was clean (parses, type-checks, proves),
   and how many check iterations it took to get clean. **TypeScript:** test iterations.
 
-**Pass (proposed):**
+**Pass (proposed; frozen as written by Fredrik on 2026-11-04, see challenge/c2/PROTOCOL.md):**
 - K-view success is at least TypeScript's minus 10 points.
 - K-view breaks guarantees no more often than TypeScript; on T3 the target is 0 of 3
   against TypeScript's result.
@@ -134,6 +134,11 @@ with hidden acceptance cases:
 
 **Also report** K-view against K-full. That is the views claim with real tasks instead of
 token proxies.
+
+**Result (2026-11-04, `challenge/c2/PROTOCOL.md` "C2 results"):** 27/27 valid runs succeeded with no guarantee
+broken; thresholds 1, 2, 4 and 5 pass. **The token threshold fails:** K-view used 1.03–1.33× TS's tokens, because the
+reference and tool schemas cost more than the views save on a 10-definition module. T3 did not discriminate: the task
+text names the trap.
 
 ---
 

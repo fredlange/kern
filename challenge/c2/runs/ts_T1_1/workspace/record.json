@@ -1,0 +1,33 @@
+{
+ "arm": "ts",
+ "task": "T1",
+ "seed": 1,
+ "model": "claude-opus-5-5",
+ "max_turns": 40,
+ "workspace": "/private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_qmcx9gjf",
+ "tool_hash": "b808c9dd0c367b190b612ed0ea0cf11aba35f44e7b5c5000ad491c557d4d4841",
+ "git_rev": "b43783a24b54adbf091d8b319c6cb05dbd79ea1e",
+ "kern_dirty": true,
+ "max_budget_usd": 4.0,
+ "tools": [
+  "Read(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_qmcx9gjf/**)",
+  "Edit(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_qmcx9gjf/**)",
+  "Write(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_qmcx9gjf/**)",
+  "Bash(node --test:*)"
+ ],
+ "prompt_sha256": "93fe4d650f2758fee660131423368e2aba1f39d50f58339b2a59518eb7e8e105",
+ "tools_used": [
+  "Bash",
+  "Bash",
+  "Edit",
+  "Bash"
+ ],
+ "outside_arm": [],
+ "outside_workspace": [],
+ "chained_bash_executed": [
+  "cd /private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_qmcx9gjf/ts && ls && cat escrow.ts && cat escrow.test.ts",
+  "cat >> escrow.test.ts <<'EOF'\n\ntest(\"settle\", () => {\n  expectRun({ E: 300, A: 0, B: 0, H: 0 }, (c) => escrow.settle(c, \"E\", \"A\", \"B\", \"H\", 300, 200, 10), \"ok\",\n    { E: 0, A: 100, B: 190, H: 10 });\n "
+ ],
+ "valid": true,
+ "exit": 0
+}

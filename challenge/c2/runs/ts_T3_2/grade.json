@@ -1,0 +1,24 @@
+{
+ "arm": "ts",
+ "task": "T3",
+ "acceptance": "600/600",
+ "success": true,
+ "guarantees_broken": {},
+ "guarantees_broken_silently": [],
+ "tokens": 12395,
+ "usage": {
+  "input_tokens": 14,
+  "cache_creation_input_tokens": 9107,
+  "cache_read_input_tokens": 64698,
+  "output_tokens": 3274
+ },
+ "tokens_with_cache_reads": 77093,
+ "cost_usd": 0.1513316,
+ "turns": 10,
+ "stop": "success",
+ "check_iterations": 3,
+ "first_check_clean": false,
+ "tool_calls": 9,
+ "valid": true,
+ "chained_bash_executed": 3
+}

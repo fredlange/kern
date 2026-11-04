@@ -1,0 +1,6 @@
+{"tool": "kern_list", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_id8cptn2/escrow_s1.k"}, "response_tokens": 410, "response_chars": 1426}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_id8cptn2/escrow_s1.k", "name": "capture", "as": "editor"}, "response_tokens": 776, "response_chars": 2634}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_id8cptn2/escrow_s1.k", "name": "refund", "as": "editor"}, "response_tokens": 1009, "response_chars": 3544}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_id8cptn2/escrow_s1.k", "name": "release", "as": "editor"}, "response_tokens": 361, "response_chars": 1258}
+{"tool": "kern_add", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_id8cptn2/escrow_s1.k", "source": "settle escrow:Account buyer:Account seller:Account house:Account amount:Int part:Int fee:Int\n  need part > 0 and part <= amount else BadPart\n  need as capture escrow seller house part fee\n  need part \u2026"}, "response_tokens": 66, "response_chars": 175}
+{"tool": "kern_check", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_id8cptn2/escrow_s1.k"}, "response_tokens": 121, "response_chars": 459}

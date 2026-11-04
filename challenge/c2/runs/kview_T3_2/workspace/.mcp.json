@@ -1,0 +1,1 @@
+{"mcpServers": {"kern": {"command": "/Users/fredriklange/code/kern/.venv/bin/python", "args": ["-m", "kern.mcp"], "env": {"PYTHONPATH": "/Users/fredriklange/code/kern", "KERN_MCP_LOG": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_7fw9415t/mcp_log.jsonl", "KERN_MCP_ROOT": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_7fw9415t"}}}}

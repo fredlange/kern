@@ -1,0 +1,22 @@
+{
+ "arm": "ts",
+ "task": "T2",
+ "acceptance": "561/600",
+ "success": false,
+ "guarantees_broken": {},
+ "guarantees_broken_silently": [],
+ "tokens": 12559,
+ "usage": {
+  "input_tokens": 14,
+  "cache_creation_input_tokens": 9441,
+  "cache_read_input_tokens": 64855,
+  "output_tokens": 3104
+ },
+ "tokens_with_cache_reads": 77414,
+ "cost_usd": 0.15063500000000002,
+ "turns": 9,
+ "stop": "success",
+ "check_iterations": 0,
+ "tool_calls": 8,
+ "valid": false
+}

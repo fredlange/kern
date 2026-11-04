@@ -1,0 +1,32 @@
+{
+ "arm": "kfull",
+ "task": "T1",
+ "seed": 1,
+ "model": "claude-opus-5-5",
+ "max_turns": 40,
+ "workspace": "/private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kfull_zv8nbe7r",
+ "tool_hash": "b808c9dd0c367b190b612ed0ea0cf11aba35f44e7b5c5000ad491c557d4d4841",
+ "git_rev": "b43783a24b54adbf091d8b319c6cb05dbd79ea1e",
+ "kern_dirty": true,
+ "max_budget_usd": 4.0,
+ "tools": [
+  "Read(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kfull_zv8nbe7r/**)",
+  "Edit(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kfull_zv8nbe7r/**)",
+  "Write(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kfull_zv8nbe7r/**)",
+  "Bash(/Users/fredriklange/code/kern/.venv/bin/python -m kern:*)"
+ ],
+ "prompt_sha256": "346e9b36813c2494ddb8ba70b0440919c1e22521a8492c9aa7ffc37b8905a1a6",
+ "tools_used": [
+  "Read",
+  "Bash",
+  "Bash"
+ ],
+ "outside_arm": [],
+ "outside_workspace": [],
+ "chained_bash_executed": [
+  "cat >> escrow_s1.k <<'EOF'\n\nsettle escrow:Account buyer:Account seller:Account house:Account amount:Int part:Int fee:Int\n  need part > 0 and part <= amount else BadPart\n  need as capture escrow seller",
+  "/Users/fredriklange/code/kern/.venv/bin/python -m kern check escrow_s1.k --quick 2>&1 | grep -E '^\\S+ \\[' "
+ ],
+ "valid": true,
+ "exit": 0
+}

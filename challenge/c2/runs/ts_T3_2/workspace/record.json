@@ -1,0 +1,41 @@
+{
+ "arm": "ts",
+ "task": "T3",
+ "seed": 2,
+ "model": "claude-opus-5-5",
+ "max_turns": 40,
+ "workspace": "/private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_r278qx8a",
+ "tool_hash": "b808c9dd0c367b190b612ed0ea0cf11aba35f44e7b5c5000ad491c557d4d4841",
+ "git_rev": "b43783a24b54adbf091d8b319c6cb05dbd79ea1e",
+ "kern_dirty": true,
+ "max_budget_usd": 4.0,
+ "tools": [
+  "Read(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_r278qx8a/**)",
+  "Edit(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_r278qx8a/**)",
+  "Write(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_r278qx8a/**)",
+  "Bash(node --test:*)"
+ ],
+ "prompt_sha256": "0278d1858a2c933e79fe3490c1c8cd101643540938321cd6d4c3ec6e1d7007c5",
+ "tools_used": [
+  "Read",
+  "Bash",
+  "Edit",
+  "Edit",
+  "Bash",
+  "Bash",
+  "Read",
+  "Edit",
+  "Bash"
+ ],
+ "outside_arm": [],
+ "outside_workspace": [
+  "//"
+ ],
+ "chained_bash_executed": [
+  "node --test /private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_r278qx8a/ts/escrow.test.ts 2>&1 | tail -12",
+  "node --test /private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_r278qx8a/ts/escrow.test.ts 2>&1 | grep -E \"^not ok|^# (pass|fail)|\u2716|not ok\" | head; grep -n \"SameAccount\\|same\\|0)\" /private/",
+  "node --test /private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_r278qx8a/ts/escrow.test.ts 2>&1 | grep -E \"^\u2139 (pass|fail)|\u2716\""
+ ],
+ "valid": false,
+ "exit": 0
+}

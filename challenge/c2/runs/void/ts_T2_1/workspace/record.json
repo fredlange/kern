@@ -1,0 +1,36 @@
+{
+ "arm": "ts",
+ "task": "T2",
+ "seed": 1,
+ "model": "claude-opus-5-5",
+ "max_turns": 40,
+ "workspace": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_ohtswjcj",
+ "tool_hash": "b808c9dd0c367b190b612ed0ea0cf11aba35f44e7b5c5000ad491c557d4d4841",
+ "git_rev": "b43783a24b54adbf091d8b319c6cb05dbd79ea1e",
+ "kern_dirty": true,
+ "max_budget_usd": 4.0,
+ "tools": [
+  "Read(/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_ohtswjcj/**)",
+  "Edit(/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_ohtswjcj/**)",
+  "Write(/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_ohtswjcj/**)",
+  "Bash(node --test:*)"
+ ],
+ "prompt_sha256": "7cf59acdf022a09bc621bdca2b3cecb08933d4d6959adc309bdfc6a0e180dcc8",
+ "tools_used": [
+  "Bash",
+  "Bash",
+  "Edit",
+  "Edit",
+  "Edit",
+  "Edit",
+  "Edit"
+ ],
+ "outside_arm": [],
+ "outside_workspace": [
+  "/escrow.test.ts",
+  "/escrow.ts",
+  "chained Bash command"
+ ],
+ "valid": false,
+ "exit": 0
+}

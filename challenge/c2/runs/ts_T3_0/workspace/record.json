@@ -1,0 +1,36 @@
+{
+ "arm": "ts",
+ "task": "T3",
+ "seed": 0,
+ "model": "claude-opus-5-5",
+ "max_turns": 40,
+ "workspace": "/private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_lipzqxrk",
+ "tool_hash": "b808c9dd0c367b190b612ed0ea0cf11aba35f44e7b5c5000ad491c557d4d4841",
+ "git_rev": "b43783a24b54adbf091d8b319c6cb05dbd79ea1e",
+ "kern_dirty": true,
+ "max_budget_usd": 4.0,
+ "tools": [
+  "Read(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_lipzqxrk/**)",
+  "Edit(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_lipzqxrk/**)",
+  "Write(//private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_lipzqxrk/**)",
+  "Bash(node --test:*)"
+ ],
+ "prompt_sha256": "c9823be79b25a41f53dad84c6623fd3666aed236c67c78b1b655ee5c1d8a453b",
+ "tools_used": [
+  "Bash",
+  "Bash",
+  "Edit",
+  "Edit",
+  "Read",
+  "Edit",
+  "Bash"
+ ],
+ "outside_arm": [],
+ "outside_workspace": [],
+ "chained_bash_executed": [
+  "cd /private/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_ts_lipzqxrk/ts && ls && cat escrow.ts && grep -n \"SameAccount\\|move\" escrow.test.ts | head -50",
+  "node --test escrow.test.ts 2>&1 | tail -12"
+ ],
+ "valid": true,
+ "exit": 0
+}

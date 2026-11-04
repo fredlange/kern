@@ -1,0 +1,10 @@
+{"tool": "kern_list", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_x_e1c3ur/escrow_s1.k"}, "response_tokens": 410, "response_chars": 1426}
+{"tool": "kern_callers", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_x_e1c3ur/escrow_s1.k", "name": "move"}, "response_tokens": 54, "response_chars": 142}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_x_e1c3ur/escrow_s1.k", "name": "move", "as": "editor"}, "response_tokens": 398, "response_chars": 1280}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_x_e1c3ur/escrow_s1.k", "name": "capture", "as": "editor"}, "response_tokens": 776, "response_chars": 2634}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_x_e1c3ur/escrow_s1.k", "name": "refund", "as": "editor"}, "response_tokens": 1009, "response_chars": 3544}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_x_e1c3ur/escrow_s1.k", "name": "split", "as": "editor"}, "response_tokens": 440, "response_chars": 1386}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_x_e1c3ur/escrow_s1.k", "name": "tip", "as": "editor"}, "response_tokens": 390, "response_chars": 1307}
+{"tool": "kern_view", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_x_e1c3ur/escrow_s1.k", "name": "purchase", "as": "editor"}, "response_tokens": 835, "response_chars": 3036}
+{"tool": "kern_edit", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_x_e1c3ur/escrow_s1.k", "ops": "[{'op': 'replace', 'name': 'move', 'source': \"move from:Account to:Account amount:Int\\n  need amount >= 0 else BadAmount\\n  need from != to else SameAccount\\n  need amount = 0 or ledger.balance from >\u2026"}, "response_tokens": 129, "response_chars": 414}
+{"tool": "kern_check", "args": {"file": "/var/folders/d_/xsw0mmg170dfydcw1lwbsjtw0000gn/T/c2_kview_x_e1c3ur/escrow_s1.k"}, "response_tokens": 111, "response_chars": 422}
