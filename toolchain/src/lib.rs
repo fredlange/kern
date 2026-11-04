@@ -25,3 +25,4 @@ pub mod prove;
 pub mod oracle;
 pub mod emit_rust;
 pub mod pyjson;
+pub mod host;

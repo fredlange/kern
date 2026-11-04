@@ -171,9 +171,36 @@ fn checked(r: Option<Int>) -> RResult<Int> {
 
 // ---------------------------------------------------------------- the world
 
+/// Where a store-backed world reads what this call hasn't written (the host's SQLite database, inside the call's
+/// transaction). Python's LazyWorld.
+pub trait Store {
+    fn balance(&self, account: &str) -> Option<Int>;
+    fn owner(&self, account: &str) -> Option<String>;
+    /// the sum of all stored balances
+    fn total(&self) -> Int;
+    /// a stored `state` cell (None: never written, which reads as 0)
+    fn cell(&self, state: &str, key: &Key) -> Option<Int>;
+}
+
+/// A shared handle on a Store; copies of a world (the call's snapshot) share it.
+#[derive(Clone)]
+pub struct Backing(pub std::rc::Rc<dyn Store>);
+
+impl std::fmt::Debug for Backing {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("Backing")
+    }
+}
+
+impl PartialEq for Backing {
+    fn eq(&self, other: &Backing) -> bool {
+        std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 /// Balances, owners, the clock, the audit log, declared state and channel outputs. Every read and write the
-/// interpreter makes goes through the methods below, so a store-backed world (the host's lazy SQLite world) can
-/// replace the maps without touching the interpreter.
+/// interpreter makes goes through the methods below. With a `backing`, `bal`, `own` and `maps` hold only what this
+/// call wrote (Python's `dirty`), and everything else is read from the store.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct World {
     pub bal: IndexMap<String, Int>,
@@ -184,11 +211,17 @@ pub struct World {
     pub maps: IndexMap<String, IndexMap<Key, Int>>,
     /// declared channel -> events (`audit` stays in .audit)
     pub out: IndexMap<String, Vec<Value>>,
+    pub backing: Option<Backing>,
 }
 
 impl World {
     pub fn new(bal: IndexMap<String, Int>, own: IndexMap<String, String>, clock: Int) -> World {
         World { bal, own, clock, ..Default::default() }
+    }
+
+    /// A world read from `store` on demand; it starts with nothing written.
+    pub fn lazy(store: std::rc::Rc<dyn Store>) -> World {
+        World { backing: Some(Backing(store)), ..Default::default() }
     }
 
     pub fn from_example(w: &IndexMap<String, (Int, String)>, now: Int, maps: &crate::syntax::Maps) -> World {
@@ -209,29 +242,45 @@ impl World {
         }
     }
 
+    fn stored_balance(&self, a: &str) -> Option<Int> {
+        self.bal.get(a).copied().or_else(|| self.backing.as_ref().and_then(|b| b.0.balance(a)))
+    }
+
     pub fn has_account(&self, a: &Value) -> bool {
-        matches!(a, Value::Str(s) if self.bal.contains_key(s))
+        matches!(a, Value::Str(s) if self.stored_balance(s).is_some())
     }
 
     fn acct(&self, a: &Value) -> RResult<String> {
         match a {
-            Value::Str(s) if self.bal.contains_key(s) => Ok(s.clone()),
+            Value::Str(s) if self.stored_balance(s).is_some() => Ok(s.clone()),
             _ => kern(format!("unknown account {}", a.repr())),
         }
     }
 
     pub fn balance(&self, a: &Value) -> RResult<Int> {
         let a = self.acct(a)?;
-        Ok(self.bal[&a])
+        Ok(self.stored_balance(&a).unwrap())
     }
 
     pub fn owner(&self, a: &Value) -> RResult<String> {
         let a = self.acct(a)?;
-        self.own.get(&a).cloned().ok_or_else(|| RunError::Key(repr_str(&a)))
+        self.own
+            .get(&a)
+            .cloned()
+            .or_else(|| self.backing.as_ref().and_then(|b| b.0.owner(&a)))
+            .ok_or_else(|| RunError::Key(repr_str(&a)))
     }
 
     pub fn total(&self) -> RResult<Int> {
         let mut t: Int = 0;
+        if let Some(b) = &self.backing {
+            // the stored sum, corrected for this call's writes
+            t = b.0.total();
+            for (a, v) in &self.bal {
+                t = checked(t.checked_add(*v - b.0.balance(a).unwrap_or(0)))?;
+            }
+            return Ok(t);
+        }
         for v in self.bal.values() {
             t = checked(t.checked_add(*v))?;
         }
@@ -243,14 +292,30 @@ impl World {
         let a = self.acct(a)?;
         let op = if sign < 0 { "-=" } else { "+=" };
         let Some(n) = n.num() else { return Err(type_err(op, &Value::Int(0), n)) };
-        let cur = self.bal[&a];
+        let cur = self.stored_balance(&a).unwrap();
         let v = checked(if sign < 0 { cur.checked_sub(n) } else { cur.checked_add(n) })?;
         self.bal.insert(a, v);
         Ok(())
     }
 
     pub fn map_get(&self, x: &str, k: &Key) -> Int {
-        self.maps.get(x).and_then(|m| m.get(k)).copied().unwrap_or(0)
+        if let Some(v) = self.maps.get(x).and_then(|m| m.get(k)) {
+            return *v;
+        }
+        self.backing.as_ref().and_then(|b| b.0.cell(x, k)).unwrap_or(0)
+    }
+
+    /// {"Account": keys, "Int": keys} this call wrote (a store-backed world), for the key-scoped invariant check.
+    pub fn written_keys(&self, states: &IndexMap<String, String>) -> IndexMap<String, IndexSet<Key>> {
+        let mut keys: IndexMap<String, IndexSet<Key>> = IndexMap::new();
+        keys.insert("Account".into(), self.bal.keys().map(|a| Key::Str(a.clone())).collect());
+        keys.insert("Int".into(), IndexSet::new());
+        for (x, m) in &self.maps {
+            if let Some(t) = states.get(x) {
+                keys.entry(t.clone()).or_default().extend(m.keys().cloned());
+            }
+        }
+        keys
     }
 
     pub fn map_set(&mut self, x: &str, k: Key, v: Int) {
