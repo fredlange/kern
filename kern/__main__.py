@@ -49,7 +49,11 @@ def main(argv=None):
         return 2
     from .package import store_path
     whyfile = a.whyfile or store_path(a.file, ".why")
-    store = whymod.load(whyfile)
+    try:
+        store = whymod.load(whyfile)
+    except whymod.WhyFileError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     whys = {n: whymod.status(store, d, defs) for n, d in defs.items()}
     orphans = whymod.orphans(store, defs)
 
@@ -77,7 +81,8 @@ def main(argv=None):
             return 2
         w = whys[a.name]
         if w["stale"]:
-            print(f"(stale: written for {w['anchored_to']}, code is now {defs[a.name].hash})")
+            print(f"(stale: anchored to {w['anchored_to']}, the interface is now {w['current']}; "
+                  f"check the entries, then `kern anchor {a.file}`)")
         print("\n".join(w["entries"]) or "(no why entries)")
         return 0
 

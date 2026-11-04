@@ -339,7 +339,7 @@ def handle(msg):
             out = fn(**(params.get("arguments") or {}))
             result = {"content": [{"type": "text", "text": json.dumps(out, indent=1)}], "isError": False}
             _log(params.get("name"), params.get("arguments") or {}, result["content"][0]["text"])
-        except (ToolError, TypeError, OSError, KeyError) as e:
+        except (ToolError, TypeError, OSError, KeyError, whymod.WhyFileError) as e:
             result = {"content": [{"type": "text", "text": f"{type(e).__name__}: {e}"}], "isError": True}
     elif method == "ping":
         result = {}

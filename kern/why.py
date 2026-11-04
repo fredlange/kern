@@ -5,13 +5,21 @@ File format:
     transfer@cd25dc69
       entry text
       another entry
+
+The anchor after `@` is the interface anchor (`anchor_hash`), not the build hash `check` prints; `kern anchor FILE`
+writes it. Any token is accepted as an anchor (a placeholder is simply stale until anchored), but a line at column 0
+that isn't `name@anchor` is an error, so no entry is ever dropped or attached to the wrong definition.
 """
 from __future__ import annotations
 
 import os
 import re
 
-HEAD = re.compile(r"^(\w+)@([0-9a-f]{8})$")
+HEAD = re.compile(r"^(\w+)@(\S+)$")
+
+
+class WhyFileError(ValueError):
+    pass
 
 
 def load(path):
@@ -19,13 +27,17 @@ def load(path):
     if not path or not os.path.exists(path):
         return store
     cur = None
-    for line in open(path):
+    for no, line in enumerate(open(path), 1):
         if not line.strip():
             continue
-        m = HEAD.match(line.strip())
-        if m and not line[0].isspace():
+        if not line[0].isspace():
+            m = HEAD.match(line.strip())
+            if not m:
+                raise WhyFileError(f"{path}:{no}: want `name@anchor` at column 0, got {line.strip()!r}")
             cur = store.setdefault(m.group(1), {"hash": m.group(2), "entries": []})
-        elif cur is not None:
+        elif cur is None:
+            raise WhyFileError(f"{path}:{no}: an entry before any `name@anchor` line")
+        else:
             cur["entries"].append(line.strip())
     return store
 

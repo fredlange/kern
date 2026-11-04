@@ -632,6 +632,36 @@ def test_f6_orphaned_why_entries_are_reported(tmp_path):                # fixed 
     assert "ORPHANED why: 2 entries for `transfer`" in render.terminal(reps, whys, whymod.orphans(store, defs))
 
 
+def test_f6_placeholder_anchor_is_stale_and_anchor_keeps_it(tmp_path):  # kern-44's report, 2026-11-04
+    """A non-hex anchor used to be skipped by the loader, so `anchor` rewrote the file without its entries."""
+    defs = parse_module(V4)
+    path = tmp_path / "x.why"
+    path.write_text("transfer@PLACEHOLDER\n  why one\n  why two\n")
+    store = whymod.load(str(path))
+    assert whymod.status(store, defs["transfer"], defs)["stale"]
+    whymod.anchor(str(path), defs)
+    assert path.read_text() == f"transfer@{whymod.anchor_hash(defs, defs['transfer'])}\n  why one\n  why two\n"
+
+
+def test_f6_malformed_why_file_is_an_error_not_a_silent_drop(tmp_path):
+    for text in ("transfer\n  why\n", "  orphan entry\ntransfer@0123abcd\n  why\n"):
+        path = tmp_path / "x.why"
+        path.write_text(text)
+        with pytest.raises(whymod.WhyFileError):
+            whymod.load(str(path))
+
+
+def test_f6_stale_message_names_the_anchors_not_build_hashes(tmp_path, capsys):
+    from kern.__main__ import main
+    src, why = tmp_path / "m.k", tmp_path / "m.why"
+    src.write_text(V4)
+    defs = parse_module(V4)
+    why.write_text(f"transfer@{defs['transfer'].hash}\n  a reason\n")      # the build hash: the old mistake
+    assert main(["why", str(src), "transfer"]) == 0
+    out = capsys.readouterr().out
+    assert f"anchored to {defs['transfer'].hash}, the interface is now {whymod.anchor_hash(defs, defs['transfer'])}" in out
+
+
 def test_f6_obligation_phrased_why_is_flagged():                        # fixed (step 10)
     store = whymod.load("examples/ledger-tour/ledger_v4.why")
     defs = parse_module(V4)
