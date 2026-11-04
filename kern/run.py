@@ -135,6 +135,7 @@ class Interp:
         self.provider = provider or (lambda name, args: self._provide(name, args))
         self.observations = []                  # (name, args, value) per assumed-handler call
         self.check_loops, self.loop_violations = False, []   # replay of loop counterexamples
+        self.budget = None                      # counterexample replay: max loop/quantifier steps (FZ finding 5)
 
     def _provide(self, name, args):
         if name not in PROVIDERS:
@@ -148,6 +149,7 @@ class Interp:
             return e[1]
         if k == "all":                          # every j in [A, B)
             lo, hi = self.ev(e[2], env, pre, post), self.ev(e[3], env, pre, post)
+            self._spend(hi - lo)
             return all(self.ev(e[4], dict(env, **{e[1]: v}), pre, post) for v in range(lo, hi))
         if k == "bin":
             op = e[1]
@@ -185,7 +187,12 @@ class Interp:
             for n in h.needs:                   # a precondition the caller had to prove: not a refusal
                 if not self.ev(n[1], env, world):
                     raise KernError(f"need of {name} not met: {code(n[1])}")
-            value = self.provider(name, list(args))
+            try:
+                value = self.provider(name, list(args))
+            except KernError:
+                raise
+            except Exception as e:              # e.g. randrange(0): an atomic error, never a crash
+                raise KernError(f"the provider of {name} gave no value for {list(args)}: {type(e).__name__}: {e}")
             env["result"] = value
             for c in h.ensures:
                 if not self.ev(c, env, world):
@@ -231,6 +238,7 @@ class Interp:
                 self.block(s[2] if self.ev(s[1], env, world) else s[3], env, world)
             elif s[0] == "for":                 # bounds evaluated once; the variable is never assigned
                 lo, hi = self.ev(s[2], env, world), self.ev(s[3], env, world)
+                self._spend(hi - lo)
                 for v in range(lo, hi):
                     env[s[1]] = v
                     self._check_loop(s, env, world, v)
@@ -238,6 +246,12 @@ class Interp:
                 self._check_loop(s, env, world, max(lo, hi))
             else:
                 self.ev(s[1], env, world)
+
+    def _spend(self, n):
+        if self.budget is not None and n > 0:
+            self.budget -= n
+            if self.budget < 0:
+                raise KernError("replay too long (step budget exceeded)")
 
     def _check_loop(self, s, env, world, k):
         """With check_loops on: record a loop invariant (or module invariant) false at an iteration head."""

@@ -498,22 +498,25 @@ def test_proof_page_host_section_is_assumed_not_proven():
 
 # --- S7 (docs/ROADMAP_RUN.md): proven checks removed at runtime
 
-def test_proven_invariants_skip_the_runtime_check_and_paranoid_restores_it():
-    h = host()
+def test_runtime_checks_are_on_by_default_and_skip_proven_removes_proven_ones():
+    """Fredrik's decision (2026-11-04): checks on by default; skipping proven ones is opt-in."""
+    assert host().manifest()["transfer"]["runtime_invariant_check"] == "on"
+    assert "on for every definition (the default" in manifest_text(host())
+    h = host(skip_proven=True)
     assert h.manifest()["transfer"]["runtime_invariant_check"] == "removed (proven)"
-    assert Host(ESCROW, ":memory:", sinks=[], paranoid=True).manifest()["transfer"]["runtime_invariant_check"] == "on"
-    b = host(BURN, "A:10@u1", gate=False)                     # unproven: still checked at runtime
+    assert "--skip-proven" in manifest_text(h) and "sampled audit rate" in manifest_text(h)
+    b = host(BURN, "A:10@u1", gate=False, skip_proven=True)   # unproven: still checked at runtime
     assert b.manifest()["burn"]["runtime_invariant_check"] == "on"
     assert "invariant" in b.call("burn", ["A", 50])["error"]
 
 
-def test_paranoid_catches_an_invariant_broken_outside_kern():
-    """A hand-edited database breaks the induction the proof relies on: only --paranoid notices."""
-    for paranoid, want in ((True, "error"), (False, "ok")):
-        h = host(ESCROW, WORLD, paranoid=paranoid)
+def test_the_default_catches_an_invariant_broken_outside_kern_and_skip_proven_does_not():
+    """A database edited outside Kern while the host runs breaks the induction the proof relies on."""
+    for skip, want in ((False, "error"), (True, "ok")):
+        h = host(ESCROW, WORLD, skip_proven=skip)
         h.db.execute("update account set balance = -5 where name='B'")      # outside Kern
         r = h.call("transfer", ["A", "B", 1])                               # B ends at -4
-        assert r["status"] == want, (paranoid, r)
+        assert r["status"] == want, (skip, r)
 
 
 def test_startup_audit_refuses_a_database_broken_outside_kern(tmp_path):
@@ -527,7 +530,29 @@ def test_startup_audit_refuses_a_database_broken_outside_kern(tmp_path):
 
 
 def test_sampled_audit_runs_skipped_checks():
-    h = host(audit_rate=1.0)
+    h = host(skip_proven=True, audit_rate=1.0)
     for _ in range(5):
         h.call("transfer", ["A", "B", 1])
     assert h.audit_report()["sampled"] == 5 and h.audit_report()["violations"] == 0
+
+
+def test_a_provider_with_no_value_fails_the_call_atomically():
+    """FZ finding 2 in the host: secrets.randbelow(0) must be a call error, not a crash."""
+    from kern.syntax import parse_module as _pm
+    from kern.wf import check_module as _cm
+    src = """handler rand.below n:Int -> Int
+  ensure result >= 0 and result < n
+
+state hold Int
+
+pick n:Int
+  ensure hold.get' 0 >= 0
+body
+  hold.set 0 9
+  r = rand.below n
+  hold.set 0 r
+"""
+    h = host(_cm(_pm(src)), "A:1@u1", gate=False)
+    r = h.call("pick", [0])
+    assert r["status"] == "error" and "gave no value" in r["error"]
+    assert h.load().maps.get("hold", {}).get(0, 0) == 0                     # nothing was written

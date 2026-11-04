@@ -17,7 +17,7 @@ prompt. Run `sudo xcodebuild -license accept`, then commit the checkpoints in or
 
 | step | roadmap | result |
 |---|---|---|
-| S1 the ratchet sees refusals | C1/C3 fix | C1 re-run: Kern 24/24 (B10 now *visible as a spec change*, not refuted). `check --against REV` is untested (git) |
+| S1 the ratchet sees refusals | C1/C3 fix | C1 re-run: Kern 24/24 (B10 now *visible as a spec change*, not refuted). `check --against REV` was untested (git); 2026-11-04: tested, one bug fixed (S1 result 5) |
 | S2 quick + cached check | C6 fix, start of roadmap 2 | Results identical. `--quick` meets C6's thresholds; **the full cold check still fails** them (11.8 s per definition, 92.7 s) |
 | S3 MCP server | roadmap 2 | 10 tools, structural edits re-check callers; a real `claude -p` client works |
 | S4 loops | roadmap 1, **proposal** | batch.k clean. Found: a spec can't *state* a frame, there's no sum, and events in loops are flagged. kern-90's 7 wrong programs now carry the right tiers, identical across test orders (one frozen condition "failed as written", see p7) |
@@ -29,6 +29,24 @@ prompt. Run `sudo xcodebuild -license accept`, then commit the checkpoints in or
 - the loop syntax and the handler syntax (both proposals, with token tables);
 - whether to run C2, and its thresholds;
 - the S7 default (skip proven checks, always audit at startup).
+
+**Fredrik's decisions (2026-11-04), all as recommended:**
+1. **Loops:** the spelling is accepted. Loops stay a *proposal* until the soundness fuzzer (FZ, below)
+   has run clean.
+2. **Assumed handlers:** accepted (the coarse ⊙ included). The fuzzer covers them too.
+3. **C2:** run it, with CHALLENGE.md's proposed thresholds frozen as they stand. The run waits until
+   the fuzzer is done, so the tools don't change under it.
+4. **S7 default reversed:** the per-call invariant check is **on** by default; skipping proven
+   checks is opt-in (`--skip-proven`, with `--audit-rate`). `--paranoid` is gone (it is the
+   default). Revisit once the fuzzer has run clean.
+
+**C2, run 2026-11-04** (details in `challenge/c2/PROTOCOL.md`, "C2 results"):
+- **Runs:** 27/27 valid, every one 600/600, no guarantee broken in any arm.
+- **Thresholds:** success, breaks, first-check and iterations pass. **Tokens fail:** K-view
+  used 1.03–1.33× TS, because of the fixed language tax on a small module.
+- **T3 didn't discriminate:** the task text names the trap.
+- **Harness:** 18 first-pass K-full/TS runs were void for harness faults, replaced and
+  documented. One frozen rule (chained Bash) was narrowed; your call.
 
 **kern-90's findings on the whole run** (an independent session of the same model, so not a
 human review):
@@ -47,7 +65,8 @@ human review):
 4. **Independence:** every review tonight was between two sessions of the same model. The new
    surface (loops, handlers, MCP, host policy) hasn't been used by any other agent. C2 would be
    the first real test of S3.
-5. **Process:** git is blocked and nothing is committed; S3 ran before S4/S5, against the agreed
+5. **Process:** git was blocked overnight (2026-11-04: licence accepted; checkpoints 00–08 committed in
+   order, `8f6542c`…`b43783a`); S3 ran before S4/S5, against the agreed
    order; the S4/S5 syntax is a proposal; the S7 default is your call; C2 is ready but not run
    (27 runs, $4 cap each).
 6. **On the record:** every pre-registered failure was reported as such (the C6 full check, p7
@@ -126,6 +145,12 @@ from git (`git show REV:FILE.strength`), not from a file the agent can rewrite.
    baseline doesn't flag needs.
 5. **untested:** git is blocked, so `test_s1_against_a_committed_baseline_ignores_the_file`
    skips and says why. The code path is `__main__.py`, `--against`.
+   - **2026-11-04, once git worked: pass after one fix.** From the repo root, a dropped
+     `need from != to` hidden by a rewritten `.strength` file is flagged against `HEAD`
+     ("SPEC CHANGED SINCE BASELINE", exit 1). From a subdirectory, `--against` failed
+     (exit 2, "no baseline"): it passed `git show` a path relative to the working directory,
+     which git reads from the repo root. The fix is `REV:./path`. The test now runs the real
+     CLI in a scratch repo from both places; it fails without the fix and passes with it.
 
 **Also found while doing S1:** `/usr/bin/python3` is behind the same Xcode licence as git. Edit
 scripts run with it since ~22:00 had printed the licence message and exited without changing
@@ -689,8 +714,194 @@ verification is supposed to buy.
   `!`, `?`, ◐, unknown (e.g. a computed key outside a loop frame) and ⊙ keep the check on.
 - **The default** (skip proven checks, audit at startup) is a deliberate choice, recorded here
   for Fredrik. `--paranoid` turns everything back on.
+  - **2026-11-04, Fredrik: reversed.** Checks are on by default; `--skip-proven` opts in to the skip
+    (and `--audit-rate` samples it). `--paranoid` was removed. Tests renamed to match.
 
 **C2 isolation hole (kern-90's audit of checkpoint 06), closed:** file tools are scoped to the
 workspace, the MCP server is rooted at the workspace, a run is invalid if any tool call names
 an outside path or chains Bash commands (tested on a synthetic transcript), and each run has a
 $4 cap. `HIDDEN.sha256.json` is re-hashed, and PROTOCOL.md updated.
+
+## FZ: soundness fuzzer for loops and assumed handlers (2026-11-04, decided by Fredrik)
+
+**Why:** kern-90's 7 hand-written probes found 4 wrong tiers and 1 order dependence. That's too
+high a defect rate to call loops and handlers sound from one example app each. Loops stay a
+proposal, and the host keeps every runtime check on, until this runs clean.
+
+**What it is:** `kern/fuzz.py`. It generates programs, runs the normal checker
+(`analyse(mutation=False)`), then runs each definition in the interpreter on random small worlds.
+The interpreter is the oracle; it shares no code with the prover's Z3 encoding.
+- **Programs come from two sources:**
+  - random loop programs (bounds, offsets, conditions, writes, invariants and ensures, often
+    wrong) and random assumed-handler programs (random assumed specs, draws used in writes and
+    loop bounds);
+  - every well-formed mutant (`check.mutants`) of the loop and handler templates: batch.k,
+    raffle.k, the probes p1–p7. Each is checked in a module holding only it and its callees.
+- **A contradiction** is interpreter evidence against a claim on the page:
+  - a goal shown ✔ or ⊙ that a run violates: an `ensure`/`keep`/`emit` after an ok run; a
+    module invariant after an ok run from a valid world; `ok otherwise` refused with every need
+    true; a handler precondition not met at a call;
+  - a loop goal: the first iteration head where any loop or module invariant fails. If that is
+    the loop's start, a failing invariant's "holds when the loop starts" goal must not be ✔/⊙.
+    Otherwise its "kept by every iteration" goal must not be (every invariant held one head
+    earlier);
+  - ∅ ("never succeeds") on a definition that a run completes.
+- **Handler providers return random values that satisfy the assumed spec,** so a ⊙ claim is
+  tested under its own assumption.
+
+**Pass conditions (frozen before the code):**
+1. **Soundness:** 0 contradictions at seed 1: 300 random loop programs, 200 random handler
+   programs, and every well-formed template mutant, each with 300 interpreter runs.
+2. **Teeth:** each of three prover faults, chosen now and injected one at a time, gives at least
+   one contradiction at the same seed. Otherwise the fuzzer is too weak and condition 1 means
+   nothing:
+   - (a) loop-goal trust propagation off (the p3 bug: an `ensure` ✔ over a refuted invariant);
+   - (b) the prover treats every assumed-handler value as 0;
+   - (c) the loop exit assumes the invariant at k = HI instead of max(LO, HI).
+3. **Coverage, so it isn't testing nothing:**
+   - ≥ 80% of random programs well-formed;
+   - among loop goals, ✔ and ✗ each ≥ 15%;
+   - ≥ 30% of interpreter runs end ok.
+4. **Determinism:** two runs at seed 1 give an identical summary (tier counts, contradictions).
+5. **Follow-through:** every contradiction found is saved as `tests/probes/fz*.k` with a test.
+   Fixes are pre-registered like any other step. Programs, time and the count of
+   "prover ✗ or ?, interpreter found nothing" (incompleteness, not a failure) are reported.
+
+### FZ finding 1: the checker can hang (found while smoke-testing the fuzzer)
+
+Random loop program `loop#6` (seed 1) never finishes `kern check`: a pre-loop write plus a
+perturbed `when` invariant. The stack (faulthandler after 25 s) is in `find_cex`, prover.py. The
+first solver has a 5 s timeout, but the counterexample searches after it (`nice`, `small`,
+`opt`) have none, and the retry loop's `nice.check()` runs without end. So a
+**refuted** goal can hang the checker. That's a liveness bug, not a soundness one: no tier is
+wrong, the answer never arrives.
+
+**Fix (pre-registered):** every solver in `find_cex` gets the same 5 s timeout, and a
+non-`sat` answer ends that search, keeping the best counterexample so far. A goal whose
+counterexample search times out still shows ✗ if its first model replays, and `?` (unconfirmed)
+otherwise, never ✔.
+**Pass:**
+1. `loop#6` finishes in under 60 s;
+2. the full test suite passes, and the S2 digest `3cb0e5efa3b63fb8` is unchanged;
+3. `tests/probes/fz1.k` holds the program, with a test that it finishes and its tiers.
+
+### FZ finding 2: a provider that can't supply a value crashes the checker
+
+When a handler declares no `need n > 0`, the built-in `rand.below` provider (`randrange(n)`) raises
+`ValueError` for n ≤ 0. `kern check` crashes in its random tests (they catch only `KernError`), and
+in the host the call would crash instead of failing atomically. 4 of the first 30 random handler
+programs hit it.
+
+**Fix (pre-registered):** the interpreter turns any exception from a provider into a
+`KernError` ("the provider of X gave no value for …"): atomic, and reported like a broken spec.
+**Pass:**
+1. none of the 4 programs crashes `analyse`;
+2. a host call that hits it returns `status: error` and leaves the world unchanged (test);
+3. the full suite passes.
+
+**Oracle fix (not a Kern change):** two calls to `rand.below n` give two call-site goals with the
+same text: the first ✗, the second ✔ (the first call already required `n > 0`). The oracle
+blamed both. A contradiction now needs every goal with that text to be claimed. That's weaker,
+but it never blames a correct goal. The 3 remaining smoke-run "contradictions" were all this.
+
+### FZ finding 3: ∅ "never succeeds" on code that succeeds (the frozen run at seed 1)
+
+The first full run (677 programs, 664 well-formed, 224,400 interpreter runs, 112 s) found **no ✔ or
+⊙ contradiction, and no crash**. It found 2,919 contradictions of one kind, in 10 programs:
+`loop#92` and 9 mutants of p3 and p7. Each shows ∅ on a definition the interpreter runs to
+success. In p7 the page says `liar … Never succeeds` and, two lines later, `random tests 500/500
+reached success`.
+- **Cause:** a refuted loop invariant (p7's `invariant 1 = 0`) makes the prover's after-loop
+  state impossible, so every later goal is vacuous. "No input gets past a loop" is true *of the
+  model*, where the invariants are assumed, and false of the code.
+- **Nothing turned green** (the loop goal is ✗ and the page is red). But the page states a
+  falsehood, and the frozen rule counts it.
+- **The same reasoning covers** a ∅ that rests on a callee whose spec is broken ("no input
+  succeeds given the specs of X"). The fuzzer didn't generate that case.
+
+**Fix (pre-registered):** trust propagation treats a vacuous goal like a proven one. If its
+vacuity rests on anything unproven (a loop goal of the definition, a callee that isn't clean, a
+store invariant), it becomes `!`, blocked by those, and keeps its reason as a note. ∅ stays only
+for "no input passes its own needs", or when everything it rests on is proven. The status line
+then follows the remaining goals (✗ for p7).
+**Pass:**
+1. the 10 programs give 0 contradictions;
+2. p7 shows no ∅ and is ✗, through its refuted entry goal;
+3. a definition whose own needs contradict each other still shows ∅ (test);
+4. the full suite passes, with S2 digest `3cb0e5efa3b63fb8`;
+5. the frozen seed-1 run, the three faults and the determinism re-run are all repeated
+   after the fix, and all reported.
+
+### FZ finding 4: a hang that didn't reproduce (fault runs)
+
+Two of the three runs with fault (a) injected hung on one program: a worker at 100% CPU for over
+30 minutes. The third, with a per-program trace on, finished normally. All three ran the same
+code, and fault (a) only changes trust propagation after proving. So the hang depends on state
+left behind by earlier programs: pool workers are reused, and Z3's choices depend on earlier
+solver calls (a known limitation in CLAUDE.md). **The cause isn't confirmed:** no stack was
+captured.
+
+**Changes (pre-registered):**
+- **Each program runs in a fresh process** (`maxtasksperchild=1`). Nothing leaks between
+  programs, a hang becomes reproducible, and condition 4 (determinism) means something.
+- **The last solver without a time limit gets one:** `handler_sat`'s per-value fallback
+  (`report.py`), the same 3 s as its main check.
+- **The trace stays on for the reported runs** (`KERN_FUZZ_TRACE`). Any program still running
+  after 90 s dumps its stack, and that program becomes a probe.
+
+**Pass:** the frozen sequence (seed 1, faults a/b/c, seed 1 again) finishes with no hang. If a
+program does hang, it's reported with its stack, not dropped.
+
+### FZ finding 5: counterexample replay can run forever (the cause of finding 4)
+
+With the trace on, fault run (c) caught it: `batch.k:advance_subs` with the mutant
+`clock.now → 0`, stuck after 90 s. The stack is `find_cex` → `render_cex` → the interpreter's
+loop check (`_check_loop` → a quantified invariant). It's in unfaulted code:
+- when the bounded `nice` search gives no answer, `find_cex` replays the first solver's model,
+  whose parameters are unbounded (e.g. a loop from −9,725 to 283);
+- the replay runs that loop and checks every quantified invariant over the whole range at every
+  head. That's quadratic in a huge range, so in practice it never ends.
+- **Finding 1's fix made it likelier:** `nice` now answers "unknown" more often, so this fallback
+  runs more.
+- It depends on which model Z3 picks, hence the non-reproducible hangs in finding 4.
+
+**Fix (pre-registered):** the interpreter takes an optional step budget, counting loop iterations
+and quantifier evaluations. A replay uses 200,000 steps. Over budget, the counterexample is
+unconfirmed (`?`, "replay too long"), never ✗ and never ✔. Normal runs and the host have no budget.
+**Pass:**
+1. the mutant finishes in under 60 s (a test, built from `fuzz.template_mutants()`);
+2. the full suite passes, with S2 digest unchanged;
+3. the whole frozen sequence finishes with no stack dump in the trace.
+
+### FZ results (seed 1, final code: after findings 1–5)
+
+The frozen sequence finished with no hang and no stack dump in the trace: seed 1, faults a/b/c,
+then seed 1 again. Each run took ~34 s on 14 workers.
+- **Programs:** 677. That's 300 random loop, 200 random handler and 177 template mutants;
+  664 well-formed. Each definition got 300 interpreter runs: 224,400 runs, 139,782 ending ok.
+
+| # | condition | result |
+|---|---|---|
+| 1 | 0 contradictions at seed 1 | **pass:** 0 contradictions, 0 crashes, 0 unmapped evidence |
+| 2 | each injected fault is found | **pass:** (a) trust propagation off: 10,461 contradictions in 79 programs; (b) handler values taken as 0: 12,920 in 89; (c) loop exit at HI: 3,415 in 26 |
+| 3 | coverage: ≥ 80% well-formed; loop goals ✔ and ✗ each ≥ 15%; ≥ 30% ok runs | **fail as written.** Well-formed 487/500 = 97%, and ok runs 62%, both pass. Loop goals: ✔ 53%, but ✗ only **8%** (187/2,356). A further 36% are `!`, mostly goals resting on a refuted one, so wrong programs are common, but direct refutations are under the bar. The teeth results show the fuzzer can still find these bug kinds |
+| 4 | two seed-1 runs, identical summary | **fail as written.** All counts are identical except one program, where one loop goal went ✗ → `!` and one ensure `!` → unknown. Cause: the prover's time limits are wall-clock (5 s), so load decides close cases. Nothing moved to or from ✔ |
+| 5 | contradictions become probes with tests; fixes pre-registered | **pass:** findings 1–5, each with a test (`tests/probes/fz1.k`, `test_fz_*`, `tests/test_fuzz.py`) |
+
+**What it found:** 5 bugs the hand-written probes and tests had missed.
+- 2 hangs (counterexample search without a time limit; replay of a huge loop range);
+- 1 crash (a provider with no value);
+- 1 false wording: ∅ "never succeeds" on code that succeeds, also in the F5 callee case;
+- the non-reproducible hang, which was the second hang's symptom.
+- **None was a wrong ✔ or ⊙.** After the fixes, nothing on any page claimed a guarantee the
+  interpreter could break.
+
+**Recommendations:**
+- **Determinism:** use Z3's resource limit (`rlimit`, counted in solver steps) instead of
+  wall-clock timeouts. The same input then gets the same answer whatever the load. That changes
+  the prover's budget everywhere, so it needs its own step, measured against C6.
+- **Coverage:** add generator templates that refute directly, e.g. an off-by-one bound in the
+  invariant only, not also in the ensure.
+- **Loops' status is Fredrik's call** ("a proposal until the fuzzer has run clean"). The soundness
+  and teeth conditions pass; two conditions about the fuzzer's own quality fail as written.
+  Loops stay a proposal, and the host keeps its runtime checks on, until he says otherwise.

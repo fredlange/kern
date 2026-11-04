@@ -128,6 +128,8 @@ examples/limits.k, .host  host demo: limits fetched from a risk service over `ne
 kern/host.py              host: SQLite state, outbox + channels, net endpoints, replay, `page`
 kern/mcp.py               MCP server (stdio): views, why, check, callers, structural edits that re-check callers
 kern/scorecard.py         `kern score FILE.k`: the per-size scorecard of docs/SCALE.md
+kern/fuzz.py              soundness fuzzer: random loop/handler programs + template mutants, interpreter as oracle, injected faults
+tests/test_fuzz.py        small fuzz run is clean and deterministic; an injected prover fault is found
 docs/REFERENCE.md         the language reference (≤ 2,500 tokens; C2's language tax)
 docs/GUIDE.md             how-to: tools, file formats, Python API, common errors
 tests/test_docs.py        keeps REFERENCE/GUIDE in step with the code (blocks check, CLI/API/handlers documented)
@@ -166,7 +168,8 @@ for token counts).
   body-only), so v7 transfer's 10/10 is a smaller denominator, not more strength
   (docs/FIXES.md). Without the marker, refusal mutants are caught only by examples. If a
   body or callee need contradicts the spec needs outright, the claim shows ∅ "never succeeds"
-  rather than ✗ (both red, different wording).
+  rather than ✗ (both red, different wording). A ∅ that rests on something unproven (a refuted loop
+  invariant, a callee with a broken spec) shows `!` instead, since the code does succeed (FZ finding 3).
 - Time: `clock.now` is one value per top-level call (it ticks after each call, refused
   ones included; a bad call doesn't tick). Specs may read it; it has no after-state.
   There is no operation for distinct instants inside one call (add `clock.tick` if
@@ -183,14 +186,17 @@ for token counts).
 - Mutation tests use 150 random runs per mutant; the `settle` audit mutant needed 500
   to be caught by random tests (the prover now catches it).
 - The obligation lint for `why` is a keyword heuristic.
-- Assumed handlers (`handler rand.below n:Int -> Int` with need/ensure, no body; a proposal, roadmap run S5):
+- Assumed handlers (`handler rand.below n:Int -> Int` with need/ensure, no body; roadmap run S5, accepted by
+  Fredrik 2026-11-04):
   proofs that rely on them are ⊙ (coarse: every proven guarantee of a definition that reaches one).
-  The host provides them, checks the spec on every call and records each value for replay.
+  The host provides them, checks the spec on every call and records each value for replay. A provider
+  with no value for the arguments (e.g. `rand.below 0`) is an atomic error, not a crash.
 - `check --quick` skips mutation testing; `.kern-cache/` reuses results by a conservative key. A full
   cold `check` still misses C6's thresholds (docs/ROADMAP_RUN.md, S2). `kern.mcp` serves views and
   structural edits to agents.
 - Tier ○ (runtime-checked) and record/replay exist only in the host (`kern/host.py`: SQLite,
-  replay, invariants checked at the keys a call wrote). Output channels (`channel console`,
+  replay, invariants checked at the keys a call wrote, after every call by default; `--skip-proven`
+  removes the check for proven definitions, opt-in since Fredrik's decision of 2026-11-04). Output channels (`channel console`,
   `emit console Line x`) are exact per channel, unordered across channels. Network requests are
   `net` events with endpoints in a `.host` file; replies arrive as new calls; no request timeout
   (a lost reply leaves the request pending). Delivery is at-least-once. docs/HOST.md has the scorecard.

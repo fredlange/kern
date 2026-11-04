@@ -56,6 +56,7 @@ def handler_sat(defs, h):
         return "unsatisfiable for " + ", ".join(f"{p} = {m.eval(env[p], model_completion=True)}" for p, _ in h.params)
     for vals in [(v,) * len(h.params) for v in (0, 1, 2, 5, 100)]:
         s = z3.Solver()
+        s.set("timeout", 3000)                         # every solver has a time limit (FZ finding 4)
         s.add(*[env[p] == v for (p, _), v in zip(h.params, vals)], needs, z3.Not(z3.Exists([r], ens)))
         if s.check() == z3.sat:
             return "unsatisfiable"
@@ -177,6 +178,11 @@ def analyse(defs, mutation=True, baseline=None, cache=None):
                 weak = weak_for(g)
                 if g["status"] == "proven" and weak:
                     g["status"], g["blocked_by"] = "conditional", weak
+                    changed = True
+                # vacuous only because something it rests on is unproven (a refuted loop invariant makes
+                # the after-loop state impossible *in the model*; the code still runs): not ∅ (FZ finding 3)
+                elif g["status"] == "vacuous" and weak and not g["reason"].startswith("no input passes its own needs"):
+                    g["status"], g["blocked_by"], g["vacuity"] = "conditional", weak, g.pop("reason")
                     changed = True
                 # refuted only against a broken callee spec, and the real code does not reproduce it
                 elif g["status"] == "unconfirmed" and weak:

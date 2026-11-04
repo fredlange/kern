@@ -84,7 +84,8 @@ def main(argv=None):
         if a.rev:                                 # a committed baseline can't be rewritten by the edit
             import subprocess
             rel = os.path.relpath(basefile)
-            p = subprocess.run(["git", "show", f"{a.rev}:{rel}"], capture_output=True, text=True)
+            p = subprocess.run(["git", "show", f"{a.rev}:./{rel}"],     # ./ = relative to cwd, not the repo root
+                               capture_output=True, text=True)
             if p.returncode:
                 print(f"{a.file}: no baseline {rel} at {a.rev}: {p.stderr.strip()[:200]}", file=sys.stderr)
                 return 2

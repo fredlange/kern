@@ -299,7 +299,7 @@ def _ordered_events(world, defs):
 
 class Host:
     def __init__(self, defs, db=":memory:", clock=None, sinks=None, gate=True, channel_sinks=None,
-                 net=None, reports=None, endpoints=None, providers=None, paranoid=False, audit_rate=0.0):
+                 net=None, reports=None, endpoints=None, providers=None, skip_proven=False, audit_rate=0.0):
         self.defs = defs
         # assumed handlers (observations inside a call): a provider per handler, checked against the
         # assumed spec on every call by the interpreter, and every value recorded for replay
@@ -322,11 +322,12 @@ class Host:
         # Verification licenses running: only clean definitions are served (gate=False serves all).
         self.reports = reports or analyse(defs, mutation=False)
         self.gate = gate
-        # Proven checks removed: a definition whose invariant goals are all ✔ can't break an invariant
-        # (unless the database is edited outside Kern: `paranoid` keeps every runtime check on).
-        self.paranoid = paranoid
+        # Proven checks removed, opt-in only (Fredrik, 2026-11-04): a definition whose invariant goals are
+        # all ✔ can't break an invariant *if the prover, interpreter and host are correct*, and the prover
+        # was once wrong (p3). So the runtime check stays on by default; `skip_proven` removes it.
+        self.skip_proven = skip_proven
         self.invariant_proven = {n: self._invariants_proven(r) for n, r in self.reports.items()}
-        # defence in depth: also check a sampled fraction of the skipped calls (host/interpreter bugs)
+        # with skip_proven, defence in depth: still check a sampled fraction of the skipped calls
         self.audit_rate, self.audit_stats = audit_rate, {"sampled": 0, "violations": 0}
         self._audit_rng = random.Random(0)
         # the induction also has to start right: a database from elsewhere (another process, a
@@ -353,7 +354,7 @@ class Host:
         return bool(goals) and all(g["status"] == "proven" for g in goals)
 
     def runtime_check_skipped(self, name):
-        return not self.paranoid and self.invariant_proven.get(name, False)
+        return self.skip_proven and self.invariant_proven.get(name, False)
 
     # --- the world in SQLite
     def init(self, world_src):
@@ -569,8 +570,8 @@ class Host:
         return out
 
     def audit_report(self):
-        """Startup audit (always), sampled checks of skipped calls, and the paranoid switch."""
-        return dict(self.audit_stats, rate=self.audit_rate, paranoid=self.paranoid, startup_audit="passed")
+        """Startup audit (always), whether proven checks are skipped (opt-in), and sampled checks of skipped calls."""
+        return dict(self.audit_stats, rate=self.audit_rate, skip_proven=self.skip_proven, startup_audit="passed")
 
 
 def _system_below(args):
@@ -605,9 +606,10 @@ def manifest_text(host):
         lines.append(f"  net: {ctor} -> {ep.method} {pattern}  reply {ep.reply}, fail {ep.fail}")
     lines.append("nothing else: the module cannot name any other effect or endpoint.")
     a = host.audit_report()
-    lines.append(f"runtime checks: invariants audited in full at startup ({a['startup_audit']}); per call, skipped "
-                 f"where every invariant goal is proven" + (" (off: --paranoid)" if a["paranoid"] else "") +
-                 f"; sampled audit rate {a['rate']} ({a['sampled']} sampled, {a['violations']} violations)")
+    per_call = (f"per call, skipped where every invariant goal is proven (--skip-proven); sampled audit rate "
+                f"{a['rate']} ({a['sampled']} sampled, {a['violations']} violations)") if a["skip_proven"] else \
+        "per call, on for every definition (the default; --skip-proven removes proven ones)"
+    lines.append(f"runtime checks: invariants audited in full at startup ({a['startup_audit']}); {per_call}")
     lines.append("")
     for n, v in m.items():
         mark = "serve" if v["served"] else "BLOCK"
@@ -740,8 +742,10 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--no-gate", action="store_true", help="also serve definitions that are not proven clean")
     ap.add_argument("--config", help="host config (endpoints); default FILE.host next to the module")
-    ap.add_argument("--paranoid", action="store_true", help="keep every runtime check on, even where proven")
-    ap.add_argument("--audit-rate", type=float, default=0.0, help="also run the skipped checks on this fraction of calls")
+    ap.add_argument("--skip-proven", action="store_true",
+                    help="skip the per-call invariant check where every invariant goal is proven (off by default)")
+    ap.add_argument("--audit-rate", type=float, default=0.0,
+                    help="with --skip-proven: still run the skipped checks on this fraction of calls")
     a = ap.parse_args(argv)
     try:
         defs = check_module(parse_module(open(a.file).read()))
@@ -752,7 +756,7 @@ def main(argv=None):
     cfg = a.config or os.path.splitext(a.file)[0] + ".host"
     try:
         endpoints = load_config(open(cfg).read(), defs) if os.path.exists(cfg) else None
-        host = Host(defs, a.db, gate=not a.no_gate, endpoints=endpoints, paranoid=a.paranoid, audit_rate=a.audit_rate)
+        host = Host(defs, a.db, gate=not a.no_gate, endpoints=endpoints, skip_proven=a.skip_proven, audit_rate=a.audit_rate)
     except ConfigError as e:
         print(f"{a.file}: host refuses to start: {e}", file=sys.stderr)
         return 2

@@ -93,6 +93,9 @@ def _loop_offset(e, var):
     return None
 
 
+REPLAY_BUDGET = 200_000     # loop iterations + quantifier steps one counterexample replay may take
+
+
 def fresh_int(p):
     return z3.Int(f"{p}{next(_fresh)}")
 
@@ -587,6 +590,7 @@ class Prover:
                 unknown = True
                 continue
             nice = z3.Solver()
+            nice.set("timeout", 5000)              # every search has a time limit (FZ finding 1)
             nice.add(*assumed, z3.Not(g))
             nice.add(pre.now >= 0, pre.now <= 1000)
             for p, t in d.params:
@@ -632,6 +636,7 @@ class Prover:
             # Z3 can't optimise over quantified constraints: try a few other models instead, each
             # differing from the last in its parameters, until one replays
             small = z3.Solver()                    # real bugs nearly always show in a small world
+            small.set("timeout", 5000)
             small.add(*nice.assertions())
             for p, t in d.params:
                 if t == "Int":
@@ -651,6 +656,7 @@ class Prover:
                     return cx2
             return cx
         opt = z3.Optimize()
+        opt.set("timeout", 5000)
         opt.add(*nice.assertions())
         for p, t in d.params:                      # a refusal is likeliest with little money; a broken
             if t == "Account":                     # guarantee with plenty (callee bodies rarely refuse)
@@ -712,6 +718,7 @@ class Prover:
             import random as _r
             return PROVIDERS[name](_r.Random(0), *args)
         interp = Interp(self.defs, provider=provider)
+        interp.budget = REPLAY_BUDGET              # a model may pick a huge loop range: then unconfirmed
         before = w.copy()
         try:
             outcome, after = interp.run(d.name, args, w)
@@ -727,10 +734,13 @@ class Prover:
                              if after.maps.get(x, {}).get(k, 0) != maps.get(x, {}).get(k, 0))
         out_src = "ok" if outcome == ("ok",) else " ".join([outcome[0], *map(str, outcome[1])])
         if kind == "loop":                         # replay with the loop invariants checked at each head
-            interp.check_loops = True
-            outcome, after = interp.run(d.name, args, before.copy())
-            violated = bool(interp.loop_violations) or (outcome == ("ok",) and interp.broken_invariants(after)
-                                                        and not interp.broken_invariants(before))
+            interp.check_loops, interp.budget = True, REPLAY_BUDGET
+            try:
+                outcome, after = interp.run(d.name, args, before.copy())
+                violated = bool(interp.loop_violations) or (outcome == ("ok",) and interp.broken_invariants(after)
+                                                            and not interp.broken_invariants(before))
+            except KernError:                      # too long to replay: not confirmed (FZ finding 5)
+                violated = False
         elif kind == "ok":                         # it must refuse although the spec needs hold
             violated = interp.unstated_refusal(d, args, before, outcome)
         elif kind == "invariant":                  # it held before (at these keys) and not after

@@ -51,12 +51,15 @@ def test_every_language_form_is_documented(form):
 
 def _cli(path):
     src = open(path).read()
-    cmds = re.search(r'add_argument\("cmd", choices=\[([^\]]*)\]', src).group(1)
-    return re.findall(r'"(\w+)"', cmds), re.findall(r'add_argument\("(--[\w-]+)"', src)
+    m = re.search(r'add_argument\("cmd", choices=\[([^\]]*)\]', src)
+    cmds = re.findall(r'"(\w+)"', m.group(1)) if m else []
+    opts = [o for o, rest in re.findall(r'add_argument\("(--[\w-]+)"(.*)', src) if "SUPPRESS" not in rest]
+    return cmds, opts
 
 
 @pytest.mark.parametrize("path,section", [("kern/__main__.py", "## `python -m kern` commands"),
-                                          ("kern/host.py", "## `python -m kern.host` commands")])
+                                          ("kern/host.py", "## `python -m kern.host` commands"),
+                                          ("kern/fuzz.py", "## `python -m kern.fuzz`")])
 def test_every_cli_command_and_option_is_documented(path, section):
     part = GUIDE.split(section, 1)[1].split("\n## ", 1)[0]
     cmds, opts = _cli(path)

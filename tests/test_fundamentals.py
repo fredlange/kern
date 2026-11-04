@@ -504,7 +504,10 @@ body
   liar a
 """)
     g = reps["user"]["guarantees"][0]
-    assert g["status"] == "vacuous" and "specs of liar" in g["reason"]
+    # 2026-11-04 (FZ finding 3): was ∅ "never succeeds", which is false (user runs fine; liar's body
+    # credits 1). Vacuity resting on a broken callee is now `!`, blocked by it, with the reason kept
+    assert g["status"] == "conditional" and "specs of liar" in g["vacuity"]
+    assert g["blocked_by"] == ["liar"]
     assert statuses(reps["liar"]) == ["proven", "refuted"]           # the callee is where the bug is
 
 
@@ -1333,12 +1336,37 @@ def test_s1_old_format_baseline_does_not_flag_every_need(tmp_path):
 
 def test_s1_against_a_committed_baseline_ignores_the_file(tmp_path):
     """`check --against REV` reads the baseline from git, so rewriting FILE.strength changes nothing.
-    Needs a working git; skipped (and said so) while git is blocked."""
+    Run from the repo root and from a subdirectory (the first version failed there). Skipped without git."""
     import shutil
     import subprocess
     if shutil.which("git") is None or subprocess.run(["git", "--version"], capture_output=True).returncode:
-        pytest.skip("git is not usable here (e.g. the Xcode licence prompt); --against is untested")
-    pytest.skip("covered by the manual check in docs/ROADMAP_RUN.md once git works")
+        pytest.skip("git is not usable here (e.g. the Xcode licence prompt)")
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, PYTHONPATH=root)
+
+    def git(*args):
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *args], cwd=tmp_path, check=True,
+                       capture_output=True)
+
+    def kern(*args, cwd=tmp_path):
+        return subprocess.run([_sys.executable, "-m", "kern", *args], cwd=cwd, env=env, capture_output=True, text=True)
+
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "m.k").write_text(ESCROW1)
+    git("init", "-q")
+    assert kern("baseline", "sub/m.k").returncode == 0
+    git("add", "sub")
+    git("commit", "-qm", "base")
+    weak = ESCROW1.replace("  need from != to else SameAccount\n", "", 1)
+    assert weak != ESCROW1
+    (tmp_path / "sub" / "m.k").write_text(weak)
+    assert kern("baseline", "sub/m.k").returncode == 0                 # the edit rewrites the baseline file
+    flag = "need from != to else SameAccount"
+    assert flag not in kern("check", "sub/m.k", "--quick").stdout     # the rewritten file hides it
+    for cwd, path in ((tmp_path, "sub/m.k"), (tmp_path / "sub", "m.k")):   # from the root and a subdirectory
+        p = kern("check", path, "--quick", "--against", "HEAD", cwd=cwd)
+        assert p.returncode == 1 and "SPEC CHANGED SINCE BASELINE" in p.stdout and flag in p.stdout, p.stderr
 
 
 # =====================================================================================
@@ -1525,11 +1553,21 @@ def test_probe_p3_ensure_is_never_shown_proven_over_a_refuted_loop_invariant():
     assert e["status"] == "conditional" and any("loop invariant" in b for b in e["blocked_by"])
 
 
+def test_fz_vacuity_from_a_refuted_loop_invariant_is_not_never_succeeds():
+    """FZ finding 3: p7 said `Never succeeds` while its random tests succeeded 500/500."""
+    r = _probe("p7")
+    assert not any(g["status"] == "vacuous" for g in r["guarantees"])
+    assert render._status(r)[0] == "fail" and render._status(r)[1] != "Never succeeds"
+    e = [g for g in r["guarantees"] if g["kind"] == "ensure"][0]
+    assert e["status"] == "conditional" and any("1 = 0" in b for b in e["blocked_by"]) and "loop" in e["vacuity"]
+
+
 def test_probe_p7_kept_goals_rest_on_the_refuted_invariant_and_vacuity_names_the_loop():
     r = _probe("p7")
     kept = [g for g in r["guarantees"] if "(kept by every iteration)" in g["clause"]]
     assert kept and all(g["status"] != "proven" for g in kept)
-    assert all("loop" in g["reason"] for g in r["guarantees"] if g["status"] == "vacuous")
+    assert all("loop" in g.get("reason", g.get("vacuity", "loop")) for g in r["guarantees"]
+               if g["status"] == "vacuous" or "vacuity" in g)
 
 
 # =====================================================================================
@@ -1578,6 +1616,39 @@ def test_s5_a_provider_that_breaks_the_assumed_spec_is_a_fault():
     with pytest.raises(KernError, match="broke its assumed spec"):
         Interp(defs, provider=lambda n, a: 7).run("draw_winner", ["P", "A", "B", "C", 30], w)
     assert w.bal["P"] == 100                                             # atomic
+
+
+NO_NEED = """handler rand.below n:Int -> Int
+  ensure result >= 0 and result < n
+
+state hold Int
+
+pick n:Int
+  ensure hold.get' 0 >= 0
+body
+  r = rand.below n
+  hold.set 0 r
+"""
+
+
+def test_fz_a_provider_with_no_value_is_an_atomic_error_not_a_crash():
+    """FZ finding 2: no `need n > 0`, so rand.below 0 reaches randrange(0). Check must not crash,
+    and the call fails atomically with a KernError."""
+    defs, reps = analysed(NO_NEED)                                       # used to raise ValueError
+    w = World({"A": 1}, {"A": "u"}, maps={"hold": {0: 4}})
+    with pytest.raises(KernError, match="gave no value"):
+        Interp(defs).run("pick", [0], w)
+    assert w.maps["hold"] == {0: 4}
+
+
+def test_fz_counterexample_search_has_a_time_limit():
+    """FZ finding 1: tests/probes/fz1.k hung in find_cex (no solver timeout after the first)."""
+    import time
+    t = time.time()
+    defs, reps = analysed(open("tests/probes/fz1.k").read())
+    assert time.time() - t < 60
+    assert any(g["status"] == "refuted" for g in reps["f"]["guarantees"])
+    assert not any(g["status"] in ("proven", "assumed") for g in reps["f"]["guarantees"] if g["kind"] == "ensure")
 
 
 def test_s5_handler_need_is_a_call_site_precondition_not_a_refusal():
