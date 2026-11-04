@@ -14,6 +14,10 @@ Run everything from the repository root.
 | `difftest.py` | the compiled Rust program against `kern/run.py`: every `eg` line, plus random worlds and calls | `.venv/bin/python validation/difftest.py [--per-def N] [MODULE.k ...]` |
 | `fuzzdiff.py` | the same comparison on every program `fuzz.py` generates | `.venv/bin/python validation/fuzzdiff.py` |
 | `sensitivity.py` | that `difftest.py` notices a wrong runtime: plants known bugs in `runtime/` and the emitter, one at a time, and restores them | `.venv/bin/python validation/sensitivity.py` |
+| `oracle_syntax.py` | Rust port, parser: the AST, `code`, hashes and parse errors for every source, as JSON that `toolchain/tests/syntax_oracle.rs` checks | `.venv/bin/python validation/oracle_syntax.py build/oracle_syntax.json` |
+| `oracle_run.py` | Rust port, interpreter: outcomes, worlds and invariant checks for every `eg` and random calls, checked by `toolchain/tests/run_oracle.rs` | `.venv/bin/python validation/oracle_run.py build/oracle_run.json` |
+| `oracle_analyse.py` | Rust port, everything after parsing: inferred interfaces, guarantees, examples, property tests, mutation, views, `check` output; one module per fresh process; witnesses compared by replay | `.venv/bin/python validation/oracle_analyse.py diff --rust BIN` (`--rust self` checks the harness itself) |
+| `pyrandom_vectors.py` | Rust port: CPython 3.9.6's `random.Random` call sequences for `toolchain/tests/pyrandom_parity.rs` | `.venv/bin/python validation/pyrandom_vectors.py` |
 
 A digest that changes after a prover change is a finding: compare `--dump` outputs before and
 after to see which results moved.
