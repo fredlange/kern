@@ -14,3 +14,4 @@ pub mod run;
 pub mod infer;
 pub mod wf;
 pub mod why;
+pub mod report;
