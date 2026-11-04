@@ -106,7 +106,7 @@ def test_outside_a_package_a_file_loads_what_it_imports(tmp_path):
 def test_a_single_file_without_imports_is_loaded_exactly_as_before():
     from kern.syntax import parse_module
     from kern.wf import check_module
-    path = os.path.join(ROOT, "examples/escrow_s1.k")
+    path = os.path.join(ROOT, "examples/escrow/escrow_s1.k")
     a, b = package.load(path), check_module(parse_module(open(path).read()))
     assert [d.hash for d in a.values()] == [d.hash for d in b.values()] and not hasattr(a, "package")
 

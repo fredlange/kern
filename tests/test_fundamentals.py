@@ -26,9 +26,9 @@ from kern.run import Interp, KernError, World
 from kern.syntax import ParseError, code, parse_example, parse_expr, parse_module
 from kern.wf import WellFormedError, check_module
 
-V3 = open("examples/ledger_v3.k").read()
-V4 = open("examples/ledger_v4.k").read()
-LARGE = open("examples/ledger_large.k").read()
+V3 = open("examples/ledger-tour/ledger_v3.k").read()
+V4 = open("examples/ledger-tour/ledger_v4.k").read()
+LARGE = open("examples/ledger-large/ledger_large.k").read()
 NO_WHY = {"count": 0, "stale": False, "entries": []}
 
 
@@ -273,9 +273,9 @@ def test_f3_removed_guarantees_are_surfaced(tmp_path):                   # fixed
 
 # ---- F3, continued: `ok otherwise` lets a spec say *when* a call succeeds -----------
 
-V5 = open("examples/ledger_v5.k").read()
-V6 = open("examples/ledger_v6.k").read()
-V7 = open("examples/ledger_v7.k").read()
+V5 = open("examples/ledger-tour/ledger_v5.k").read()
+V6 = open("examples/ledger-tour/ledger_v6.k").read()
+V7 = open("examples/ledger-tour/ledger_v7.k").read()
 
 
 def _ok(rep):
@@ -586,7 +586,7 @@ def test_f5_spec_strength_drops_when_guarantees_are_deleted():          # fixed 
 # =====================================================================================
 
 def test_f6_body_change_marks_why_stale():
-    store = whymod.load("examples/ledger_v4.why")
+    store = whymod.load("examples/ledger-tour/ledger_v4.why")
     fresh = parse_module(V4)
     assert not whymod.status(store, fresh["transfer"], fresh)["stale"]
     defs = parse_module(V4.replace("  ledger.credit to amount\n  audit", "  ledger.credit to amount\n"
@@ -596,7 +596,7 @@ def test_f6_body_change_marks_why_stale():
 
 def test_f6_eg_only_change_does_not_mark_why_stale():
     """Decision: examples are evidence, not semantics, so why stays fresh."""
-    store = whymod.load("examples/ledger_v4.why")
+    store = whymod.load("examples/ledger-tour/ledger_v4.why")
     defs = parse_module(V4.replace("transfer A B 100 -> ok | A:400 B:100", "transfer A B 7 -> ok | A:493 B:7"))
     assert not whymod.status(store, defs["transfer"], defs)["stale"]
 
@@ -612,19 +612,19 @@ def test_f6_hash_distinguishes_definitions_with_different_examples():   # fixed 
 def test_f6_callee_interface_change_marks_caller_why_stale():           # fixed (step 10)
     """payout's text is identical in v1 and v2 (same `hash`), but its inferred interface gains
     SameAccount and `from != to`; why entries anchor to the interface too."""
-    v1, v2 = parse_module(open("examples/ledger_v1.k").read()), parse_module(open("examples/ledger_v2.k").read())
+    v1, v2 = parse_module(open("examples/ledger-tour/ledger_v1.k").read()), parse_module(open("examples/ledger-tour/ledger_v2.k").read())
     assert v1["payout"].hash == v2["payout"].hash
     assert whymod.anchor_hash(v1, v1["payout"]) != whymod.anchor_hash(v2, v2["payout"])
-    store = whymod.load("examples/ledger.why")                        # anchored to v3 (= v2 for payout)
+    store = whymod.load("examples/ledger-tour/ledger.why")                        # anchored to v3 (= v2 for payout)
     assert whymod.status(store, v1["payout"], v1)["stale"] and not whymod.status(store, v2["payout"], v2)["stale"]
 
 
 def test_f6_orphaned_why_entries_are_reported(tmp_path):                # fixed (step 10)
-    store = whymod.load("examples/ledger_v4.why")
+    store = whymod.load("examples/ledger-tour/ledger_v4.why")
     defs = parse_module(V4.replace("transfer", "move"))
     assert list(whymod.orphans(store, defs)) == ["transfer"]
     path = tmp_path / "x.why"
-    path.write_text(open("examples/ledger_v4.why").read())
+    path.write_text(open("examples/ledger-tour/ledger_v4.why").read())
     left = whymod.anchor(str(path), defs)
     assert list(left) == ["transfer"] and "transfer@" in path.read_text()      # kept, and reported
     reps = analyse(defs, mutation=False)
@@ -633,7 +633,7 @@ def test_f6_orphaned_why_entries_are_reported(tmp_path):                # fixed 
 
 
 def test_f6_obligation_phrased_why_is_flagged():                        # fixed (step 10)
-    store = whymod.load("examples/ledger_v4.why")
+    store = whymod.load("examples/ledger-tour/ledger_v4.why")
     defs = parse_module(V4)
     st = whymod.status(store, defs["transfer"], defs)
     assert st["obligations"] == [e for e in st["entries"] if "must" in e] != []
@@ -687,7 +687,7 @@ def test_f7_effects_are_replayable():
 # =====================================================================================
 
 def test_f8_counterexample_is_a_valid_eg_line_that_replays():
-    defs, reps = analysed(open("examples/ledger_v1.k").read())
+    defs, reps = analysed(open("examples/ledger-tour/ledger_v1.k").read())
     cx = [g for g in reps["transfer"]["guarantees"] if g["status"] == "refuted"][0]["counterexample"]
     ex = parse_example(cx["eg"][3:], None)
     assert cx["confirmed_by_interpreter"] and check.run_examples(defs, dataclasses.replace(
@@ -776,7 +776,7 @@ def test_incidental_boolean_clauses_print_and_reparse(src):
 
 def test_incidental_why_for_unknown_name_is_a_clean_error(capsys):      # fixed (step 10)
     from kern.__main__ import main
-    assert main(["why", "examples/ledger_v4.k", "nosuch", "--why", "examples/ledger_v4.why"]) == 2
+    assert main(["why", "examples/ledger-tour/ledger_v4.k", "nosuch", "--why", "examples/ledger-tour/ledger_v4.why"]) == 2
     assert "no definition named `nosuch`" in capsys.readouterr().err
 
 
@@ -861,7 +861,7 @@ body
 # Scale, size 1: branches (`if`/`else`), `ensure … when`, `emit … when` (docs/research/SCALE.md)
 # =====================================================================================
 
-ESCROW1 = open("examples/escrow_s1.k").read()
+ESCROW1 = open("examples/escrow/escrow_s1.k").read()
 LEAF = """
 transfer from:Account to:Account amount:Int
   need amount > 0 else BadAmount
@@ -1041,7 +1041,7 @@ body
 # Scale, size 2: declared state, invariants, `*` `/`, `need as` / `emit as` (docs/research/SCALE.md)
 # =====================================================================================
 
-ESCROW2 = open("examples/escrow_s2.k").read()
+ESCROW2 = open("examples/escrow/escrow_s2.k").read()
 STATE_HEAD = "state hold Int\nstate frozen Account\ninvariant a:Account ledger.balance a >= 0\n\n"
 
 
@@ -1131,7 +1131,7 @@ body
 
 def test_s2_need_as_expands_to_the_callees_spec_needs():
     defs = parse_module(ESCROW2)
-    restated = parse_module(open("examples/escrow_s1.k").read())
+    restated = parse_module(open("examples/escrow/escrow_s1.k").read())
     assert defs["reserve"].needs == restated["reserve"].needs                      # same conditions
     defs2, reps = analysed(ESCROW2)
     # the author's source keeps the reference; a reader's spec view gets the conditions themselves,
@@ -1181,7 +1181,7 @@ def test_s2_specs_may_read_state_but_not_write_it():
 # Scale, size 3: pure functions (-> Int) usable in specs, `distinct` (docs/research/SCALE.md)
 # =====================================================================================
 
-ESCROW3 = open("examples/escrow_s3.k").read()
+ESCROW3 = open("examples/escrow/escrow_s3.k").read()
 FN = """
 fee_for amount:Int -> Int
   ensure result = 0 when amount < 100
@@ -1433,7 +1433,7 @@ def test_s2_quick_never_shows_an_unmeasured_strength(tmp_path):
 # Roadmap run S4: bounded loops with invariants (docs/research/ROADMAP_RUN.md)
 # =====================================================================================
 
-BATCH = open("examples/batch.k").read()
+BATCH = open("examples/batch/batch.k").read()
 
 
 def _non_proven(reps, name):
@@ -1574,7 +1574,7 @@ def test_probe_p7_kept_goals_rest_on_the_refuted_invariant_and_vacuity_names_the
 # Roadmap run S5: handlers declared in Kern with assumed specs (docs/research/ROADMAP_RUN.md)
 # =====================================================================================
 
-RAFFLE = open("examples/raffle.k").read()
+RAFFLE = open("examples/raffle/raffle.k").read()
 
 
 def test_s5_raffle_is_clean_and_assumed_guarantees_are_marked():

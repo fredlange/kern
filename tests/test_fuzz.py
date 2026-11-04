@@ -70,7 +70,7 @@ def test_the_mutant_that_hung_replay_finishes():
 
     from kern.report import analyse
     (mod,) = [m for lbl, m in fuzz.template_mutants()
-              if lbl.startswith("examples/batch.k:advance_subs: `clock.now` → `0`")]
+              if lbl.startswith("examples/batch/batch.k:advance_subs: `clock.now` → `0`")]
     t = time.time()
     analyse(mod, mutation=False)
     assert time.time() - t < 60

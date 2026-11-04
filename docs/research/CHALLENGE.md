@@ -17,7 +17,7 @@ before it runs**.
 3. **Fresh agents are fresh.** Use headless `claude -p` runs or `general-purpose`
    subagents, **never `fork`**: a fork inherits the design conversation. Each run gets an
    isolated copy of the repo with design history removed (`docs/`, `CLAUDE.md`, `.why`,
-   `examples/proof-pages/`). Only the material its arm allows is kept. Record the model, prompt and seed
+   `out/`, now the examples' `proof-pages/`). Only the material its arm allows is kept. Record the model, prompt and seed
    for every run.
 4. **Report failures** with the same prominence as passes, with numbers. A failed
    challenge is a result, not a reason to retune.

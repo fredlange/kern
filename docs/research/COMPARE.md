@@ -1,6 +1,6 @@
 # Kern vs TypeScript vs Go: one program, same behaviour
 
-`examples/escrow_s1.k` (10 definitions, call depth up to 4) translated by hand into
+`examples/escrow/escrow_s1.k` (10 definitions, call depth up to 4) translated by hand into
 idiomatic TypeScript and Go, with tests for the same 20 examples. Code and scripts: `experiments/compare/`.
 
 ```

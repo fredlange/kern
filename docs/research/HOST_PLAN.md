@@ -96,7 +96,7 @@ Commit after each step, with its scorecard items measured.
 - Resource-labelled effects come from the config: the manifest says
   `net: GET http://127.0.0.1:PORT/limit/*`.
 
-### H4: demo module `examples/limits.k` (item 5)
+### H4: demo module `examples/limits/limits.k` (item 5)
 
 - An external risk service sets each account's withdrawal limit:
   `request_limit a` sets `pending.get a = 1` and does `emit net Fetch a`.

@@ -88,7 +88,7 @@ shop/
 - **The prover, interpreter and host** see one merged module, so specs, proofs and trust work
   across files exactly as within one.
 
-Examples: `examples/shop/`, `examples/library/`, `examples/lottery/`.
+Examples: `examples/shop/`, `examples/library/`, `examples/lottery/` (each with a README).
 
 ## `python -m kern` commands
 
@@ -251,7 +251,7 @@ A minimal script:
 from kern.syntax import parse_module
 from kern.wf import check_module
 from kern.report import analyse
-defs = check_module(parse_module(open("examples/escrow_s1.k").read()))
+defs = check_module(parse_module(open("examples/escrow/escrow_s1.k").read()))
 reports = analyse(defs, mutation=False)
 print({n: r["clean"] for n, r in reports.items()})
 ```
@@ -308,7 +308,7 @@ body
 - **There's no sum,** so "the pool gains the sum of the swept holds" can't be stated (only
   conservation between two accounts can).
 - **The frame can't be stated, only inferred,** so a mutant that sweeps one key too many survives
-  in the definition itself (`examples/batch.k`).
+  in the definition itself (`examples/batch/batch.k`).
 
 ## Limits worth knowing
 

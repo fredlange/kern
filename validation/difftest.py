@@ -1,6 +1,6 @@
 """Differential test: a compiled Kern module against the reference interpreter kern/run.py.
 
-    python validation/difftest.py [--per-def N] [--seed S] [MODULE.k ...]   (default: examples/*.k + tests/probes/runtime.k)
+    python validation/difftest.py [--per-def N] [--seed S] [MODULE.k ...]   (default: every example + tests/probes/runtime.k)
 
 Scorecard C1 and C2 of docs/research/RUNTIME_PLAN.md:
   C1  every `eg` line, run in the binary, gives the eg's outcome and after-world;
@@ -219,13 +219,21 @@ def run_module(path, per_def, seed, show_max=5):
             "py_s": round(t_py, 1), "rust_s": round(t_rs, 2)}
 
 
+def example_modules():
+    """Every example: a package directory as one module, otherwise each .k file of the project."""
+    out = []
+    for d in sorted(glob.glob(os.path.join(ROOT, "examples", "*", ""))):
+        out += [d.rstrip(os.sep)] if os.path.exists(os.path.join(d, "kern.pkg")) else sorted(glob.glob(os.path.join(d, "*.k")))
+    return out
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("modules", nargs="*")
     ap.add_argument("--per-def", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=1)
     a = ap.parse_args(argv)
-    mods = a.modules or (sorted(glob.glob(os.path.join(ROOT, "examples", "*.k")))
+    mods = a.modules or (example_modules()
                          + [os.path.join(ROOT, "tests", "probes", "runtime.k")])   # paths the examples never reach
     total = {"calls": 0, "div": 0, "eg_fail": 0, "egs": 0}
     for m in mods:

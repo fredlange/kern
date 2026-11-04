@@ -351,7 +351,7 @@ so readability decided:
   and never ✔ (kern-90). The per-iteration form is optional for S4.
 - **Z3 unknown or timeout** stays `?` (or ◐), never ✔.
 
-**Example app:** `examples/batch.k`:
+**Example app:** `examples/batch/batch.k`:
 - `sweep_expired`: expired holds go to an unclaimed-funds account;
 - `advance_subs`: due subscriptions are rolled forward;
 - `installments`: a fixed instalment, n times.
@@ -360,7 +360,7 @@ A known gap to record: anything needing a *sum* ("the pool gains the sum of the 
 can't be stated, because there's no sum operator; only conservation between two accounts can.
 
 **Pass conditions (frozen before the code):**
-1. `examples/batch.k` is clean (every definition ✔), module invariants included, and every
+1. `examples/batch/batch.k` is clean (every definition ✔), module invariants included, and every
    page claim comes from a template.
 2. **Adversarial tests,** each refuted with a counterexample that replays:
    - an invariant not kept by an iteration;
@@ -408,7 +408,7 @@ New conditions:
 
 ### S4 results
 
-1. **pass:** `examples/batch.k` (5 definitions) is clean: every guarantee ✔, including the
+1. **pass:** `examples/batch/batch.k` (5 definitions) is clean: every guarantee ✔, including the
    module invariants kept across loops and 24 loop-invariant goals.
 2. **pass,** tests `test_s4_*`:
    - an invariant an iteration doesn't keep, and one false on entry, are refuted;
@@ -482,7 +482,7 @@ A column-0 `handler NAME params -> Int` with spec lines and no body.
 - **Host:** every observation is recorded in the call log, and replay feeds the recorded values
   back (F7).
 
-**Example app:** `examples/raffle.k`:
+**Example app:** `examples/raffle/raffle.k`:
 - `draw_winner` pays one of three accounts from `rand.below 3`. Its guarantee "the pot pays
   exactly `amount`" holds only because the assumed spec says the result is below 3.
 - `pick_order` picks an order id in [lo, hi).
@@ -1195,6 +1195,12 @@ From now on, a second digest covers them: `validation/digest.py --loops` over ba
 fz1, fz2 and the three packages (statuses, confirmation and clean flags, no mutation testing).
 Its baseline, recorded after findings 1–7 and P, is **`64051b1d363a6553`**, the same under hash
 seeds 1 and 2. The S2 value stays a frozen reference.
+
+**2026-11-04, re-baselined after the examples became project directories:** the loop digest keys its
+records by path, and `examples/batch.k` and `examples/raffle.k` moved to `examples/batch/batch.k` and
+`examples/raffle/raffle.k`. The new value is **`c0e94aa224aef288`**. With those two paths renamed, the old
+dump and the new one are byte-identical, so no result changed. The S2 digest (`3cb0e5efa3b63fb8`) is
+unchanged.
 
 **Also fixed:** the host looked for `<file>.host` next to the file passed. In a package it now
 reads `<root>/kern.host`. And the result cache is per directory (`.kern-cache` next to the file

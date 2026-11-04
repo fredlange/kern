@@ -12,7 +12,7 @@ import pytest
 
 from kern import mcp
 
-ESCROW = open("examples/escrow_s1.k").read()
+ESCROW = open("examples/escrow/escrow_s1.k").read()
 
 
 @pytest.fixture
@@ -153,9 +153,9 @@ def test_c9_views_show_a_red_callee_as_not_proven(module):
 
 def test_c10_edits_report_stale_and_orphaned_why_entries(tmp_path):
     p = tmp_path / "m.k"
-    p.write_text(open("examples/ledger_v7.k").read())
-    shutil.copy("examples/ledger_v7.why", tmp_path / "m.why")
-    v7 = open("examples/ledger_v7.k").read()
+    p.write_text(open("examples/ledger-tour/ledger_v7.k").read())
+    shutil.copy("examples/ledger-tour/ledger_v7.why", tmp_path / "m.why")
+    v7 = open("examples/ledger-tour/ledger_v7.k").read()
     payout = "payout " + v7.split("\n\npayout ", 1)[1]
     r = mcp.kern_replace(str(p), "payout", payout.replace("  eg A:500@u1", "  eg A:600@u1").replace("-> ok | A:395", "-> ok | A:495"))
     assert r["why_now_stale"] == [] or "payout" not in r["why_now_stale"]   # examples don't stale a why
@@ -203,4 +203,4 @@ def test_root_keeps_the_server_inside_the_workspace(module, monkeypatch):
     monkeypatch.setenv("KERN_MCP_ROOT", os.path.dirname(module))
     assert mcp.kern_list(module)["definitions"]
     with pytest.raises(mcp.ToolError, match="outside this server's root"):
-        mcp.kern_view(os.path.abspath("examples/escrow_s2.k"), "capture")
+        mcp.kern_view(os.path.abspath("examples/escrow/escrow_s2.k"), "capture")

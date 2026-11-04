@@ -29,7 +29,7 @@ from kern.wf import check_module
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("KERN_FUZZ_DATA") or os.path.dirname(HERE)   # templates and probes
 CLAIMED = ("proven", "assumed")
-TEMPLATES = ["examples/batch.k", "examples/raffle.k"] + [f"tests/probes/p{i}.k" for i in range(1, 8)]
+TEMPLATES = ["examples/batch/batch.k", "examples/raffle/raffle.k"] + [f"tests/probes/p{i}.k" for i in range(1, 8)]
 
 # ---------------------------------------------------------------- random loop programs
 

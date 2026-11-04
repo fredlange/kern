@@ -21,7 +21,12 @@ MODULES = ["escrow_s1", "escrow_s2", "escrow_s3", "ledger_v3", "ledger_v4", "led
            "ledger_large"]
 
 
-LOOPS = ["examples/batch.k", "examples/raffle.k"] + [f"tests/probes/p{i}.k" for i in range(1, 8)] + \
+def _project(module):
+    """The example project a module lives in (examples/<project>/<module>.k)."""
+    return "escrow" if module.startswith("escrow") else "ledger-tour" if module.startswith("ledger_v") else "ledger-large"
+
+
+LOOPS = ["examples/batch/batch.k", "examples/raffle/raffle.k"] + [f"tests/probes/p{i}.k" for i in range(1, 8)] + \
     ["tests/probes/fz1.k", "tests/probes/fz2.k", "examples/shop", "examples/library", "examples/lottery"]
 
 
@@ -39,7 +44,7 @@ def digest_loops():
 
 
 def digest():
-    srcs = {f: open(os.path.join(ROOT, "examples", f + ".k")).read() for f in MODULES}
+    srcs = {f: open(os.path.join(ROOT, "examples", _project(f), f + ".k")).read() for f in MODULES}
     srcs["c6_small"] = gen(4, 3, 4, 8)
     out = {}
     for name, src in srcs.items():

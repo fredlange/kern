@@ -81,7 +81,7 @@ the same failure and the witness replays. This is the known in-process Z3 histor
 effect: payout proved alone gives the old witness. Everything else must stay
 byte-identical.
 
-## Size 1: escrow core with branches (`examples/escrow_s1.k`)
+## Size 1: escrow core with branches (`examples/escrow/escrow_s1.k`)
 
 **Program:** 10 definitions.
 - `transfer`: the leaf.
@@ -211,7 +211,7 @@ computed values. Restating grows with depth, so this is the trend to watch.
 - **Scope order if the budget runs short:** state maps, then `*` and `/`, then the
   invariant. A workaround that survives is counted, not hidden.
 
-## Size 2: orders, disputes, limits (`examples/escrow_s2.k`)
+## Size 2: orders, disputes, limits (`examples/escrow/escrow_s2.k`)
 
 **Program:** 26 definitions. Size 1's ten are adapted (the fee is computed, there's
 no `Overdrawn`), plus:
@@ -311,7 +311,7 @@ references brought it to the numbers above.
   small new definitions (freeze, set_limit, reset_day: 1–4 mutants each), not needs
   moved into specs: the restated and referenced versions have the same 271 mutants.
 
-## Size 3: subscriptions, loyalty, chargebacks, holdback, carts (`examples/escrow_s3.k`)
+## Size 3: subscriptions, loyalty, chargebacks, holdback, carts (`examples/escrow/escrow_s3.k`)
 
 **Program:** 55 definitions. Size 2's 26 are adapted: a tiered `fee_for`, `distinct`,
 KYC before withdrawals, and capture_order records what was captured. Plus:

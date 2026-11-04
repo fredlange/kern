@@ -52,7 +52,7 @@ while planning the fix and fixed in step 2.
 ### F1. Optimise for the reader
 **Implemented by:** `kern/views.py` (`iface`, `spec`, `editor`), `kern/views.py` `tokens`.
 
-- **Holds:** for all 7 definitions in `examples/ledger_large.k`, the editor view
+- **Holds:** for all 7 definitions in `examples/ledger-large/ledger_large.k`, the editor view
   contains no line of any callee's body
   (`test_f1_editor_view_never_contains_a_callee_body`).
 - **Gap:** transfer can refuse with `Insufficient` because of
@@ -251,7 +251,7 @@ definitions, then capitalised constructors, otherwise `KernError`).
 
 - **Keywords:** `need ensure keep uses fails eg why else body emit` are 1 token each
   in context (`test_f9_keywords_are_one_token`).
-- **Views on `examples/ledger_large.k`** (7 definitions, 906 tokens, chain depth 4):
+- **Views on `examples/ledger-large/ledger_large.k`** (7 definitions, 906 tokens, chain depth 4):
 
   | Definition | Depth | iface | spec | editor | own + transitive callee source | editor / that | editor / module |
   |---|---|---|---|---|---|---|---|

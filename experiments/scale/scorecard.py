@@ -1,6 +1,6 @@
 """The scale scorecard (docs/research/SCALE.md): the same measurements for every size of the app.
 
-    .venv/bin/python experiments/scale/scorecard.py examples/escrow_s3.k      (from the repo root)
+    .venv/bin/python experiments/scale/scorecard.py examples/escrow/escrow_s3.k      (from the repo root)
 
 Floors (must hold at every size) and trends (compared size to size) are defined in
 docs/research/SCALE.md; this module only measures.

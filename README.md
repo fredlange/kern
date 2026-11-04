@@ -11,14 +11,14 @@ humans get a proof page generated from verifier results. The toolchain is Python
 pip install -U pip               # editable installs need pip >= 21.3
 pip install -e .                 # the toolchain, its one dependency (z3-solver) and a `kern` command
 pip install -e '.[tokens,dev]'   # optional: token counts in `view`, and pytest
-python -m kern check  examples/ledger_v3.k --why examples/ledger.why --html build/proof.html
-python -m kern view   examples/ledger_v3.k payout --as editor --why examples/ledger.why
-python -m kern why    examples/ledger_v3.k transfer --why examples/ledger.why
-python -m kern run    examples/ledger_v3.k "transfer A B 100" --world "A:500@u1 B:0@u1"
-python -m kern baseline examples/ledger_v4.k     # record guarantee strength; check then flags drops
+python -m kern check  examples/ledger-tour/ledger_v3.k --why examples/ledger-tour/ledger.why --html build/proof.html
+python -m kern view   examples/ledger-tour/ledger_v3.k payout --as editor --why examples/ledger-tour/ledger.why
+python -m kern why    examples/ledger-tour/ledger_v3.k transfer --why examples/ledger-tour/ledger.why
+python -m kern run    examples/ledger-tour/ledger_v3.k "transfer A B 100" --world "A:500@u1 B:0@u1"
+python -m kern baseline examples/ledger-tour/ledger_v4.k     # record guarantee strength; check then flags drops
 python -m kern check  examples/shop --quick      # a package: every file, grouped by module
-python -m kern.host repl examples/escrow_s2.k --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"   # run it for real (docs/HOST.md)
-python -m kern.host manifest examples/limits.k   # effects and network endpoints the module can reach
+python -m kern.host repl examples/escrow/escrow_s2.k --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"   # run it for real (docs/HOST.md)
+python -m kern.host manifest examples/limits/limits.k   # effects and network endpoints the module can reach
 python -m kern build examples/shop             # compile to a native binary in build/ (needs cargo)
 ```
 

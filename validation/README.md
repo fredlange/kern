@@ -10,7 +10,7 @@ Run everything from the repository root.
 | Tool | Checks | Run |
 |---|---|---|
 | `fuzz.py` | the prover against the interpreter on random loop and handler programs (below) | `.venv/bin/python -m validation.fuzz` |
-| `digest.py` | one hash over every result on a fixed set of modules, the floor for prover changes: S2 (10 modules, full mutation testing, `3cb0e5efa3b63fb8`) and `--loops` (loops, handlers, packages, `64051b1d363a6553`) | `.venv/bin/python validation/digest.py [--loops] [--dump FILE.json]` |
+| `digest.py` | one hash over every result on a fixed set of modules, the floor for prover changes: S2 (10 modules, full mutation testing, `3cb0e5efa3b63fb8`) and `--loops` (loops, handlers, packages, `c0e94aa224aef288`; it was `64051b1d363a6553` before the examples moved, with identical results) | `.venv/bin/python validation/digest.py [--loops] [--dump FILE.json]` |
 | `difftest.py` | the compiled Rust program against `kern/run.py`: every `eg` line, plus random worlds and calls | `.venv/bin/python validation/difftest.py [--per-def N] [MODULE.k ...]` |
 | `fuzzdiff.py` | the same comparison on every program `fuzz.py` generates | `.venv/bin/python validation/fuzzdiff.py` |
 | `sensitivity.py` | that `difftest.py` notices a wrong runtime: plants known bugs in `runtime/` and the emitter, one at a time, and restores them | `.venv/bin/python validation/sensitivity.py` |

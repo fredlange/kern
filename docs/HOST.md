@@ -16,10 +16,10 @@ rest on: atomicity, a closed world of effects, and determinism. Prototype: `kern
 ## What the host does
 
 ```
-python -m kern.host manifest examples/escrow_s2.k
-python -m kern.host repl     examples/escrow_s2.k --db e.db --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"
-python -m kern.host serve    examples/escrow_s2.k --db e.db --port 8080
-python -m kern.host replay   examples/escrow_s2.k --db e.db
+python -m kern.host manifest examples/escrow/escrow_s2.k
+python -m kern.host repl     examples/escrow/escrow_s2.k --db e.db --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"
+python -m kern.host serve    examples/escrow/escrow_s2.k --db e.db --port 8080
+python -m kern.host replay   examples/escrow/escrow_s2.k --db e.db
 ```
 
 - **Proof-gated:** at startup the host runs the checks (`analyse`, no mutation: 0.83 s for
@@ -80,7 +80,7 @@ python -m kern.host replay   examples/escrow_s2.k --db e.db
 | 2 | Lazy state fixes the scaling | **pass**. `transfer`, 300 calls, 300/300 ok, replay matches. In memory: 0.034 / 0.033 / 0.031 ms per call at 50 / 500 / 5000 accounts (0.9×; before H1 it was 75×). File-backed SQLite: 0.282 / 0.327 / 0.330 ms (1.17×). A timing-free check: the SQL statements per call are the same at 50 and 5000 accounts (`test_a_call_does_not_read_the_whole_world`) |
 | 3 | Channels cost nothing for existing code | **pass** after H2: escrow_s1/s2/s3 are clean (10/10, 26/26, 55/55); spec-view token counts and build hashes of every definition are identical to before H2 (1626 / 4572 / 9198 tokens) |
 | 4 | A channel is cheap in a spec | **pass**: `emit console Line x` costs 6 tokens vs 5 for `emit Line x` (+1). HOST.md's earlier `emit console.Line x` would cost +2 |
-| 5 | A hostile network can't break the invariants | **pass.** 1000 seeded runs of `examples/limits.k`: 25,000 calls, 5,394 replies (dropped, duplicated, delayed, released out of order, failed, or garbled: negative, non-Int, missing). **0** invariant faults, **668/668** duplicate or stale replies refused with `Stale`, and `replay` matches **1000/1000** runs. Plus one run against a real local `HTTPServer` (a 200 sets the limit, a 500 becomes `limit_failed`) |
+| 5 | A hostile network can't break the invariants | **pass.** 1000 seeded runs of `examples/limits/limits.k`: 25,000 calls, 5,394 replies (dropped, duplicated, delayed, released out of order, failed, or garbled: negative, non-Int, missing). **0** invariant faults, **668/668** duplicate or stale replies refused with `Stale`, and `replay` matches **1000/1000** runs. Plus one run against a real local `HTTPServer` (a 200 sets the limit, a 500 becomes `limit_failed`) |
 | 6 | The manifest is the policy | **pass.** `manifest` lists every endpoint (`net: Fetch -> GET http://127.0.0.1:9/limit/*  reply got_limit, fail limit_failed`). The host refuses to start, exit 2, when a request has no endpoint, when there is no config, when an endpoint names a constructor the module never sends, and when a reply or fail definition is missing or has the wrong types |
 | 7 | Network needs no declared handlers | **pass.** `prove.py`: +51 / −27 lines in H2, all channel-keyed `emit` (per-channel event lists, per-channel goals, per-channel opaque callees), and **0 lines** in H3. No handler was declared or modelled for the network |
 | 8 | Crash recovery | **pass.** A real child process flushes 40 committed events through a sink that writes, fsyncs and then sleeps. That puts every kill inside the window between delivering and marking, which is the worst case. Three `kill -9`s mid-flush, then a restart: all 40 delivered, 43 deliveries, **3 duplicates = 1 per kill** |

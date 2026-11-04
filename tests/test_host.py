@@ -15,7 +15,7 @@ from kern.run import Interp, World
 from kern.syntax import parse_module, parse_world, split_maps
 from kern.wf import check_module
 
-ESCROW = check_module(parse_module(open("examples/escrow_s2.k").read()))
+ESCROW = check_module(parse_module(open("examples/escrow/escrow_s2.k").read()))
 WORLD = "A:1000@u1 C:300@u3 E:0@u0 B:0@u2 H:0@u9"
 
 
@@ -182,7 +182,7 @@ def test_genesis_world_must_satisfy_invariants():
 # --- H1 (docs/research/HOST_PLAN.md): lazy world, key-scoped invariant checks
 
 def _statements_per_call(n_accounts):
-    defs = check_module(parse_module(open("examples/escrow_s2.k").read()))
+    defs = check_module(parse_module(open("examples/escrow/escrow_s2.k").read()))
     h = Host(defs, ":memory:", clock=lambda: 1, sinks=[])
     h.init(" ".join(f"A{i}:1000@u1" for i in range(n_accounts)))
     count = []
@@ -295,7 +295,7 @@ def test_channels_must_be_declared_and_are_not_readable(src, err):
 
 def test_audit_only_code_keeps_its_hash():
     """Item 3: channels change nothing for existing code (hash of escrow_s1 transfer, before H2)."""
-    assert parse_module(open("examples/escrow_s1.k").read())["transfer"].hash == "27367a3f"
+    assert parse_module(open("examples/escrow/escrow_s1.k").read())["transfer"].hash == "27367a3f"
 
 
 def test_host_delivers_channels_after_commit_and_replays_them():
@@ -313,11 +313,11 @@ def test_host_delivers_channels_after_commit_and_replays_them():
     assert any("outbox differs" in m or "differs" in m for m in h.replay())
 
 
-# --- H3/H4: requests are events, replies are calls (examples/limits.k, limits.host)
+# --- H3/H4: requests are events, replies are calls (examples/limits/limits.k, limits.host)
 
 from kern.host import ConfigError, HttpNet, SimNet, load_config, manifest_text  # noqa: E402
 
-LIMITS = check_module(parse_module(open("examples/limits.k").read()))
+LIMITS = check_module(parse_module(open("examples/limits/limits.k").read()))
 LIMITS_REPORTS = analyse(LIMITS, mutation=False)
 CONFIG = "Fetch -> GET http://127.0.0.1:{port}/limit/{1}; reply got_limit {1} {2} $.value; fail limit_failed {1} {2}"
 LIMITS_WORLD = "A:500@u1 B:500@u2 C:500@u3 K:0@u9"
@@ -446,7 +446,7 @@ def slow(seq, ev):
     with open(log, "a") as f:
         f.write(f"{seq}\n"); f.flush(); os.fsync(f.fileno())
     time.sleep(0.02)
-defs = check_module(parse_module(open("examples/escrow_s2.k").read()))
+defs = check_module(parse_module(open("examples/escrow/escrow_s2.k").read()))
 Host(defs, db, sinks=[slow]).flush()
 """
 

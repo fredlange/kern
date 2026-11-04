@@ -14,7 +14,7 @@ from kern.wf import check_module
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 T = views.tokens
-src = open("examples/escrow_s1.k").read()
+src = open("examples/escrow/escrow_s1.k").read()
 defs = check_module(parse_module(src))
 reps = analyse(defs, mutation=False)
 ts = open(f"{HERE}/ts/escrow.ts").read()

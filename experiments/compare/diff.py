@@ -13,7 +13,7 @@ from kern.syntax import parse_module
 from kern.wf import check_module
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-defs = check_module(parse_module(open("examples/escrow_s1.k").read()))
+defs = check_module(parse_module(open("examples/escrow/escrow_s1.k").read()))
 interp = Interp(defs)
 rng = random.Random(int(sys.argv[1]) if len(sys.argv) > 1 else 1)
 ACC = ["A", "B", "E", "H"]

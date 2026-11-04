@@ -6,7 +6,7 @@ from kern.host import Host
 from kern.syntax import parse_module
 from kern.wf import check_module
 N = 1_000_000; CALLS = int(sys.argv[1]); M = (1 << 64) - 1
-defs = check_module(parse_module(open(os.path.join(ROOT, "examples", "escrow_s2.k")).read()))
+defs = check_module(parse_module(open(os.path.join(ROOT, "examples", "escrow", "escrow_s2.k")).read()))
 h = Host(defs, ":memory:", clock=iter(range(10**12)).__next__, sinks=[], gate=False)
 r0 = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 h.db.execute("begin")

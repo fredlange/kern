@@ -132,9 +132,10 @@ kern/mcp.py       MCP server (stdio): views, why, check, callers, structural edi
 kern/emit_rust.py `kern build`: Kern (file or package) -> Rust crate in build/<module>, linked with runtime/
 runtime/          kern-rt, the Rust runtime crate (src/lib.rs: world, Tx, rollback; src/driver.rs: the binary's CLI)
 
-examples/         ledger_v1..v7 (+ .why: the demo loop, see README), ledger_large, escrow_s1..s3 (scale
-                  sizes, docs/research/SCALE.md), limits.k/.host (host net demo), batch.k (loops), raffle.k
-                  (assumed handler), shop/ library/ lottery/ (packages), proof-pages/ (generated pages)
+examples/         one standalone project per directory, each with a README and proof-pages/:
+                  ledger-tour/ (ledger_v1..v7 + .why, the demo loop), ledger-large/, escrow/ (escrow_s1..s3, scale
+                  sizes, docs/research/SCALE.md), limits/ (host net demo), batch/ (loops), raffle/ (assumed
+                  handler), shop/ library/ lottery/ (packages)
 
 tests/test_fundamentals.py  adversarial audit tests, one section per fundamental
 tests/test_host.py        host = interpreter (random equivalence), atomicity, at-least-once, replay
@@ -161,7 +162,7 @@ docs/research/            AUDIT, FIXES, SCALE, COMPARE, CHALLENGE, ROADMAP_RUN, 
 AGENTS.md                 working rules for agents, including the docs-update rule
 ```
 
-Run: `python -m kern check examples/ledger_v3.k --why examples/ledger.why --html build/proof.html`.
+Run: `python -m kern check examples/ledger-tour/ledger_v3.k --why examples/ledger-tour/ledger.why --html build/proof.html`.
 Install: `pip install -e .` (`z3-solver` required; extras `tokens` = `tokenizers` and `anthropic==0.34.2`
 for token counts, `dev` = pytest).
 

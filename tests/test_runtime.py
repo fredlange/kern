@@ -19,7 +19,7 @@ MAX = 2**63 - 1
 
 @pytest.fixture(scope="module")
 def escrow():
-    return emit_rust.build(emit_rust.emit(os.path.join(ROOT, "examples", "escrow_s2.k")))
+    return emit_rust.build(emit_rust.emit(os.path.join(ROOT, "examples", "escrow", "escrow_s2.k")))
 
 
 @pytest.fixture(scope="module")
@@ -44,7 +44,7 @@ def test_overflow_after_a_write_rolls_back_and_does_not_tick(escrow):
 
 def test_overflow_is_a_deliberate_divergence_from_run_py():
     """run.py has unbounded ints, so the same call succeeds there (docs/research/RUNTIME_PLAN.md says so)."""
-    defs = check_module(parse_module(open(os.path.join(ROOT, "examples", "escrow_s2.k")).read()))
+    defs = check_module(parse_module(open(os.path.join(ROOT, "examples", "escrow", "escrow_s2.k")).read()))
     w = World({"A": 100, "B": MAX - 5}, {"A": "u1", "B": "u2"}, 7)
     assert Interp(defs).run("transfer", ["A", "B", 10], w)[0] == ("ok",)
     assert w.bal["B"] == MAX + 5
