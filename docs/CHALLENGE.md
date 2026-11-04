@@ -392,5 +392,17 @@ weaker than baseline):
 
 **Addendum, 2026-11-03 (roadmap run S1; thresholds and grader unchanged):**
 - After the ratchet started comparing `need`s, the same grader on the same patches gives
-  Kern **24/24** (B10 caught by the ratchet). TS and Go are still 13/24.
+  Kern **24/24**. TS and Go are still 13/24.
+- **Read that carefully (kern-90).** B10 is now *visible as a spec change*, which a human has
+  to judge; it is not refuted. The ratchet now flags **any** edit to a `need` or body-level
+  refusal, bug or not, so every spec-located bug counts as "caught" by construction under
+  P2's rule. This does not mean Kern finds every bug.
 - `challenge/c1/results_after_S1.json`; `results.json` keeps the original run.
+
+**C6 addendum, 2026-11-03 (roadmap run S2; thresholds unchanged):**
+- Incremental prefix sums in conditional event matching (results identical):
+  - full cold `check`: P1 **11.77 s per definition (still fails)**, P2 **92.7 s (still fails)**;
+  - `check --quick` (no mutation testing): P1 0.36 s per definition, P2 6.8 s.
+- A result cache makes an unchanged re-check 0.14% of cold, and a one-leaf change re-checks
+  only the leaf and its callers.
+- `challenge/c6/results_after_S2.json`.

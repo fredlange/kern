@@ -80,3 +80,10 @@ def test_reference_stays_within_its_token_budget():
     if n is None:
         pytest.skip("no tokenizer")
     assert n <= 2500, f"REFERENCE.md is {n} tokens; the budget is 2,500 (docs/CHALLENGE.md, C2)"
+
+
+def test_every_mcp_tool_is_documented():
+    from kern import mcp
+    part = GUIDE.split("## The MCP server", 1)[1].split("\n## ", 1)[0]
+    for t in mcp.TOOLS:
+        assert f"`{t['name']}`" in part, f"MCP tool {t['name']} is not in GUIDE.md"

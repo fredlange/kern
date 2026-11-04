@@ -81,9 +81,9 @@ def compare(reports, base):
             dropped = [c for c in b["refusals"] if c not in now]
             added = [c for c in now if c not in b["refusals"]]
             if dropped:
-                r["regression"].append("spec changed: refusals removed or changed since the baseline: " + "; ".join(dropped))
+                r["regression"].append("spec changed: refusals removed or changed since the baseline (it may now accept what it refused): " + "; ".join(dropped))
             if added:
-                r["regression"].append("spec changed: new refusals since the baseline: " + "; ".join(added))
+                r["regression"].append("spec changed: new refusals since the baseline (it may now refuse what it accepted): " + "; ".join(added))
         m = r["mutation"]
         if m and b["total"] and m["guarantee_killed"] * b["total"] < b["killed"] * m["total"]:
             r["regression"].append(f"guarantee strength fell from {b['killed']}/{b['total']} "

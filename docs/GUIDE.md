@@ -25,6 +25,9 @@ python3 -m venv .venv
 1. **Write the spec before the body.** Write the `need`s, then `ok otherwise` if callers may
    rely on *when* the call succeeds, then `keep`/`ensure`/`emit`, and one or two `eg` lines.
 2. **Check:** `python -m kern check FILE.k`. Everything must read `All guarantees proven`.
+   While iterating, use `check --quick` (no mutation testing). Definitions whose code, and
+   everything they reach, didn't change come from `.kern-cache/` (shown on stderr). Run a
+   full `check` before you commit, since strength is only measured there.
 3. **Read a ✗ as a test case.** It comes with an `eg` line that was replayed in the
    interpreter, for example:
 
@@ -75,6 +78,8 @@ say so instead.
 | `--as iface\|spec\|editor` | `view`: which view |
 | `--world WORLD` | `run`: the world, in `eg` syntax |
 | `--baseline FILE.strength` | `check`: compare against this baseline (default `FILE.strength`) |
+| `--quick` | `check`: no mutation testing (most of the time); strength reads "not measured" unless the cache has it for exactly this code |
+| `--cache DIR` | `check`: reuse results of definitions whose code (and everything they reach) is unchanged (default `.kern-cache`, `''` = off) |
 | `--against REV` | `check`: take the baseline from git at REV (`git show REV:FILE.strength`), so rewriting the file can't hide a change |
 
 ## `python -m kern.host` commands: run a module for real
@@ -101,6 +106,36 @@ say so instead.
   invariant → 500.
 - **Delivery is at-least-once,** so consumers dedupe on `seq`.
 - **Network replies arrive as new calls.** Details are in docs/HOST.md.
+
+## The MCP server: working through views
+
+`python -m kern.mcp` serves the tools below over stdio (MCP, JSON-RPC 2.0, no dependencies), so
+an agent works through views instead of files. To register it with Claude Code:
+`claude mcp add kern -- .venv/bin/python -m kern.mcp`, or pass the same command with
+`--mcp-config`.
+
+| tool | does |
+|---|---|
+| `kern_list` | the definitions: interface line and status |
+| `kern_view` | `iface`, `spec` or `editor` view of one definition (identical to `kern view`) |
+| `kern_callers` | who reaches a definition, so you know whose guarantees an edit can break |
+| `kern_why` | the rationale entries, with staleness |
+| `kern_check` | a summary (status per definition plus what's broken); `name` gives full detail; `quick` (default) skips mutation testing |
+| `kern_run` | one call in the interpreter |
+| `kern_edit` | several `add` / `replace` / `remove` operations, checked once; if the result is ill-formed, nothing is written |
+| `kern_add`, `kern_replace`, `kern_remove` | one structural edit. `expect_hash` refuses if the definition changed underneath |
+
+What an edit does and reports:
+- **It's checked before anything is written.** If the result is ill-formed, the file stays
+  unchanged; syntax errors count lines from the submitted definition.
+- **Otherwise the file is written,** and the edited definitions and all their callers are
+  re-checked.
+- **The result** has `ok`, `broken` (with the ✗ lines), `rechecked`, and the `why` entries the
+  edit made stale or orphaned.
+- **A red result is still written:** a change across callee and callers is red in between, so
+  fix forward.
+- **`kern_remove` refuses** while anything references the name.
+- **`KERN_MCP_LOG=path`** logs one JSON line per call, with the tokens it returned.
 
 ## Files
 
@@ -137,7 +172,7 @@ Everything is plain Python and the AST is tuples. These are the entry points:
 | `kern.syntax.Def` | a definition: `.params .needs .keeps .ensures .emits .examples .body .complete .hash` |
 | `kern.syntax.ParseError` | a parse error, with line number |
 | `kern.wf.check_module(defs)` | well-formedness and types; raises `WellFormedError` (`.problems`) |
-| `kern.report.analyse(defs, mutation=True, baseline=None)` | everything `check` does: name → report (`guarantees`, `examples`, `props`, `mutation`, `clean`, …) |
+| `kern.report.analyse(defs, mutation=True, baseline=None, cache=None)` | everything `check` does: name → report (`guarantees`, `examples`, `props`, `mutation`, `clean`, …) |
 | `kern.prove.Prover(defs).prove(d)` | the proofs of one definition: `[{kind, clause, status, counterexample?}]`, plus the callees relied on |
 | `kern.run.Interp(defs).run(name, args, world)` | one atomic call → `(outcome, world)` |
 | `kern.run.World` | `bal`, `own`, `clock`, `audit`, `maps`, `out`; `World.from_example(w, now, maps)` |
@@ -189,6 +224,7 @@ print({n: r["clean"] for n, r in reports.items()})
 - **Types:** Int and Account only. No text, records or loops. There's one hard-coded ledger,
   plus declared state.
 - **A refusal after a write can't be inherited.** Restate it as a `need` on the caller.
-- **Exact audit specs grow with the call tree, and each `if` doubles the paths.** `check` is
-  not incremental, and mutation testing is ~95% of its time (docs/CHALLENGE.md, C6).
+- **Exact audit specs grow with the call tree, and each `if` doubles the paths.** Mutation
+  testing is ~95% of a full `check`. Use `--quick` and the cache in the inner loop
+  (docs/ROADMAP_RUN.md, S2).
 - The full list is in CLAUDE.md, "Known limitations".

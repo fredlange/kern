@@ -29,6 +29,8 @@ def main(argv=None):
     ap.add_argument("--world")
     ap.add_argument("--baseline", dest="basefile")
     ap.add_argument("--against", dest="rev", help="check: take the baseline from git at REV, not from the file")
+    ap.add_argument("--quick", action="store_true", help="check: skip mutation testing (spec strength: not measured)")
+    ap.add_argument("--cache", default=".kern-cache", help="check: result cache directory ('' = none)")
     a = ap.parse_args(argv)
     if a.cmd == "score":
         from .scorecard import score, show
@@ -89,7 +91,11 @@ def main(argv=None):
             base = basemod.parse(p.stdout)
         else:
             base = basemod.load(basefile)
-    reports = analyse(defs, mutation=(a.cmd == "check"), baseline=base)
+    reports = analyse(defs, mutation=(a.cmd == "check" and not a.quick), baseline=base,
+                      cache=(a.cache or None) if a.cmd == "check" else None)
+    if a.cmd == "check" and a.cache:
+        n = sum(r["cached"] for r in reports.values())
+        print(f"cache: {n}/{len(reports)} definitions reused ({a.cache})", file=sys.stderr)
     if a.cmd == "view":
         text = {"iface": lambda: views.iface(reports[a.name], whys[a.name]),
                 "spec": lambda: views.spec(reports[a.name], whys[a.name]),

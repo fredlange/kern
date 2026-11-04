@@ -233,9 +233,14 @@ class Prover:
         one = lambda c: z3.If(c, 1, 0)
         want = [(ctor, args, self.sev(c[0], env, pre) if c else z3.BoolVal(True)) for ctor, args, *c in emits]
         got = [(a[1], a[2], a[3] if len(a) > 3 else z3.BoolVal(True)) for a in events]
-        pos_w = [z3.Sum([z3.IntVal(0)] + [one(c) for _, _, c in want[:i]]) for i in range(len(want))]
-        pos_g = [z3.Sum([z3.IntVal(0)] + [one(c) for _, _, c in got[:j]]) for j in range(len(got))]
-        conds = [z3.Sum([z3.IntVal(0)] + [one(c) for *_, c in want]) == z3.Sum([z3.IntVal(0)] + [one(c) for *_, c in got])]
+        def prefix(xs):                  # position of each event among the present ones, built incrementally
+            out, acc = [], z3.IntVal(0)  # (rebuilding every prefix sum was O(n^2) terms; kern-90 profiled it)
+            for *_, c in xs:
+                out.append(acc)
+                acc = acc + one(c)
+            return out, acc
+        (pos_w, n_w), (pos_g, n_g) = prefix(want), prefix(got)
+        conds = [n_w == n_g]
         wanted = [[None if x == WILD else self.sev(x, env, pre) for x in args] for _, args, _ in want]
         for i, (ctor, args, cw) in enumerate(want):
             for j, (gctor, vals, cg) in enumerate(got):

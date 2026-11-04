@@ -126,6 +126,7 @@ examples/escrow_s2.k      scale size 2: declared state, invariants, `need as` / 
 examples/escrow_s3.k      scale size 3: 55 defs, pure functions (-> Int) usable in specs, `distinct`
 examples/limits.k, .host  host demo: limits fetched from a risk service over `net` (docs/HOST.md)
 kern/host.py              host: SQLite state, outbox + channels, net endpoints, replay, `page`
+kern/mcp.py               MCP server (stdio): views, why, check, callers, structural edits that re-check callers
 kern/scorecard.py         `kern score FILE.k`: the per-size scorecard of docs/SCALE.md
 docs/REFERENCE.md         the language reference (≤ 2,500 tokens; C2's language tax)
 docs/GUIDE.md             how-to: tools, file formats, Python API, common errors

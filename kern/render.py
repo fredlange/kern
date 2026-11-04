@@ -286,6 +286,8 @@ def terminal(reports, whys, orphans=None):
         ex = r["examples"]
         out.append(f"  examples {sum(e['pass'] for e in ex)}/{len(ex)}   random tests {r['props']['succeeded']}/"
                    f"{r['props']['runs']} reached success, {len(r['props']['violations'])} violations")
+        if r.get("mutation_note"):
+            out.append(f"  spec strength: {r['mutation_note']}")
         if r["mutation"]:
             m = r["mutation"]
             out.append(f"  spec strength: guarantees {m['guarantee_killed']}/{m['total']} "

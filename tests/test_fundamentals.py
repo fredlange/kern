@@ -1339,3 +1339,63 @@ def test_s1_against_a_committed_baseline_ignores_the_file(tmp_path):
     if shutil.which("git") is None or subprocess.run(["git", "--version"], capture_output=True).returncode:
         pytest.skip("git is not usable here (e.g. the Xcode licence prompt); --against is untested")
     pytest.skip("covered by the manual check in docs/ROADMAP_RUN.md once git works")
+
+
+# =====================================================================================
+# Roadmap run S2: incremental, quick check (docs/ROADMAP_RUN.md)
+# =====================================================================================
+
+import sys as _sys  # noqa: E402
+_sys.path.insert(0, "challenge/c6")
+from gen import gen as _gen  # noqa: E402
+from kern import report as _report  # noqa: E402
+
+
+def _cached(reps):
+    return {n for n, r in reps.items() if r["cached"]}
+
+
+def test_s2_only_the_changed_leaf_and_its_callers_are_rechecked(tmp_path):
+    src = _gen(3, 1, 2, 30)                                    # 10 chains f{c}_1 <- f{c}_2 <- f{c}_3
+    analyse(parse_module(src), mutation=False, cache=tmp_path)
+    changed = src.replace("| f4_1 A B 100 -> ok", "| f4_1 A B 90 -> ok", 1).replace(
+        "A:500@u1 B:0@u2 | f4_1 A B 90 -> ok | A:400 B:100", "A:500@u1 B:0@u2 | f4_1 A B 90 -> ok | A:410 B:90")
+    reps = analyse(parse_module(changed), mutation=False, cache=tmp_path)
+    assert {n for n in reps if n not in _cached(reps)} == {"f4_1", "f4_2", "f4_3"}   # the leaf and its callers
+    assert all(r["clean"] for r in reps.values())
+
+
+def test_s2_a_callee_body_change_is_never_served_from_the_cache(tmp_path):
+    """Callers depend on what is inferred from callee bodies (writes, lifted refusals)."""
+    analyse(parse_module(ESCROW1), mutation=False, cache=tmp_path)
+    src = ESCROW1.replace("  ledger.debit from amount\n  ledger.credit to amount\n",
+                          "  ledger.debit from amount\n  ledger.credit to amount\n  ledger.credit from 0\n", 1)
+    reps = analyse(parse_module(src), mutation=False, cache=tmp_path)
+    assert "transfer" not in _cached(reps) and "move" not in _cached(reps) and "purchase" not in _cached(reps)
+
+
+def test_s2_a_tool_change_invalidates_everything(tmp_path, monkeypatch):
+    analyse(parse_module(ESCROW1), mutation=False, cache=tmp_path)
+    monkeypatch.setattr(_report, "_TOOL", "a different prover")
+    assert not _cached(analyse(parse_module(ESCROW1), mutation=False, cache=tmp_path))
+
+
+def test_s2_a_corrupt_cache_entry_is_recomputed_not_trusted(tmp_path):
+    analyse(parse_module(ESCROW1), mutation=False, cache=tmp_path)
+    for f in tmp_path.rglob("*"):
+        if f.is_file():
+            f.write_bytes(b"not a pickle")
+    reps = analyse(parse_module(ESCROW1), mutation=False, cache=tmp_path)
+    assert not _cached(reps) and all(r["clean"] for r in reps.values())
+
+
+def test_s2_quick_never_shows_an_unmeasured_strength(tmp_path):
+    reps = analyse(parse_module(ESCROW1), mutation=False, cache=tmp_path)
+    out = render.terminal(reps, no_whys(reps))
+    assert "spec strength: not measured (--quick)" in out and "spec strength: guarantees" not in out
+    analyse(parse_module(ESCROW1), mutation=True, cache=tmp_path)           # a full run measures it
+    reps = analyse(parse_module(ESCROW1), mutation=False, cache=tmp_path)   # same code: current, shown
+    assert "spec strength: guarantees 10/10" in render.terminal(reps, no_whys(reps))
+    src = ESCROW1.replace("  eg A:500@u1 B:0@u2 | transfer A B 0 -> BadAmount\n", "")
+    reps = analyse(parse_module(src), mutation=False, cache=tmp_path)       # changed: not shown
+    assert "not measured" in render.terminal(reps, no_whys(reps)).split("\n\n")[0]
