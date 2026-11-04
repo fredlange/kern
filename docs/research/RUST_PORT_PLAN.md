@@ -157,3 +157,41 @@ seed) agrees on 94/94. Building it found two things the comparison has to respec
   differed by corpus position.
 - **An eg line doesn't record assumed-handler draws,** so a witness in a module with handlers
   can't be replayed. There the witness has to be identical, not just replay-equivalent.
+
+**prove.rs (kern-8b, 3fa7471).** Measured on `validation/oracle_prove.py` (94 modules, 242 definitions,
+1,389 guarantees, before trust propagation): every status, claim, reason, relied_on and first-kill run
+matches, with two exceptions.
+- **Witness values in 9 loop/quantifier modules.** The solver input was traced check by check and is
+  byte-identical. Z3 still picks different models, because its choice follows internal term ids, and those
+  depend on when temporaries are freed (Python's refcounting vs Rust's drops). Every Rust witness, replayed
+  with its model's handler draws, gives exactly the outcome and state its eg line states.
+- **fz2 first_kill[2]:** Python says unknown, Rust says unconfirmed. Python's check used exactly the
+  10,000,000-step rlimit, and Python's own full run says unconfirmed. Neither status is a kill. Listed in
+  `BORDERLINE` in `toolchain/tests/prove_oracle.rs` with that evidence.
+
+Two findings on the way:
+- **Python's operator rule changes the terms z3py builds.** When the right operand's type is a subclass
+  of the left's, Python calls the right operand's reflected method first. z3py numerals are `IntNumRef`, a
+  subclass of `ArithRef`, so `x > IntVal(0)` builds `(< 0 x)`. `==`, `!=` and the four comparisons all
+  swap; arithmetic and plain ints don't. zz.rs mirrors this.
+- **The crate's quantifiers differ from z3py's.** z3py uses weight 1 and a null qid/skid; the crate uses
+  weight 0. zz.rs builds them as z3py does.
+
+**analyse (kern-8b, 5ac1300).** `oracle_analyse.py diff --rust` over 94 modules:
+- **Without mutation testing: 94/94 agree.** This covers inferred interfaces, every guarantee, examples,
+  property-test counts and violations, assumptions, handler_sat, the three views and the terminal output.
+  Witnesses in handler modules carry their draws (a Rust-only key) and replay with them.
+- **With mutation testing: 88/94.** In 6 loop modules (batch, library, lottery, a GUIDE block, fuzz_19,
+  fuzz_31), `prover_killed` differs by 1–2, in both directions.
+  - Traced on batch.k's advance_subs. Scored on its own, Python and Rust agree mutant for mutant (14 prover
+    kills each). Inside a whole analyse() run, Rust's accumulated solver history flips one borderline
+    mutant, whose witness doesn't replay. Python's history doesn't (it gives 14 alone and after analyse).
+  - This is the same history-dependence as the witnesses, and it is in both implementations. **R1's
+    proposed "kill counts byte-identical" fails as written.**
+  - Proposed for Fredrik: give each prove() call a fresh Z3 context in Rust. Results then no longer depend
+    on what ran before, which fixes the known long-process limitation, at the price of no longer mirroring
+    Python's history.
+
+**Docker (kern-8b, 34f0838): not verified.** The Dockerfile builds Z3 5.3.3 statically and runs the
+oracle inside a `check` stage. The first build failed fetching base-image metadata from Docker Hub
+(DeadlineExceeded) before any step ran.
