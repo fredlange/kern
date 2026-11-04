@@ -1,4 +1,4 @@
-"""Packages and imports (docs/ROADMAP_RUN.md, P; a proposal). Loading only: the files of a package merge
+"""Packages and imports (docs/research/ROADMAP_RUN.md, P; a proposal). Loading only: the files of a package merge
 into one Module, each definition knowing its file, and `import a.b` controls what a file may use. The
 prover, interpreter and host see one Module, as before.
 

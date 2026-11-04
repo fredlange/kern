@@ -4,27 +4,41 @@ New here? Read [docs/REFERENCE.md](docs/REFERENCE.md) (the language) and
 [docs/GUIDE.md](docs/GUIDE.md) (tools, files, API). Agents: [AGENTS.md](AGENTS.md).
 
 A small language for agent-written code. The agent reads only what it needs, and
-humans get a proof page generated from verifier results. Python, about 1,200 lines,
-with Z3 as the prover.
+humans get a proof page generated from verifier results. The toolchain is Python (about
+5,500 lines) with Z3 as the prover. A Rust runtime (about 800 lines) runs compiled programs.
 
 ```
-pip install z3-solver            # required
-pip install tokenizers anthropic==0.34.2   # optional: token counts in `view`
-python -m kern check  examples/ledger_v3.k --why examples/ledger.why --html out/proof.html
+pip install -e .                 # the toolchain, its one dependency (z3-solver) and a `kern` command
+pip install -e '.[tokens,dev]'   # optional: token counts in `view`, and pytest
+python -m kern check  examples/ledger_v3.k --why examples/ledger.why --html build/proof.html
 python -m kern view   examples/ledger_v3.k payout --as editor --why examples/ledger.why
 python -m kern why    examples/ledger_v3.k transfer --why examples/ledger.why
 python -m kern run    examples/ledger_v3.k "transfer A B 100" --world "A:500@u1 B:0@u1"
 python -m kern baseline examples/ledger_v4.k     # record guarantee strength; check then flags drops
-python -m kern score examples/escrow_s3.k        # the scale scorecard (docs/SCALE.md; sizes s1, s2, s3)
+python -m kern check  examples/shop --quick      # a package: every file, grouped by module
 python -m kern.host repl examples/escrow_s2.k --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"   # run it for real (docs/HOST.md)
 python -m kern.host manifest examples/limits.k   # effects and network endpoints the module can reach
+python -m kern.emit_rust examples/escrow_s2.k --build   # compile to a native binary (needs cargo)
 ```
 
-Tests: `pip install pytest`, then `pytest` from the repo root runs
-`tests/test_fundamentals.py`, the audit against
-[docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md). Known gaps are strict `xfail`s
-(see [docs/AUDIT.md](docs/AUDIT.md); fixes and their before/after evidence in
-[docs/FIXES.md](docs/FIXES.md)).
+Tests: `pytest` from the repository root runs the whole suite. `tests/test_fundamentals.py` is the
+audit against [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md). Known gaps are strict `xfail`s (see
+[docs/research/AUDIT.md](docs/research/AUDIT.md); fixes and their before/after evidence are in
+[docs/research/FIXES.md](docs/research/FIXES.md)).
+
+## Repository layout
+
+| Path | What it is | Ships? |
+|---|---|---|
+| `kern/` | the toolchain: parser, checker, prover, views, proof page, host, MCP server, Rust emitter | yes (`pyproject.toml`) |
+| `runtime/` | `kern-rt`, the Rust crate every compiled program links with | yes (`runtime/Cargo.toml`) |
+| `docs/` | the language reference, the guide, the host design, the fundamentals | docs |
+| `examples/` | example programs and generated proof pages ([examples/README.md](examples/README.md)) | no |
+| `tests/` | the test suite (`pytest`); `tests/probes/` holds the small modules the tests use | no |
+| `validation/` | tools that check the toolchain itself: fuzzer, digests, Rust-vs-interpreter tests ([validation/README.md](validation/README.md)) | no |
+| `experiments/` | measurements behind the design claims: challenges, language comparison, benchmarks ([experiments/README.md](experiments/README.md)) | no |
+| `docs/research/` | plans, pre-registered scorecards and results ([docs/research/README.md](docs/research/README.md)) | no |
+| `build/` | generated: Rust crates and cargo output (ignored by git) | no |
 
 ## What a definition is
 
@@ -83,7 +97,7 @@ body
 | `editor` | own full definition + `spec` of each callee (never callee bodies) | 251 tokens |
 
 (`payout` in `ledger_v3.k`. These were 40/72/222 before `writes` and `body need`
-lines were added; see docs/FIXES.md.)
+lines were added; see docs/research/FIXES.md.)
 
 ## The demo loop
 
@@ -121,13 +135,13 @@ lines were added; see docs/FIXES.md.)
    condition is proven only through transfer's `ensure`. The cost is tokens: payout's
    spec view goes from 97 to 163, because a caller that opts in restates its callees'
    refusals. Transfer's 10/10 strength is not an improvement: the mutated `need` left the
-   body (see docs/FIXES.md).
+   body (see docs/research/FIXES.md).
 
 ## Built-in versus missing
 
 The prototype has one hard-coded domain: handlers for `ledger`, `clock` and `audit`
 written in Python. It has only `Int` and `Account` types and only straight-line
-bodies with guards and `if`/`else` blocks (docs/SCALE.md, size 1). A small type checker covers the six built-in types. There are no
+bodies with guards and `if`/`else` blocks (docs/research/SCALE.md, size 1). A small type checker covers the six built-in types. There are no
 written frame conditions: the frame is *inferred* (`writes`), and the page says which
 written balances no guarantee describes. A spec can say *when* a call succeeds
 only by opting in with `ok otherwise`, and a caller must then restate its callees'

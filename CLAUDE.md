@@ -10,14 +10,14 @@ reference [docs/REFERENCE.md](docs/REFERENCE.md) and the how-to guide [docs/GUID
 
 Design fundamentals and the three bets: [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md).
 Latest audit against them (status per fundamental, ranked gaps):
-[docs/AUDIT.md](docs/AUDIT.md). Fix pass with before/after evidence per step:
-[docs/FIXES.md](docs/FIXES.md). Scaling an app in three sizes, with a pre-registered scorecard:
-[docs/SCALE.md](docs/SCALE.md). How Kern reaches the OS (SQLite state, outbox, recorded clock,
+[docs/research/AUDIT.md](docs/research/AUDIT.md). Fix pass with before/after evidence per step:
+[docs/research/FIXES.md](docs/research/FIXES.md). Scaling an app in three sizes, with a pre-registered scorecard:
+[docs/research/SCALE.md](docs/research/SCALE.md). How Kern reaches the OS (SQLite state, outbox, recorded clock,
 HTTP/console, replay; `kern/host.py`): [docs/HOST.md](docs/HOST.md); next PoC plan with a
-pre-registered scorecard: [docs/HOST_PLAN.md](docs/HOST_PLAN.md). Kern vs behaviour-identical TS and Go,
-tokens to write and read: [docs/COMPARE.md](docs/COMPARE.md) (`compare/`). Pre-registered challenges
+pre-registered scorecard: [docs/research/HOST_PLAN.md](docs/research/HOST_PLAN.md). Kern vs behaviour-identical TS and Go,
+tokens to write and read: [docs/research/COMPARE.md](docs/research/COMPARE.md) (`experiments/compare/`). Pre-registered challenges
 per bet (seeded bugs, cold author, spec gaming, blind proof pages, second domain, prover stress):
-[docs/CHALLENGE.md](docs/CHALLENGE.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
+[docs/research/CHALLENGE.md](docs/research/CHALLENGE.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
 
 ## Goal (as stated by Fredrik)
 
@@ -102,11 +102,17 @@ page are the same mechanism. The prover follows the same rule: calls are verifie
   not comments. This analysis led to design rules 3 and 4.
 - Comments are 12–33% of tokens in real Go code.
 
-## Current prototype (Python + Z3, about 1,200 lines)
+## Current prototype (Python + Z3 toolchain, about 5,500 lines; Rust runtime, about 800)
+
+Layout (README.md has the table): **ships** = `kern/` + `runtime/` (declared in `pyproject.toml`);
+**not shipped** = `examples/`, `tests/`, `validation/` (tools that check the toolchain),
+`experiments/` (measurements; frozen challenge material), `docs/research/` (plans and results).
+`build/` is generated and ignored. Nothing in `kern/`, `runtime/` or `tests/` imports from `experiments/`,
+and `kern/` imports nothing outside itself; tests may import `validation/` (fuzzer, difftest).
 
 ```
 kern/syntax.py    lexer and parser; AST is plain tuples; code() prints it back
-kern/run.py       interpreter; HANDLERS table (ledger/clock/audit); atomic run()
+kern/run.py       interpreter; HANDLERS table (ledger/clock/audit); atomic run(); the reference semantics
 kern/wf.py        well-formedness + type check; runs before anything is proven or run
 kern/infer.py     uses / fails / writes / lifted (body-level refusal conditions) inference
 kern/prove.py     symbolic execution to Z3; modular calls (callee spec, then
@@ -119,35 +125,44 @@ kern/views.py     iface / spec / editor views + token counts; English templates
 kern/render.py    proof page HTML + terminal output
 kern/why.py       .why store, interface-anchored hash, staleness, orphans, obligation lint
 kern/baseline.py  ratchet baseline (<module>.strength): flags weakened specs
-examples/ledger_v1..v7.k, ledger.why, ledger_v4..v7.why  the demo loop (see README)
-examples/ledger_large.k   7 defs, 4-deep chain; F9 token measurements
-examples/escrow_s1.k      scale size 1 (docs/SCALE.md): escrow with branches
-examples/escrow_s2.k      scale size 2: declared state, invariants, `need as` / `emit as`
-examples/escrow_s3.k      scale size 3: 55 defs, pure functions (-> Int) usable in specs, `distinct`
-examples/limits.k, .host  host demo: limits fetched from a risk service over `net` (docs/HOST.md)
-kern/host.py              host: SQLite state, outbox + channels, net endpoints, replay, `page`
-kern/mcp.py               MCP server (stdio): views, why, check, callers, structural edits that re-check callers
-kern/scorecard.py         `kern score FILE.k`: the per-size scorecard of docs/SCALE.md
-kern/package.py           packages + imports: a dir with kern.pkg; `import a.b`; one merged Module, per-file visibility
-examples/shop/, library/, lottery/   example packages (4 files each, imports, loops, an assumed handler)
-tests/test_package.py     loader errors, tools across files, MCP edits per file, the host serving packages
-tools/digest.py           the S2 results digest (10 modules, full mutation testing): the floor for prover changes
-kern/fuzz.py              soundness fuzzer: random loop/handler programs + template mutants, interpreter as oracle, injected faults
-tests/test_fuzz.py        small fuzz run is clean and deterministic; an injected prover fault is found
-docs/REFERENCE.md         the language reference (≤ 2,500 tokens; C2's language tax)
-docs/GUIDE.md             how-to: tools, file formats, Python API, common errors
-tests/test_docs.py        keeps REFERENCE/GUIDE in step with the code (blocks check, CLI/API/handlers documented)
-AGENTS.md                 working rules for agents, including the docs-update rule
-docs/ROADMAP_RUN.md       the overnight roadmap run: pre-registered conditions and results per step
-kern/host.py              OS boundary (docs/HOST.md): SQLite state, outbox, recorded clock,
-                          HTTP + console front ends, replay, permission manifest, proof gate
+kern/package.py   packages + imports: a dir with kern.pkg; `import a.b`; one merged Module, per-file visibility
+kern/host.py      OS boundary (docs/HOST.md): SQLite state, outbox + channels, recorded clock, net endpoints,
+                  HTTP + console front ends, replay, permission manifest, proof gate, `page`
+kern/mcp.py       MCP server (stdio): views, why, check, callers, structural edits that re-check callers
+kern/emit_rust.py Kern -> Rust crate in build/<module>, linked with runtime/ (single files only so far)
+runtime/          kern-rt, the Rust runtime crate (src/lib.rs: world, Tx, rollback; src/driver.rs: the binary's CLI)
+
+examples/         ledger_v1..v7 (+ .why: the demo loop, see README), ledger_large, escrow_s1..s3 (scale
+                  sizes, docs/research/SCALE.md), limits.k/.host (host net demo), batch.k (loops), raffle.k
+                  (assumed handler), shop/ library/ lottery/ (packages), proof-pages/ (generated pages)
+
 tests/test_fundamentals.py  adversarial audit tests, one section per fundamental
 tests/test_host.py        host = interpreter (random equivalence), atomicity, at-least-once, replay
+tests/test_mcp.py         the MCP server
+tests/test_package.py     loader errors, tools across files, MCP edits per file, the host serving packages
+tests/test_fuzz.py        small fuzz run is clean and deterministic; an injected prover fault is found
+tests/test_runtime.py     the compiled Rust program against run.py (skipped without cargo)
+tests/test_docs.py        keeps REFERENCE/GUIDE (and validation/README) in step with the code
+tests/probes/             small modules the tests and validation tools use; tests/chains.py: a C6 generator copy
+
+validation/fuzz.py        soundness fuzzer: random loop/handler programs + template mutants, interpreter as oracle
+validation/digest.py      results digests (S2 and --loops): the floor for prover changes
+validation/difftest.py, fuzzdiff.py, sensitivity.py   Rust runtime vs run.py, and whether that test has teeth
+
+experiments/challenge/    C1, C2, C6 (frozen; scripts expect the pre-2026-11-04 layout, rerun from d521236)
+experiments/compare/      Kern vs TS and Go (docs/research/COMPARE.md)
+experiments/bench/        runtime baselines (docs/research/RUNTIME_PLAN.md)
+experiments/scale/        the scale scorecard (was `kern score`)
+
+docs/REFERENCE.md         the language reference (≤ 2,500 tokens; C2's language tax)
+docs/GUIDE.md             how-to: tools, file formats, Python API, common errors
+docs/research/            AUDIT, FIXES, SCALE, COMPARE, CHALLENGE, ROADMAP_RUN, HOST_PLAN, RUNTIME_PLAN
+AGENTS.md                 working rules for agents, including the docs-update rule
 ```
 
-Run: `python -m kern check examples/ledger_v3.k --why examples/ledger.why --html out/proof.html`.
-Dependencies: `z3-solver` (required); `tokenizers` and `anthropic==0.34.2` (optional,
-for token counts).
+Run: `python -m kern check examples/ledger_v3.k --why examples/ledger.why --html build/proof.html`.
+Install: `pip install -e .` (`z3-solver` required; extras `tokens` = `tokenizers` and `anthropic==0.34.2`
+for token counts, `dev` = pytest).
 
 ### Known limitations
 
@@ -170,7 +185,7 @@ for token counts).
   inherited, and every refusing callee must be marked too. Only 1 of 9 existing defs passed
   with it on by default. Moving a `need` into the spec removes its mutants (mutants are
   body-only), so v7 transfer's 10/10 is a smaller denominator, not more strength
-  (docs/FIXES.md). Without the marker, refusal mutants are caught only by examples. If a
+  (docs/research/FIXES.md). Without the marker, refusal mutants are caught only by examples. If a
   body or callee need contradicts the spec needs outright, the claim shows ∅ "never succeeds"
   rather than ✗ (both red, different wording). A ∅ that rests on something unproven (a refuted loop
   invariant, a callee with a broken spec) shows `!` instead, since the code does succeed (FZ finding 3).
@@ -198,7 +213,7 @@ for token counts).
   The host provides them, checks the spec on every call and records each value for replay. A provider
   with no value for the arguments (e.g. `rand.below 0`) is an atomic error, not a crash.
 - `check --quick` skips mutation testing; `.kern-cache/` reuses results by a conservative key. A full
-  cold `check` still misses C6's thresholds (docs/ROADMAP_RUN.md, S2). `kern.mcp` serves views and
+  cold `check` still misses C6's thresholds (docs/research/ROADMAP_RUN.md, S2). `kern.mcp` serves views and
   structural edits to agents.
 - Tier ○ (runtime-checked) and record/replay exist only in the host (`kern/host.py`: SQLite,
   replay, invariants checked at the keys a call wrote, after every call by default; `--skip-proven`
@@ -208,7 +223,7 @@ for token counts).
   (a lost reply leaves the request pending). Delivery is at-least-once. docs/HOST.md has the scorecard.
 - Packages (a proposal, roadmap run P): `import a.b` brings a module's names in unqualified; names are unique
   per package; imports reach within one package only (each example app copies its ledger). Missing for
-  ordinary programs (gap table in docs/ROADMAP_RUN.md, P): Accounts as state values, iteration over
+  ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): Accounts as state values, iteration over
   accounts, variable × variable, named constants, effects that return values, records, text.
 - Application arguments must be atoms; nested calls need parentheses. An open
   design question is whether to parse by arity instead, using known interfaces.

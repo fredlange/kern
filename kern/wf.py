@@ -15,7 +15,7 @@ from .infer import called_names, callees
 from .run import HANDLERS, channel_op, is_handler, state_op
 from .syntax import ParseError, code
 
-TYPES = True                                  # step 3 of docs/FIXES.md ran with this off
+TYPES = True                                  # step 3 of docs/research/FIXES.md ran with this off
 
 PARAM_TYPES = {"Int", "Account"}
 SIG = {                                       # handler -> (argument types, result type)

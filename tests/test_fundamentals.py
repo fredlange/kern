@@ -2,7 +2,7 @@
 
 One section per fundamental. Each test tries to BREAK the fundamental. A test that
 exposes a real gap stays in, marked xfail(strict=True): it documents the gap, and
-it starts failing loudly (XPASS) the day the gap is closed. Findings: docs/AUDIT.md.
+it starts failing loudly (XPASS) the day the gap is closed. Findings: docs/research/AUDIT.md.
 
 Run: .venv/bin/pytest            (from the repo root; pytest.ini sets pythonpath)
 """
@@ -781,7 +781,7 @@ def test_incidental_why_for_unknown_name_is_a_clean_error(capsys):      # fixed 
 
 
 # =====================================================================================
-# Clock: one time per top-level call (docs/FIXES.md, "Clock")
+# Clock: one time per top-level call (docs/research/FIXES.md, "Clock")
 # =====================================================================================
 
 TIMED = V4.replace("  emit TransferDone from to amount _\n  eg A:500@u1 B:0@u1 | transfer",
@@ -858,7 +858,7 @@ body
 
 
 # =====================================================================================
-# Scale, size 1: branches (`if`/`else`), `ensure … when`, `emit … when` (docs/SCALE.md)
+# Scale, size 1: branches (`if`/`else`), `ensure … when`, `emit … when` (docs/research/SCALE.md)
 # =====================================================================================
 
 ESCROW1 = open("examples/escrow_s1.k").read()
@@ -1038,7 +1038,7 @@ body
 
 
 # =====================================================================================
-# Scale, size 2: declared state, invariants, `*` `/`, `need as` / `emit as` (docs/SCALE.md)
+# Scale, size 2: declared state, invariants, `*` `/`, `need as` / `emit as` (docs/research/SCALE.md)
 # =====================================================================================
 
 ESCROW2 = open("examples/escrow_s2.k").read()
@@ -1178,7 +1178,7 @@ def test_s2_specs_may_read_state_but_not_write_it():
 
 
 # =====================================================================================
-# Scale, size 3: pure functions (-> Int) usable in specs, `distinct` (docs/SCALE.md)
+# Scale, size 3: pure functions (-> Int) usable in specs, `distinct` (docs/research/SCALE.md)
 # =====================================================================================
 
 ESCROW3 = open("examples/escrow_s3.k").read()
@@ -1273,7 +1273,7 @@ def test_s3_state_only_the_spec_reads_is_still_drawn_and_shown():
 
 
 # =====================================================================================
-# Roadmap run S1: the ratchet sees refusals (docs/ROADMAP_RUN.md)
+# Roadmap run S1: the ratchet sees refusals (docs/research/ROADMAP_RUN.md)
 # =====================================================================================
 
 def _against_baseline(src_before, src_after, tmp_path):
@@ -1370,12 +1370,12 @@ def test_s1_against_a_committed_baseline_ignores_the_file(tmp_path):
 
 
 # =====================================================================================
-# Roadmap run S2: incremental, quick check (docs/ROADMAP_RUN.md)
+# Roadmap run S2: incremental, quick check (docs/research/ROADMAP_RUN.md)
 # =====================================================================================
 
 import sys as _sys  # noqa: E402
-_sys.path.insert(0, "challenge/c6")
-from gen import gen as _gen  # noqa: E402
+
+from tests.chains import gen as _gen  # noqa: E402
 from kern import report as _report  # noqa: E402
 
 
@@ -1430,7 +1430,7 @@ def test_s2_quick_never_shows_an_unmeasured_strength(tmp_path):
 
 
 # =====================================================================================
-# Roadmap run S4: bounded loops with invariants (docs/ROADMAP_RUN.md)
+# Roadmap run S4: bounded loops with invariants (docs/research/ROADMAP_RUN.md)
 # =====================================================================================
 
 BATCH = open("examples/batch.k").read()
@@ -1571,7 +1571,7 @@ def test_probe_p7_kept_goals_rest_on_the_refuted_invariant_and_vacuity_names_the
 
 
 # =====================================================================================
-# Roadmap run S5: handlers declared in Kern with assumed specs (docs/ROADMAP_RUN.md)
+# Roadmap run S5: handlers declared in Kern with assumed specs (docs/research/ROADMAP_RUN.md)
 # =====================================================================================
 
 RAFFLE = open("examples/raffle.k").read()
@@ -1590,7 +1590,7 @@ def test_s5_raffle_is_clean_and_assumed_guarantees_are_marked():
 
 def test_s5_a_weaker_assumption_cannot_prove_what_needs_the_stronger_one():
     """pick_order's `picked < hi` needs `result < n`. (draw_winner's pot guarantee turned out not to
-    need it: its else-branch pays for any result >= 2. Recorded in docs/ROADMAP_RUN.md.)"""
+    need it: its else-branch pays for any result >= 2. Recorded in docs/research/ROADMAP_RUN.md.)"""
     defs, reps = analysed(RAFFLE.replace("  ensure result >= 0 and result < n\n", "  ensure result >= 0\n"))
     g = [g for g in reps["pick_order"]["guarantees"] if g["clause"].startswith("picked.get' 0")][0]
     assert g["status"] not in ("proven", "assumed")

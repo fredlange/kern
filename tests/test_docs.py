@@ -2,9 +2,10 @@
 
 - every ```kern block parses and passes the checker; ```kern clean blocks also prove clean
 - every handler, spec clause and declaration form is documented in REFERENCE.md
-- every CLI command and option of `kern` and `kern.host` is documented in GUIDE.md
+- every CLI command and option of `kern`, `kern.host` and `kern.emit_rust` is documented in GUIDE.md, and
+  the fuzzer's in validation/README.md
 - every `kern.module.name` in GUIDE.md's API table exists
-- REFERENCE.md stays within its token budget (docs/CHALLENGE.md, C2: 2,500)
+- REFERENCE.md stays within its token budget (docs/research/CHALLENGE.md, C2: 2,500)
 If one of these fails, the docs are behind the code: update them in the same commit.
 """
 from __future__ import annotations
@@ -57,16 +58,18 @@ def _cli(path):
     return cmds, opts
 
 
-@pytest.mark.parametrize("path,section", [("kern/__main__.py", "## `python -m kern` commands"),
-                                          ("kern/host.py", "## `python -m kern.host` commands"),
-                                          ("kern/fuzz.py", "## `python -m kern.fuzz`")])
-def test_every_cli_command_and_option_is_documented(path, section):
-    part = GUIDE.split(section, 1)[1].split("\n## ", 1)[0]
+@pytest.mark.parametrize("path,doc,section", [
+    ("kern/__main__.py", "docs/GUIDE.md", "## `python -m kern` commands"),
+    ("kern/host.py", "docs/GUIDE.md", "## `python -m kern.host` commands"),
+    ("kern/emit_rust.py", "docs/GUIDE.md", "## `python -m kern.emit_rust`"),
+    ("validation/fuzz.py", "validation/README.md", "## `python -m validation.fuzz`")])
+def test_every_cli_command_and_option_is_documented(path, doc, section):
+    part = open(doc).read().split(section, 1)[1].split("\n## ", 1)[0]
     cmds, opts = _cli(path)
     for c in cmds:
-        assert f"| `{c} " in part or f"| `{c}`" in part, f"command {c} of {path} is not in GUIDE.md"
+        assert f"| `{c} " in part or f"| `{c}`" in part, f"command {c} of {path} is not in {doc}"
     for o in opts:
-        assert f"`{o}" in part, f"option {o} of {path} is not in GUIDE.md"
+        assert f"`{o}" in part, f"option {o} of {path} is not in {doc}"
 
 
 API = sorted(set(re.findall(r"`(kern\.[a-z_]+\.[A-Za-z_]+)", GUIDE.split("## Python API", 1)[1].split("\n## ", 1)[0])))
@@ -82,7 +85,7 @@ def test_reference_stays_within_its_token_budget():
     n = views.tokens(REF)
     if n is None:
         pytest.skip("no tokenizer")
-    assert n <= 2500, f"REFERENCE.md is {n} tokens; the budget is 2,500 (docs/CHALLENGE.md, C2)"
+    assert n <= 2500, f"REFERENCE.md is {n} tokens; the budget is 2,500 (docs/research/CHALLENGE.md, C2)"
 
 
 def test_every_mcp_tool_is_documented():

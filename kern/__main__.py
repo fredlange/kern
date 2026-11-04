@@ -20,7 +20,7 @@ from .wf import check_module
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="kern")
-    ap.add_argument("cmd", choices=["check", "view", "why", "anchor", "run", "baseline", "score"])
+    ap.add_argument("cmd", choices=["check", "view", "why", "anchor", "run", "baseline"])
     ap.add_argument("file")
     ap.add_argument("name", nargs="?")
     ap.add_argument("--why", dest="whyfile")
@@ -32,10 +32,6 @@ def main(argv=None):
     ap.add_argument("--quick", action="store_true", help="check: skip mutation testing (spec strength: not measured)")
     ap.add_argument("--cache", default=".kern-cache", help="check: result cache directory ('' = none)")
     a = ap.parse_args(argv)
-    if a.cmd == "score":
-        from .scorecard import score, show
-        print(show(score(a.file)))
-        return 0
     try:
         from .package import load as load_package
         defs = load_package(a.file)        # a single file as before; a package (kern.pkg) or imports: every file

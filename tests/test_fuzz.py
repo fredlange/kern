@@ -1,12 +1,12 @@
-"""The soundness fuzzer (kern/fuzz.py, docs/ROADMAP_RUN.md FZ): a small run is clean, and an injected
+"""The soundness fuzzer (validation/fuzz.py, docs/research/ROADMAP_RUN.md FZ): a small run is clean, and an injected
 prover fault is found. The full run (seed 1, 300 + 200 programs and every template mutant) is
-`python -m kern.fuzz`, reported in ROADMAP_RUN.md."""
+`python -m validation.fuzz`, reported in ROADMAP_RUN.md."""
 import json
 import os
 import subprocess
 import sys
 
-from kern import fuzz
+from validation import fuzz
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -37,7 +37,7 @@ def test_an_injected_prover_fault_is_found(tmp_path):
     """Fault (b): the prover treats every assumed-handler value as 0. Run from a patched copy."""
     out = tmp_path / "b.json"
     env = dict(os.environ, PYTHONPATH=ROOT)
-    p = subprocess.run([sys.executable, "-m", "kern.fuzz", "--loops", "0", "--handlers", "20", "--runs", "60",
+    p = subprocess.run([sys.executable, "-m", "validation.fuzz", "--loops", "0", "--handlers", "20", "--runs", "60",
                         "--no-mutants", "--jobs", "2", "--fault", "b", "--save", str(out)], cwd=ROOT, env=env,
                        capture_output=True, text=True)
     s = json.load(open(out))["summary"]

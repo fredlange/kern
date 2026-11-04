@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .split/
 .DS_Store
-compare/go/diffbin
+experiments/compare/go/diffbin
 .checkpoints/
 .kern-cache/
+/build/

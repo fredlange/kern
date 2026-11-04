@@ -10,11 +10,26 @@ for any agent working here.
 2. [docs/GUIDE.md](docs/GUIDE.md): the tools, file formats and Python API, and how to read
    `check` output.
 3. [CLAUDE.md](CLAUDE.md): the design decisions, measurements and known limitations. Skim it.
-   Everything in `docs/` beyond those two files is history and evidence (AUDIT, FIXES, SCALE,
-   HOST, COMPARE, CHALLENGE).
+   `docs/HOST.md` is the host's design; `docs/research/` is history and evidence (AUDIT, FIXES,
+   SCALE, COMPARE, CHALLENGE, ROADMAP_RUN, the plans).
 
 Commands: `.venv/bin/pytest` for the whole suite (strict xfails are known gaps), and
 `.venv/bin/python -m kern check FILE.k` for a module.
+
+## Where files go
+
+- **`kern/`** ships: the toolchain, and nothing else. No experiments, harnesses or one-off
+  scripts. It imports only from itself (plus z3 and the standard library).
+- **`runtime/`** ships: the `kern-rt` crate.
+- **`examples/`**: Kern programs people can read and run. Tests and frozen experiments read some
+  of them by path, so don't rename them.
+- **`tests/`**: the pytest suite, fast enough for every change. Small modules for tests go in
+  `tests/probes/`.
+- **`validation/`**: slower tools that check the toolchain itself (fuzzer, digests, Rust vs
+  interpreter). Document their CLIs in `validation/README.md`.
+- **`experiments/`**: measurements, each with its report in `docs/research/`. Nothing outside
+  `experiments/` imports from it.
+- **`build/`**: generated output (Rust crates, cargo target, ad hoc proof pages). Never commit it.
 
 ## Keep the docs current. This is a rule, not a suggestion.
 
@@ -28,14 +43,14 @@ Commands: `.venv/bin/pytest` for the whole suite (strict xfails are known gaps),
 
 Which file to update:
 - **docs/REFERENCE.md:** the language. Keep it within 2,500 tokens; it's the measured
-  "language tax" (docs/CHALLENGE.md, C2).
+  "language tax" (docs/research/CHALLENGE.md, C2).
 - **docs/GUIDE.md:** tools, files, API, errors.
 - **CLAUDE.md's "Known limitations":** when a limit changes.
 
 `tests/test_docs.py` enforces the mechanical part:
 - every `kern` block must parse and check, and `kern clean` blocks must prove;
 - every handler and language form must appear in REFERENCE.md;
-- every CLI command and option must appear in GUIDE.md;
+- every CLI command and option must appear in GUIDE.md (the fuzzer's in validation/README.md);
 - every API name GUIDE.md lists must exist;
 - REFERENCE.md must stay within its token budget.
 
@@ -49,7 +64,7 @@ Mark code blocks `kern` (must parse and check), `kern clean` (must also prove) o
 - **Measure, don't assert.** When a claim can be tested cheaply, test it and report the
   number, including when it contradicts an earlier claim.
 - **Pre-register:** write the pass conditions and the stop rule down before you run (see
-  docs/SCALE.md and docs/CHALLENGE.md). Never edit a threshold after a run; add a dated note
+  docs/research/SCALE.md and docs/research/CHALLENGE.md). Never edit a threshold after a run; add a dated note
   instead.
 - **Report failures** with the same prominence as passes. A failed challenge is a result.
 - **Don't change semantics to make a test pass.** If the host and the interpreter disagree,
@@ -75,5 +90,5 @@ Mark code blocks `kern` (must parse and check), `kern clean` (must also prove) o
 - A "fresh agent" is a headless `claude -p` run or a `general-purpose` subagent. It is
   **never a fork**: a fork inherits the design conversation.
 - Give a fresh agent only the material its arm allows. Record the model, prompt and seed.
-- Frozen material lives in `challenge/` and is committed before the run. Graders are scripts.
+- Frozen material lives in `experiments/challenge/` and is committed before the run. Graders are scripts.
   Whoever plants bugs or writes answer keys doesn't grade.

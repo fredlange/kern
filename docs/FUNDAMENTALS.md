@@ -1,6 +1,6 @@
 # Kern — design fundamentals
 
-These are the principles the prototype is judged against. `docs/AUDIT.md` records
+These are the principles the prototype is judged against. `docs/research/AUDIT.md` records
 how well the current code meets each one, with tests in `tests/test_fundamentals.py`.
 
 ## The nine fundamentals

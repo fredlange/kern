@@ -93,7 +93,7 @@ def body_needs(r):
     """The definition's own body-level refusal conditions, in `need` syntax, marked `body`.
 
     Inherited ones (from callees) are left to the callee's own spec view: showing them here
-    measured 176 vs 90 tokens for payout's spec view (docs/FIXES.md, step 8). The prover and the
+    measured 176 vs 90 tokens for payout's spec view (docs/research/FIXES.md, step 8). The prover and the
     proof page use the full lifted set."""
     out = []
     for cond, ctor, payload, origin in r["lifted"]:

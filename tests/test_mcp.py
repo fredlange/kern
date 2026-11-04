@@ -1,4 +1,4 @@
-"""The MCP server (kern/mcp.py): docs/ROADMAP_RUN.md, S3, pass conditions 1-14 (15 is the real-client
+"""The MCP server (kern/mcp.py): docs/research/ROADMAP_RUN.md, S3, pass conditions 1-14 (15 is the real-client
 smoke test, run by hand and recorded there)."""
 from __future__ import annotations
 

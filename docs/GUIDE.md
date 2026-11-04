@@ -18,7 +18,9 @@ python3 -m venv .venv
 ```
 
 `z3-solver` is required. `tokenizers` and `anthropic` only provide token counts.
-`compare/diff.py` also needs `node` ≥ 23 and `go`.
+`pip install -e .` from the repository root installs the same thing plus a `kern` command (see
+`pyproject.toml`). Validation tools and experiments aren't part of it: see
+[validation/README.md](../validation/README.md) and [experiments/README.md](../experiments/README.md).
 
 ## The loop
 
@@ -98,7 +100,6 @@ Examples: `examples/shop/`, `examples/library/`, `examples/lottery/`.
 | `anchor FILE.k` | re-anchor the `.why` file to the current builds (confirm the entries still hold first) |
 | `run FILE.k "NAME ARGS" --world "A:500@u1 …"` | run one call in the interpreter |
 | `baseline FILE.k` | record the ratchet baseline (`FILE.strength`) |
-| `score FILE.k` | the scale scorecard (docs/SCALE.md): strength, reading ratio, time |
 
 | option | for |
 |---|---|
@@ -172,26 +173,19 @@ What an edit does and reports:
 - **`kern_remove` refuses** while anything references the name.
 - **`KERN_MCP_LOG=path`** logs one JSON line per call, with the tokens it returned.
 
-## `python -m kern.fuzz`: the soundness fuzzer
+## `python -m kern.emit_rust`: compile to Rust
 
-It looks for proof-page claims the interpreter can show false. It generates random loop and
-assumed-handler programs, plus every body mutant of the loop and handler templates (batch.k,
-raffle.k, tests/probes). It checks each one (`analyse`, no mutation testing), then runs every
-definition on random small worlds. A **contradiction** is a guarantee shown ✔ or ⊙, or a ∅, that
-a run breaks. Exit 1 if there is any contradiction or crash.
+`python -m kern.emit_rust FILE.k` writes a Rust crate for the module to `build/<module>/`, linked
+with the runtime crate `kern-rt` in `runtime/`. `need`s compile to code. `keep`, `ensure` and
+`emit` are proven, so they compile to nothing. `kern/run.py` stays the reference semantics: the
+runtime is wrong wherever the two disagree. The contract and the known divergences (for example,
+Int is i64 at run time) are in [research/RUNTIME_PLAN.md](research/RUNTIME_PLAN.md). Needs `cargo`.
+It reads single files only, not packages yet.
 
-| option | meaning |
+| option | for |
 |---|---|
-| `--seed N` | the generator seed (default 1); a run is deterministic per seed |
-| `--loops N` / `--handlers N` | how many random programs of each kind (default 300 / 200) |
-| `--runs N` | interpreter runs per definition (default 300) |
-| `--no-mutants` | skip the template mutants |
-| `--jobs N` | worker processes |
-| `--fault a\|b\|c` | inject a known prover bug into a temporary copy of `kern/` and run from there. This shows the fuzzer can find that kind of bug: (a) loop-goal trust propagation off, (b) assumed-handler values taken as 0, (c) the loop exit at HI instead of max(LO, HI) |
-| `--save FILE.json` | the summary plus every contradiction or crash, with its program |
-
-Run it after any change to `prove.py`, `report.py` or the loop and handler parts of `run.py`. A
-contradiction becomes a `tests/probes/fz*.k` file with a test.
+| `--out DIR` | where to write the crate (default `build/<module>`) |
+| `--build` | also `cargo build --release`; prints the binary's path (cargo's target is `build/target`) |
 
 ## Files
 
@@ -250,7 +244,7 @@ Everything is plain Python and the AST is tuples. These are the entry points:
 | `kern.host.Host(defs, db, …)` | the host: `.init(world)`, `.call(name, args)`, `.flush()`, `.pump()`, `.replay()`, `.manifest()` |
 | `kern.host.load_config(text, defs)` | parse and validate a `.host` file |
 | `kern.host.SimNet(endpoints, answer, seed)` | a hostile simulated network for tests |
-| `kern.scorecard.score(path)` | the scale scorecard as a dict |
+| `kern.emit_rust.emit(path)`, `kern.emit_rust.build(crate)` | Kern → a Rust crate in `build/`; `cargo build` it → the binary's path |
 
 A minimal script:
 
@@ -324,5 +318,5 @@ body
 - **A refusal after a write can't be inherited.** Restate it as a `need` on the caller.
 - **Exact audit specs grow with the call tree, and each `if` doubles the paths.** Mutation
   testing is ~95% of a full `check`. Use `--quick` and the cache in the inner loop
-  (docs/ROADMAP_RUN.md, S2).
+  (docs/research/ROADMAP_RUN.md, S2).
 - The full list is in CLAUDE.md, "Known limitations".

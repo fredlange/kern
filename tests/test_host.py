@@ -179,7 +179,7 @@ def test_genesis_world_must_satisfy_invariants():
     assert h.init("A:10@u1")
 
 
-# --- H1 (docs/HOST_PLAN.md): lazy world, key-scoped invariant checks
+# --- H1 (docs/research/HOST_PLAN.md): lazy world, key-scoped invariant checks
 
 def _statements_per_call(n_accounts):
     defs = check_module(parse_module(open("examples/escrow_s2.k").read()))
@@ -496,7 +496,7 @@ def test_proof_page_host_section_is_assumed_not_proven():
     assert "Network endpoints" not in plain and "network reply" not in plain
 
 
-# --- S7 (docs/ROADMAP_RUN.md): proven checks removed at runtime
+# --- S7 (docs/research/ROADMAP_RUN.md): proven checks removed at runtime
 
 def test_runtime_checks_are_on_by_default_and_skip_proven_removes_proven_ones():
     """Fredrik's decision (2026-11-04): checks on by default; skipping proven ones is opt-in."""
