@@ -125,7 +125,10 @@ def compare(py, rs, defs_for_replay=None, where=""):
     """Differences between two dumps of one module, as human-readable lines (empty: they agree)."""
     out = []
     if "error" in py or "error" in rs:
-        if py.get("error") != rs.get("error"):
+        # Python's text starts with the exception's class name (ParseError, LoadError, WellFormedError), which
+        # the Rust error type doesn't carry: compare the messages
+        strip = lambda e: re.sub(r"^\w+: ", "", e) if isinstance(e, str) and not e.startswith("python exited") else e
+        if strip(py.get("error")) != rs.get("error"):
             out.append(f"{where}error: python {py.get('error')!r} vs rust {rs.get('error')!r}")
         return out
     if _mask(py["terminal"]) != _mask(rs["terminal"]):
@@ -145,14 +148,15 @@ def _walk(a, b, at):
             if a["confirmed_by_interpreter"] != b.get("confirmed_by_interpreter"):
                 out.append(f"{at}confirmed_by_interpreter: {a['confirmed_by_interpreter']} vs "
                            f"{b.get('confirmed_by_interpreter')}")
-            if b.get("eg") != a["eg"] and _REPLAY_DEFS.get("handlers"):
+            if b.get("eg") != a["eg"] and _REPLAY_DEFS.get("handlers") and "draws" not in b:
                 out.append(f"{at}eg: python {a['eg']!r} vs rust {b.get('eg')!r} (a module with assumed handlers: an eg "
-                           f"line doesn't record the draws, so its witness can't be replayed and must be identical)")
+                           f"line doesn't record the draws, so without the rust side's draws it must be identical)")
             elif b.get("eg") != a["eg"] and b.get("confirmed_by_interpreter"):
-                ok, why = replay(b.get("eg", ""))
+                ok, why = replay(b.get("eg", ""), b.get("draws"))
                 if not ok:
                     out.append(f"{at}eg: the rust witness {b.get('eg')!r} does not replay ({why})")
             return out
+        b = {k: v for k, v in b.items() if k != "draws"}
         if set(a) != set(b):
             return [f"{at}keys: python-only {sorted(set(a) - set(b))}, rust-only {sorted(set(b) - set(a))}"]
         return [d for k in a for d in _walk(a[k], b[k], f"{at}{k}.")]
@@ -168,9 +172,10 @@ def _walk(a, b, at):
 _REPLAY_DEFS = {}
 
 
-def replay(eg):
+def replay(eg, draws=None):
     """(ok, reason): does this witness eg line, run in the Python interpreter on the module being compared, give
-    exactly the outcome it states?"""
+    exactly the outcome it states? `draws`: the assumed-handler values the witness's model made, fed back in call
+    order and then Random(0), as kern/prove.py's render_cex does (the Rust dump records them)."""
     import dataclasses
     from kern.check import run_examples
     from kern.syntax import parse_example
@@ -184,7 +189,22 @@ def replay(eg):
     d = defs.get(ex.call[0])
     if d is None:
         return False, f"calls unknown {ex.call[0]}"
-    res = run_examples(defs, dataclasses.replace(d, examples=[ex]))
+    if draws is not None:
+        import kern.check as kc
+        import random as _r
+        from kern.run import PROVIDERS, Interp
+        queue = list(draws)
+
+        def provider(name, args):
+            return queue.pop(0) if queue else PROVIDERS[name](_r.Random(0), *args)
+        real = kc.Interp
+        kc.Interp = lambda defs_: Interp(defs_, provider=provider)
+        try:
+            res = run_examples(defs, dataclasses.replace(d, examples=[ex]))
+        finally:
+            kc.Interp = real
+    else:
+        res = run_examples(defs, dataclasses.replace(d, examples=[ex]))
     return bool(res) and all(r["pass"] for r in res), res[0]["got"] if res else "not run"
 
 

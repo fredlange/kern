@@ -29,6 +29,14 @@ pub const REPLAY_BUDGET: Int = 200_000;
 
 thread_local! {
     static FRESH: Cell<u64> = const { Cell::new(0) };
+    /// eg line -> handler draws, for every witness rendered on this thread (the oracle replays witnesses of
+    /// modules with assumed handlers with them; Python's eg line doesn't record draws).
+    static DRAWS: RefCell<IndexMap<String, Vec<Int>>> = RefCell::new(IndexMap::new());
+}
+
+/// The handler draws behind a witness eg line rendered on this thread, if any.
+pub fn witness_draws(eg: &str) -> Option<Vec<Int>> {
+    DRAWS.with(|d| d.borrow().get(eg).cloned())
 }
 
 /// `next(_fresh)`: one counter for the whole process, as in Python.
@@ -1385,7 +1393,8 @@ impl<'m> Prover<'m> {
             Ok(o) => o,
             Err(RunError::Kern(e)) => {
                 let eg = format!("eg {world_src} | {call} -> error: {e}");
-                self.witness_draws.insert(eg.clone(), drawn);
+                self.witness_draws.insert(eg.clone(), drawn.clone());
+                DRAWS.with(|d| d.borrow_mut().insert(eg.clone(), drawn));
                 return Counterexample {
                     eg,
                     emitted: "nothing".into(),
@@ -1454,7 +1463,8 @@ impl<'m> Prover<'m> {
             String::new()
         };
         let eg = format!("eg {world_src} | {call} -> {out_src} | {after_src}");
-        self.witness_draws.insert(eg.clone(), drawn);
+        self.witness_draws.insert(eg.clone(), drawn.clone());
+        DRAWS.with(|d| d.borrow_mut().insert(eg.clone(), drawn));
         Counterexample {
             eg,
             emitted: if emitted.is_empty() { "nothing".into() } else { emitted },
@@ -1478,4 +1488,61 @@ fn guarantee(kind: &str, expr: GoalExpr, clause: &str, status: Status) -> Guaran
         tested: None,
         channel: None,
     }
+}
+
+/// report.py's handler_sat: can an assumed handler's spec be met? ∀ args. needs → ∃ result. ensures.
+/// "satisfiable", "unsatisfiable for P = V, …", "unsatisfiable" (by sampling) or "not checked".
+pub fn handler_sat(defs: &Module, h: &Def) -> String {
+    let mut pv = Prover::new(defs);
+    // Python passes no state (None): a handler's spec can only read its parameters and `result`
+    let none = Sym {
+        bal: zz::array("bal"),
+        own: zz::array("own"),
+        total: zz::int("total"),
+        audit: vec![],
+        now: zz::int("now"),
+        maps: IndexMap::new(),
+        out: IndexMap::new(),
+    };
+    let env: Env = h.params.iter().map(|(p, _)| (p.clone(), SV::I(zz::int(p)))).collect();
+    let r = zz::int("result");
+    let mut needs = vec![zz::bval(true)];
+    for n in &h.needs {
+        needs.push(pv.sev(need_cond(n), &env, &none, None).b().clone());
+    }
+    let needs = zz::and(&needs);
+    let mut ens = vec![zz::bval(true)];
+    let renv = env_with(&env, "result", SV::I(r.clone()));
+    for c in &h.ensures {
+        ens.push(pv.sev(c, &renv, &none, None).b().clone());
+    }
+    let ens = zz::and(&ens);
+    let s = zz::solver();
+    s.assert(&needs);
+    s.assert(&zz::forall(&[&r], &zz::not(&ens)));
+    match zz::check(&s) {
+        zz::Check::Unsat => return "satisfiable".into(),
+        zz::Check::Sat => {
+            let m = s.get_model().expect("a model");
+            let parts: Vec<String> = h
+                .params
+                .iter()
+                .map(|(p, _)| format!("{} = {}", p, zz::eval_long(&m, env[p.as_str()].i()).expect("a numeral")))
+                .collect();
+            return format!("unsatisfiable for {}", parts.join(", "));
+        }
+        zz::Check::Unknown => {}
+    }
+    for v in [0, 1, 2, 5, 100] {
+        let s = zz::solver();
+        for (p, _) in &h.params {
+            s.assert(&zz::eq_n(env[p.as_str()].i(), v));
+        }
+        s.assert(&needs);
+        s.assert(&zz::not(&zz::exists(&[&r], &ens)));
+        if zz::check(&s) == zz::Check::Sat {
+            return "unsatisfiable".into();
+        }
+    }
+    "not checked".into()
 }
