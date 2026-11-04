@@ -11,7 +11,7 @@ from .syntax import flat, negate
 from .views import EFFECTS, en, en_emits, en_ensure, en_refusal, guarded_needs, lets_of, unguaranteed_writes
 
 ICON = {"proven": "✔", "refuted": "✗", "conditional": "!", "unknown": "?", "unconfirmed": "?",
-        "tested": "◐", "vacuous": "∅"}
+        "tested": "◐", "vacuous": "∅", "assumed": "⊙"}
 
 
 def _status(r):
@@ -34,6 +34,9 @@ def _status(r):
         return "warn", "Tested only, not proven"
     if any(g["status"] != "proven" for g in gs):
         return "warn", "Not proven: prover gave no answer"
+    assumed = sorted({a for g in gs for a in g.get("assuming", [])})
+    if assumed:
+        return "ok", "Proven, assuming " + ", ".join(assumed)
     return "ok", "All guarantees proven"
 
 
@@ -58,6 +61,10 @@ def _guarantee_text(g, d):
 def _how(g):
     if g["status"] == "proven":
         return "Proven for all inputs (Z3)."
+    if g["status"] == "assumed":
+        who = ", ".join(f"<code>{html.escape(a)}</code>" for a in g["assuming"])
+        return (f"Proven for all inputs, <em>assuming</em> the declared spec of {who}: an observation the "
+                "host provides. The host checks that spec on every call; the prover can't.")
     if g["status"] == "conditional":
         who = ", ".join(f"<code>{c}</code>" for c in g["blocked_by"])
         if g.get("via_broken_spec"):
@@ -284,6 +291,8 @@ def terminal(reports, whys, orphans=None):
                 line += f"\n      holds only vacuously: {g['reason']}"
             if g["status"] == "tested":
                 line += f"   (not proven; held in {g['tested']} random successes)"
+            if g["status"] == "assumed":
+                line += f"   (assuming {', '.join(g['assuming'])})"
             if g["status"] == "conditional":
                 line += f"   (relies on {', '.join(g['blocked_by'])}, which is not proven)"
                 if g.get("via_broken_spec"):

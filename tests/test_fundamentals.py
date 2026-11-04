@@ -1430,7 +1430,7 @@ def test_s4_wrong_loop_invariants_are_refuted(old, new, which):
     assert old in BATCH
     defs, reps = analysed(BATCH.replace(old, new))
     bad = [g for g in _non_proven(reps, "installments") if which in g["clause"]]
-    assert bad and bad[0]["status"] in ("refuted", "unconfirmed")
+    assert any(g["status"] in ("refuted", "unconfirmed") for g in bad), [(g["clause"], g["status"]) for g in bad]
 
 
 def test_s4_off_by_one_bound_is_refuted_and_replays():
@@ -1495,3 +1495,38 @@ def test_s4_loop_mutants_exist():
     assert "`0` → `0 + 1` in `for k from 0 to n`" in descs and "`n` → `n - 1` in `for k from 0 to n`" in descs
     assert "empty the body of `for k from 0 to n`" in descs
     assert any(d.startswith("`k` → `k + 1`") for d in check.mutants(parse_module(BATCH)["sweep_expired"]) for d in [d[0]])
+
+
+# ---- S4 fix-up: kern-90's wrong loop programs (tests/probes) carry the right tier ----------
+
+def _probe(n):
+    defs, reps = analysed(open(f"tests/probes/{n}.k").read())
+    (r,) = [r for name, r in reps.items() if name != "transfer"]
+    return r
+
+
+def _refuted_and_replays(g):
+    return g["status"] == "refuted" and g["counterexample"]["confirmed_by_interpreter"]
+
+
+@pytest.mark.parametrize("probe,kind,part", [("p1", "ensure", None), ("p2", "ensure", None), ("p6", "ensure", None),
+                                             ("p5", "ok", None), ("p3", "loop", "kept by every iteration"),
+                                             ("p4", "loop", "module invariant"), ("p7", "loop", "holds when the loop starts")])
+def test_probe_is_refuted_with_a_replaying_counterexample(probe, kind, part):
+    r = _probe(probe)
+    assert not r["clean"]
+    goals = [g for g in r["guarantees"] if g["kind"] == kind and (part is None or part in g["clause"])]
+    assert any(_refuted_and_replays(g) for g in goals), [(g["clause"], g["status"]) for g in goals]
+
+
+def test_probe_p3_ensure_is_never_shown_proven_over_a_refuted_loop_invariant():
+    r = _probe("p3")
+    e = [g for g in r["guarantees"] if g["kind"] == "ensure"][0]
+    assert e["status"] == "conditional" and any("loop invariant" in b for b in e["blocked_by"])
+
+
+def test_probe_p7_kept_goals_rest_on_the_refuted_invariant_and_vacuity_names_the_loop():
+    r = _probe("p7")
+    kept = [g for g in r["guarantees"] if "(kept by every iteration)" in g["clause"]]
+    assert kept and all(g["status"] != "proven" for g in kept)
+    assert all("loop" in g["reason"] for g in r["guarantees"] if g["status"] == "vacuous")

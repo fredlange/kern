@@ -111,7 +111,13 @@ class _Checker:
             reads = name in SPEC_READS or (st and st[1] == "get")
             if spec and not reads:
                 self.err(where, f"specs may only read state; `{name}` has an effect")
-            if channel_op(self.defs, name):
+            from .run import assumed_op
+            h = assumed_op(self.defs, name)
+            if h:                                         # an observation: not a pure read
+                if spec:
+                    self.err(where, f"specs cannot observe; `{name}` is an assumed handler")
+                want, result = [t for _, t in h.params], "Int"
+            elif channel_op(self.defs, name):
                 want, result = ["Event"], "Unit"
             elif st:
                 want, result = ([st[2]], "Int") if st[1] == "get" else ([st[2], "Int"], "Unit")

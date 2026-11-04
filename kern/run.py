@@ -81,6 +81,16 @@ def state_op(defs, name):
     return None
 
 
+def assumed_op(defs, name):
+    """A module's `handler NAME …` declaration (an observation with an assumed spec), else None."""
+    return getattr(defs, "handlers", {}).get(name)
+
+
+# Providers for assumed handlers: (rng, args) -> value. The host may supply its own; the value is
+# always checked against the assumed spec, and recorded so replay is deterministic.
+PROVIDERS = {"rand.below": lambda rng, n: rng.randrange(n)}
+
+
 def channel_op(defs, name):
     """`C.emit` for a module's `channel C` declaration: C, else None."""
     c, _, op = name.rpartition(".")
@@ -88,12 +98,15 @@ def channel_op(defs, name):
 
 
 def is_handler(defs, name):
-    return name in HANDLERS or state_op(defs, name) is not None or channel_op(defs, name) is not None
+    return (name in HANDLERS or state_op(defs, name) is not None or channel_op(defs, name) is not None
+            or assumed_op(defs, name) is not None)
 
 
 def effect_of(defs, name):
     if name in HANDLERS:
         return HANDLERS[name][1]
+    if assumed_op(defs, name):
+        return name.split(".")[0]
     if channel_op(defs, name):
         return channel_op(defs, name)
     x, op, _ = state_op(defs, name)
@@ -114,8 +127,19 @@ def _restore(world, snap):
 
 
 class Interp:
-    def __init__(self, defs):
+    def __init__(self, defs, provider=None, seed=0):
+        """provider(name, args) -> value for assumed handlers (default: seeded PROVIDERS)."""
+        import random as _random
         self.defs = defs
+        self._rng = _random.Random(seed)
+        self.provider = provider or (lambda name, args: self._provide(name, args))
+        self.observations = []                  # (name, args, value) per assumed-handler call
+        self.check_loops, self.loop_violations = False, []   # replay of loop counterexamples
+
+    def _provide(self, name, args):
+        if name not in PROVIDERS:
+            raise KernError(f"no provider for assumed handler {name}")
+        return PROVIDERS[name](self._rng, *args)
 
     # --- expressions; `pre` is the world unprimed reads see, `post` the one primed reads see
     def ev(self, e, env, pre, post=None):
@@ -155,6 +179,19 @@ class Interp:
             if len(args) != arity:
                 raise KernError(f"{name} takes {arity} argument(s), got {len(args)}")
             return fn(world, *args)
+        h = assumed_op(self.defs, name)
+        if h:                                   # an observation: a provider supplies it, its spec is checked
+            env = {p: a for (p, _), a in zip(h.params, args)}
+            for n in h.needs:
+                if not self.ev(n[1], env, world):
+                    raise Fail(n[2], [self.ev(a, env, world) for a in n[3]])
+            value = self.provider(name, list(args))
+            env["result"] = value
+            for c in h.ensures:
+                if not self.ev(c, env, world):
+                    raise KernError(f"the provider of {name} broke its assumed spec: {code(c)} with result {value}")
+            self.observations.append((name, list(args), value))
+            return value
         ch = channel_op(self.defs, name)
         if ch:
             world.out.setdefault(ch, []).append(args[0])
@@ -196,9 +233,22 @@ class Interp:
                 lo, hi = self.ev(s[2], env, world), self.ev(s[3], env, world)
                 for v in range(lo, hi):
                     env[s[1]] = v
+                    self._check_loop(s, env, world, v)
                     self.block(s[5], env, world)
+                self._check_loop(s, env, world, max(lo, hi))
             else:
                 self.ev(s[1], env, world)
+
+    def _check_loop(self, s, env, world, k):
+        """With check_loops on: record a loop invariant (or module invariant) false at an iteration head."""
+        if not self.check_loops:
+            return
+        e = dict(env, **{s[1]: k})
+        for inv in s[4]:
+            if not self.ev(inv, e, self._call_pre, world):
+                self.loop_violations.append((code(inv), k))
+        for text, key in self.broken_invariants(world):
+            self.loop_violations.append((f"module invariant {text} at {key}", k))
 
     def run(self, name, args, world):
         """Atomic top-level call. Returns (outcome, world_after).
@@ -215,6 +265,7 @@ class Interp:
             if t == "Int" and (not isinstance(a, int) or isinstance(a, bool)):
                 raise KernError(f"bad call: `{p}` must be an Int, got {a!r}")
         snap = world.copy()
+        self._call_pre = snap
         try:
             self.last_result = self.call_def(self.defs[name], args, world)
             outcome = ("ok",)

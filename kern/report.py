@@ -19,10 +19,12 @@ from .wf import check_module
 TESTED_MIN = 50          # random successes needed before an unproven guarantee shows as ◐
 
 
-def _store_kept(reports, store):
+def _store_kept(reports, store, exclude=None):
     """The quantified module-invariant assumption about `store` is justified only if every
     definition that writes the store proves the invariant (kern-90's review of S4)."""
-    for r in reports.values():
+    for n, r in reports.items():
+        if n == exclude:
+            continue
         ws = r["writes"]
         writes_it = any(w.split(".")[0] == store for w in ws if "." in w) or (store == "ledger" and any("." not in w for w in ws))
         if writes_it and any(g["kind"] == "invariant" and g["status"] != "proven" for g in r["guarantees"]):
@@ -34,8 +36,17 @@ def _store_kept(reports, store):
 
 
 def _clean(r):
-    return all(g["status"] == "proven" for g in r["guarantees"]) and all(e["pass"] for e in r["examples"]) \
+    return all(g["status"] in ("proven", "assumed") for g in r["guarantees"]) and all(e["pass"] for e in r["examples"]) \
         and not r["props"]["violations"]
+
+
+def _assumptions(reports, r, seen=()):
+    """Assumed handlers a definition's proofs rest on: its own, and its callees', transitively."""
+    out = {c[len("assumed "):] for c in r["relied_on"] if c.startswith("assumed ")}
+    for c in r["relied_on"]:
+        if c in reports and c not in seen:
+            out |= _assumptions(reports, reports[c], (*seen, r["def"].name))
+    return out
 
 
 _TOOL = None
@@ -122,9 +133,21 @@ def analyse(defs, mutation=True, baseline=None, cache=None):
     while changed:
         changed = False
         for r in reports.values():
-            weak = [c for c in r["relied_on"] if (not _store_kept(reports, c[len("invariant on "):])
-                                                  if c.startswith("invariant on ") else not _clean(reports[c]))]
+            def weak_for(g, r=r):
+                own_inv = g["kind"] == "invariant" or (g["kind"] == "loop" and g["clause"].startswith("module invariant"))
+                out = [c for c in r["relied_on"] if not c.startswith("assumed ") and
+                       (not _store_kept(reports, c[len("invariant on "):], exclude=r["def"].name if own_inv else None)
+                        if c.startswith("invariant on ") else not _clean(reports[c]))]
+                # a guarantee follows from the definition's loop invariants: if one of those isn't
+                # proven, neither is it (kern-90's p3)
+                # an iteration step assumes *all* the loop's invariants (induction), so a "kept" goal
+                # is only as good as the others; entry goals assume none of them
+                if g["kind"] != "loop" or "(kept by every iteration)" in g["clause"]:
+                    out += [f"loop invariant {x['clause']}" for x in r["guarantees"]
+                            if x is not g and x["kind"] == "loop" and x["status"] not in ("proven", "assumed", "conditional")]
+                return out
             for g in r["guarantees"]:
+                weak = weak_for(g)
                 if g["status"] == "proven" and weak:
                     g["status"], g["blocked_by"] = "conditional", weak
                     changed = True
@@ -132,6 +155,13 @@ def analyse(defs, mutation=True, baseline=None, cache=None):
                 elif g["status"] == "unconfirmed" and weak:
                     g["status"], g["blocked_by"], g["via_broken_spec"] = "conditional", weak, True
                     changed = True
+    # ⊙ proven, assuming the declared spec of an observation (an assumed handler): not plain ✔
+    for r in reports.values():
+        assumed = sorted(_assumptions(reports, r))
+        if assumed:
+            for g in r["guarantees"]:
+                if g["status"] == "proven":
+                    g["status"], g["assuming"] = "assumed", assumed
     # ◐ tested-only: no proof, but random tests reached success often enough and found nothing
     for r in reports.values():
         p = r["props"]

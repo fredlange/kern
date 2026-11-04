@@ -378,3 +378,102 @@ New conditions:
    loop-invariant support, would close the strongest survivors.
 3. **Events in loops** need the per-iteration form (`emit Ev j for j from A to B`). It's not
    built; the channel is flagged instead.
+
+## S5: handlers declared in Kern, with assumed specs (roadmap 1). This is a proposal.
+
+**Why:** an observation *inside* a call (randomness, an environment value, a file read) has no
+handler today. HOST_PLAN deliberately left it out. Declaring it in Kern, with a spec the prover
+*assumes*, keeps the closed world (F7) and keeps the page honest (F5): a proof that rests on an
+assumption must say so.
+
+**Proposed syntax:**
+
+```text
+handler rand.below n:Int -> Int
+  need n > 0 else BadBound
+  ensure result >= 0 and result < n
+```
+
+A column-0 `handler NAME params -> Int` with spec lines and no body.
+
+**Semantics:**
+- **Prover:** every call gives a fresh value satisfying the assumed `ensure`s. Unlike a function,
+  two calls may differ.
+- **Trust:** a proof that uses the value records "relies on assumed `rand.below`". The page lists
+  the assumption and marks those guarantees, distinct from ✔.
+- **Interpreter:** a provider supplies the value (seeded in tests, the host in production), and
+  the assumed `ensure` is *checked at runtime*. A violation is a host fault, never silent (tier ○).
+- **Host:** every observation is recorded in the call log, and replay feeds the recorded values
+  back (F7).
+
+**Example app:** `examples/raffle.k`:
+- `draw_winner` pays one of three accounts from `rand.below 3`. Its guarantee "the pot pays
+  exactly `amount`" holds only because the assumed spec says the result is below 3.
+- `pick_order` picks an order id in [lo, hi).
+
+**Pass conditions (frozen before the code):**
+1. **raffle.k is clean,** and every guarantee that rests on `rand.below` is shown as relying on
+   the assumption (terminal and page), never as a plain ✔.
+2. **A guarantee that needs more than the assumed spec isn't provable:** with
+   `ensure result >= 0` only, draw_winner's pot guarantee fails, and `r1 = r2` for two calls
+   isn't provable.
+3. **A provider that breaks the assumed spec at runtime is caught** (a random test or a host
+   call reports a fault, not ok).
+4. **Host replay is deterministic:** 200 host calls with a seeded provider replay exactly from
+   the log.
+5. **The manifest lists the assumed handler** as an effect the module can reach.
+6. **Floors:** the S2 digest is unchanged.
+7. **Docs:** REFERENCE (within budget) and GUIDE.
+
+## S4 fix-up: tiers that misled (kern-90's audit of checkpoint 03; done before finishing S5)
+
+kern-90 wrote 7 deliberately wrong loop programs (now `tests/probes/p1..p7.k`). None was clean,
+so the gate held. But four showed tiers that mislead a human, which breaks design rule 6:
+- **p3:** an `ensure` showed ✔ while the loop invariant it follows from was ✗.
+- **p4:** a definition that breaks the invariant it relies on was masked as `!` by relying on
+  itself.
+- **p7:** a false loop invariant made everything ∅ "vacuous", with the wrong explanation.
+- **p5 and p2:** real bugs showed as "unconfirmed", because the witness came from unreachable
+  havocked state.
+
+**Pass conditions (frozen before the fix).** Each probe is non-clean *and* carries the tier
+below. "✗" means refuted, with a counterexample that replays in the interpreter.
+
+| probe | the bug | required |
+|---|---|---|
+| p1 | the ensure promises more than the loop does | that ensure ✗ |
+| p2 | a write at `k + 1` reaches `other = hi` | that ensure ✗ |
+| p3 | the invariant says +2, the body adds 1 | loop goal "kept by every iteration" ✗, **and** the ensure is `!` (relies on the refuted loop invariant), never ✔ |
+| p4 | `hold.set k (hold.get k - 1)` breaks `hold >= 0` | a module-invariant goal ✗, not masked by its own reliance |
+| p5 | `ok otherwise` with no balance need | `ok otherwise` ✗ |
+| p6 | an empty range (lo ≥ hi) | that ensure ✗ |
+| p7 | `invariant 1 = 0` | the loop's entry goal ✗; nothing ✔; any ∅ explanation names the loop |
+
+Also the S2 digest is unchanged, and batch.k stays clean.
+
+### S4 fix-up results
+
+| probe | required | result |
+|---|---|---|
+| p1 | that ensure ✗ | **pass** (replayed) |
+| p2 | that ensure ✗ | **pass**. It was flaky in the full suite (an in-process witness that didn't replay), so for quantified goals the counterexample search now tries up to 4 more models, each with different parameters, until one replays |
+| p3 | loop "kept" ✗, ensure `!` | **pass**. The ensure and the module-invariant goals are `!` "relies on loop invariant … (kept by every iteration)" |
+| p4 | module invariant ✗, not masked | **pass**: `eg hold.130:848 … drain 128 130 -> ok \| hold.128:-1 hold.129:-1`, replayed with loop checks on |
+| p5 | `ok otherwise` ✗ | **pass**: `eg A:0@u1 B:0@u1 \| pay_n A B 1 -> Insufficient 10`. For a refusal the search now *minimises* balances |
+| p6 | that ensure ✗ | **pass** (`touch_first 282 281`: an empty range) |
+| p7 | entry ✗; nothing ✔; ∅ names the loop | **entry ✗: pass. ∅ names the loop: pass. Nothing ✔: fails as written.** One ✔ remains, "module invariant `hold >= 0` holds when the loop starts". It's a true claim that doesn't depend on the false invariant, since entry goals assume no invariant. Every "kept" goal is now `!`, because induction assumes all of a loop's invariants |
+
+**What changed:**
+1. **Trust:** a goal that follows from a loop (any non-loop goal, and every "kept" goal) relies on
+   all of that loop's goals, and is `!` when one isn't proven.
+2. **No self-masking:** a definition's own invariant-preservation goals don't rely on the store
+   invariant through *itself*.
+3. **Vacuity doesn't swallow loop goals,** which have premises of their own; the ∅ explanation
+   names the loop.
+4. **Replaying loop counterexamples:** the interpreter can check loop and module invariants at
+   each iteration head (used only to confirm counterexamples).
+5. **A loop that runs no iterations changes nothing,** which stops witnesses from coming out of
+   unreachable havoc.
+
+**Floors:** the S2 digest is still `3cb0e5efa3b63fb8`, batch.k is clean, and the suite runs
+green twice in a row (288 passed, 1 skipped, 2 xfailed).

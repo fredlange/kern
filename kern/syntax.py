@@ -217,15 +217,16 @@ class Module(dict):
     to Int, default 0, read with NAME.get k and written with NAME.set k v) and
     `invariant x:Type COND` (holds for every key before and after every call)."""
 
-    def __init__(self, *a, states=None, invariants=None, channels=None, **kw):
+    def __init__(self, *a, states=None, invariants=None, channels=None, handlers=None, **kw):
         super().__init__(*a, **kw)
         self.states = dict(states or {})
         self.invariants = list(invariants or [])
         self.channels = list(channels or [])         # `channel NAME`: output delivered after commit
+        self.handlers = dict(handlers or {})         # `handler a.b params -> Int`: assumed spec, no body
 
     def with_def(self, d):
         return Module(self, states=self.states, invariants=self.invariants, channels=self.channels,
-                      **{d.name: d})
+                      handlers=self.handlers, **{d.name: d})
 
 
 def with_def(defs, d):
@@ -345,6 +346,7 @@ HEADER = re.compile(r"^([a-z]\w*)((?:\s+\w+:\w+)*)\s*(?:->\s*(\w+))?\s*$")
 
 STATE = re.compile(r"^state ([a-z]\w*) (Int|Account)$")
 CHANNEL = re.compile(r"^channel ([a-z]\w*)$")
+HANDLER = re.compile(r"^handler ([a-z]\w*(?:\.[a-z]\w*)+)((?:\s+\w+:\w+)*)\s*(?:->\s*(\w+))?\s*$")
 INVARIANT = re.compile(r"^invariant ([a-z]\w*):(Int|Account) (.+)$")
 
 
@@ -355,6 +357,18 @@ def parse_module(text: str) -> dict:
             continue
         line = raw.strip()
         if not raw[0].isspace():
+            if line.startswith("handler "):           # an observation with an assumed spec
+                m = HANDLER.match(line)
+                if not m:
+                    raise ParseError("want `handler NAME.op p:Type ... -> Int`", no)
+                _finish(cur)
+                params = [tuple(p.split(":")) for p in m.group(2).split()]
+                cur = Def(m.group(1), params, m.group(3))
+                cur.src_lines = {"header": [line], "spec": [], "body": []}
+                cur._raw, cur.assumed = [], True
+                defs.handlers[cur.name] = cur
+                in_body = False
+                continue
             if line.startswith(("state ", "invariant ", "channel ")):
                 m, inv, ch = STATE.match(line), INVARIANT.match(line), CHANNEL.match(line)
                 if ch:
@@ -373,6 +387,8 @@ def parse_module(text: str) -> dict:
             if line == "body":
                 if cur is None:
                     raise ParseError("body without a definition", no)
+                if getattr(cur, "assumed", False):
+                    raise ParseError(f"handler {cur.name} has an assumed spec and no body", no)
                 in_body = True
                 continue
             m = HEADER.match(line)

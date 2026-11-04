@@ -76,6 +76,9 @@ def fails(defs, d, seen=None):
         if n in defs and n not in seen:
             for k, v in fails(defs, defs[n], seen).items():
                 out.setdefault(k, v)
+        elif n in getattr(defs, "handlers", {}):          # an assumed handler can refuse too
+            for s in defs.handlers[n].needs:
+                out.setdefault(s[2], [_arg_type(a, defs.handlers[n]) for a in s[3]])
     return out
 
 

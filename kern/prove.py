@@ -9,7 +9,7 @@ import itertools
 import z3
 
 from .infer import ANY_ACCOUNT, callees, fails, ledger_writes, lifted, relevant_states, state_writes, uses, writes
-from .run import channel_op, emit_channels, state_op
+from .run import assumed_op, channel_op, emit_channels, state_op
 from .run import Interp, World
 from .syntax import code, emit_code, flat
 
@@ -138,6 +138,16 @@ class Prover:
         if channel_op(self.defs, name):
             S.append(channel_op(self.defs, name), [a[0] if isinstance(a[0], tuple) else ("opaque", name)])
             return None
+        h = assumed_op(self.defs, name)
+        if h:                                    # an observation: any value its assumed spec allows,
+            env = {p: v for (p, _), v in zip(h.params, a)}       # a fresh one per call
+            for n in h.needs:
+                self.refusal_point(self.sev(n[1], env, S))
+            r = fresh_int(name.replace(".", "_"))
+            for c in h.ensures:
+                self.pc.append(self.sev(c, dict(env, result=r), S, S))
+            self.relied_on.add(f"assumed {name}")
+            return r
         st = state_op(self.defs, name)
         if st:
             if st[1] == "get":
@@ -226,6 +236,8 @@ class Prover:
     def refuses_beyond_spec(self, d):
         """Can `d` refuse other than through its spec needs? (a body need, or a callee that refuses)"""
         return any(s[0] == "need" for s in flat(d.body)) or \
+            any(n in getattr(self.defs, "handlers", {}) and self.defs.handlers[n].needs
+                for n in __import__("kern.infer", fromlist=["called_names"]).called_names(d)) or \
             any(fails(self.defs, self.defs[c]) for c in callees(self.defs, d))
 
     def refusal_point(self, cond):
@@ -379,9 +391,10 @@ class Prover:
                 chans |= {u for u in uses(self.defs, callee) if u == "audit" or u in getattr(self.defs, "channels", [])}
         return acc, ranged, full - ranged, chans
 
-    def _havoc(self, S, eff, env, lo, K):
+    def _havoc(self, S, eff, env, lo, K, empty=None):
         """A state after some iterations: written stores fresh, maps written at the loop key equal
-        to S outside [lo, K) (the inferred frame). Returns (state, axioms)."""
+        to S outside [lo, K) (the inferred frame). With `empty` (no iteration ran), everything equals S.
+        Returns (state, axioms)."""
         acc, ranged, full, _ = eff
         H, ax = S.copy(), []
         for a in acc:
@@ -396,6 +409,9 @@ class Prover:
             if x in ranged:
                 j = z3.Int(f"j_{next(_fresh)}")
                 ax.append(z3.ForAll([j], z3.Implies(z3.Or(j < lo, j >= K), z3.Select(H.maps[x], j) == z3.Select(S.maps[x], j))))
+        if empty is not None:                      # a loop that never ran changed nothing
+            same = [H.bal == S.bal, H.total == S.total] + [H.maps[x] == S.maps[x] for x in ranged | full]
+            ax.append(z3.Implies(empty, z3.And(*same)))
         return H, ax
 
     def _inv(self, invs, var, kval, env, S):
@@ -441,7 +457,7 @@ class Prover:
             p.opaque += q.opaque[n_opq:]
         # after the loop
         K = z3.If(hi >= lo, hi, lo)
-        A, ax = self._havoc(p.S, eff, p.env, lo, K)
+        A, ax = self._havoc(p.S, eff, p.env, lo, K, empty=hi <= lo)
         p.pc += ax + self._inv(invs, var, K, p.env, A) + [g for _, g in self._module_invs_over(stores, A)]
         for ch in eff[3]:                          # events inside a loop are not described yet
             A.append(ch, [("opaque", "a loop")])
@@ -521,9 +537,13 @@ class Prover:
                 goals.append(("emit", emits if ch == "audit" else ("channel", ch, emits), text,
                               [(g, pc) for (g, _), pc in emit_cases]))
         vacuous = self.vacuity(paths)
-        if vacuous:
-            out = [{"kind": kind, "expr": c, "clause": text, "status": "vacuous", "reason": vacuous}
-                   for kind, c, text, _ in goals]
+        if vacuous:                                # loop goals have premises of their own: still solved
+            if self.loop_goals:
+                vacuous = ("no input gets past a loop: its invariants can't all hold when it ends "
+                           "(see the loop's own goals)")
+            out = [self.solve(d, kind, c, text, cases, params, pre) if kind == "loop" else
+                   {"kind": kind, "expr": c, "clause": text, "status": "vacuous", "reason": vacuous}
+                   for kind, c, text, cases in goals]
             out += [dict(u, status="vacuous", reason=vacuous) for u in unknowable]
             return out, sorted(self.relied_on)
         for kind, c, text, cases in goals:
@@ -588,12 +608,23 @@ class Prover:
         if cx["confirmed_by_interpreter"]:
             return cx
         if any("forall" in a.sexpr() for a in nice.assertions()):
-            return cx                              # Z3 can't optimise over quantified constraints
+            # Z3 can't optimise over quantified constraints: try a few other models instead, each
+            # differing from the last in its parameters, until one replays
+            m = nice.model()
+            for _ in range(4):
+                nice.add(z3.Or(*[params[p] != m.eval(params[p], model_completion=True) for p, _ in d.params]))
+                if nice.check() != z3.sat:
+                    break
+                m = nice.model()
+                cx2 = self.render_cex(d, m, params, pre, kind)
+                if cx2["confirmed_by_interpreter"]:
+                    return cx2
+            return cx
         opt = z3.Optimize()
         opt.add(*nice.assertions())
-        for p, t in d.params:
-            if t == "Account":
-                opt.maximize(z3.Select(pre.bal, params[p]))
+        for p, t in d.params:                      # a refusal is likeliest with little money; a broken
+            if t == "Account":                     # guarantee with plenty (callee bodies rarely refuse)
+                (opt.minimize if kind == "ok" else opt.maximize)(z3.Select(pre.bal, params[p]))
             else:
                 opt.minimize(params[p])
         if opt.check() == z3.sat:
@@ -650,7 +681,12 @@ class Prover:
         after_src += "".join(f" {x}.{k}:{after.maps.get(x, {}).get(k, 0)}" for x, k in keys
                              if after.maps.get(x, {}).get(k, 0) != maps.get(x, {}).get(k, 0))
         out_src = "ok" if outcome == ("ok",) else " ".join([outcome[0], *map(str, outcome[1])])
-        if kind == "ok":                           # it must refuse although the spec needs hold
+        if kind == "loop":                         # replay with the loop invariants checked at each head
+            interp.check_loops = True
+            outcome, after = interp.run(d.name, args, before.copy())
+            violated = bool(interp.loop_violations) or (outcome == ("ok",) and interp.broken_invariants(after)
+                                                        and not interp.broken_invariants(before))
+        elif kind == "ok":                         # it must refuse although the spec needs hold
             violated = interp.unstated_refusal(d, args, before, outcome)
         elif kind == "invariant":                  # it held before (at these keys) and not after
             violated = outcome == ("ok",) and interp.broken_invariants(after) and not interp.broken_invariants(before)
