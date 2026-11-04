@@ -44,7 +44,7 @@ create table if not exists account(name text primary key, balance integer not nu
 create table if not exists cell(state text not null, key text not null, value integer not null,
                                 primary key(state, key));
 create table if not exists log(seq integer primary key, name text not null, args text not null,
-                               now integer not null, outcome text not null);
+                               now integer not null, outcome text not null, observed text not null default '[]');
 create table if not exists outbox(seq integer primary key, call integer not null, event text not null,
                                   delivered integer not null default 0, channel text not null default 'audit');
 """
@@ -299,15 +299,23 @@ def _ordered_events(world, defs):
 
 class Host:
     def __init__(self, defs, db=":memory:", clock=None, sinks=None, gate=True, channel_sinks=None,
-                 net=None, reports=None, endpoints=None):
+                 net=None, reports=None, endpoints=None, providers=None):
         self.defs = defs
-        self.interp = Interp(defs)
+        # assumed handlers (observations inside a call): a provider per handler, checked against the
+        # assumed spec on every call by the interpreter, and every value recorded for replay
+        self.providers = dict(DEFAULT_PROVIDERS if providers is None else providers)
+        missing = sorted(set(getattr(defs, "handlers", {})) - set(self.providers))
+        if missing:
+            raise ConfigError("the module declares " + ", ".join(missing) + ", which this host does not provide")
+        self.interp = Interp(defs, provider=lambda name, args: self.providers[name](args))
         self.clock = clock or (lambda: int(time.time()))
         self.sinks = [console_sink] if sinks is None else sinks             # the audit channel
         self.channel_sinks = {"console": [stdout_sink]} if channel_sinks is None else channel_sinks
         self.db = sqlite3.connect(db, isolation_level=None, check_same_thread=False)   # explicit transactions
         self.lock = threading.RLock()          # one top-level call at a time, as the proofs assume
         self.db.executescript(SCHEMA)
+        if "observed" not in [r[1] for r in self.db.execute("pragma table_info(log)")]:
+            self.db.execute("alter table log add column observed text not null default '[]'")
         cols = [r[1] for r in self.db.execute("pragma table_info(outbox)")]
         if "channel" not in cols:              # a database from before channels
             self.db.execute("alter table outbox add column channel text not null default 'audit'")
@@ -411,6 +419,7 @@ class Host:
         if self.gate and not self.reports[name]["clean"]:
             raise Unproven(name)
         now = self.clock()                               # the observation, read once per call
+        self.interp.observations = []
         self.db.execute("begin immediate")               # serialises calls, also across processes
         try:
             world = self.lazy()
@@ -433,8 +442,9 @@ class Host:
                             res["result"] = getattr(self.interp, "last_result", None)
                 else:
                     res = {"status": "refused", "refused": outcome[0], "args": list(outcome[1])}
-            seq = self.db.execute("insert into log(name, args, now, outcome) values(?,?,?,?)",
-                                  (name, json.dumps(list(args)), now, json.dumps(self._logged(res)))).lastrowid
+            seq = self.db.execute("insert into log(name, args, now, outcome, observed) values(?,?,?,?,?)",
+                                  (name, json.dumps(list(args)), now, json.dumps(self._logged(res)),
+                                   json.dumps(self.interp.observations))).lastrowid
             if res["status"] == "ok":
                 self._write_dirty(world)
                 for ch, ev in _ordered_events(world, self.defs):
@@ -487,9 +497,17 @@ class Host:
         g = self.db.execute("select v from meta where k='genesis'").fetchone()
         if not g:
             return ["no genesis world"]
-        w, interp, bad, events = self._undump(json.loads(g[0])), Interp(self.defs), [], []
-        for seq, name, args, now, logged in self.db.execute("select * from log order by seq").fetchall():
+        queue = []                                 # the recorded observations, in call order
+
+        def replayed(n, a):
+            if not queue or queue[0][0] != n or queue[0][1] != a:
+                raise RuntimeError(f"replay: {n} {a} was not the next recorded observation")
+            return queue.pop(0)[2]
+        w, interp, bad, events = self._undump(json.loads(g[0])), Interp(self.defs, provider=replayed), [], []
+        for seq, name, args, now, logged, observed in self.db.execute(
+                "select seq, name, args, now, outcome, observed from log order by seq").fetchall():
             logged = json.loads(logged)
+            queue[:] = json.loads(observed)
             if logged["status"] == "error":
                 continue
             snap = w.copy()
@@ -522,10 +540,19 @@ class Host:
         return out
 
 
+def _system_below(args):
+    import secrets
+    return secrets.randbelow(args[0])
+
+
+DEFAULT_PROVIDERS = {"rand.below": _system_below}   # assumed handlers this host can provide
+
 HOST_EFFECTS = {   # how this host realises each effect the module can name
     "ledger": "SQLite table `account`, one transaction per call",
     "clock": "wall clock, seconds; read once per call, recorded in `log`",
     "audit": "SQLite table `outbox`; delivered to stdout after commit (at-least-once)",
+    "rand": "assumed handler rand.below: the OS random source (secrets); every result checked against its "
+            "assumed spec and recorded in `log.observed` for replay",
     "console": "SQLite table `outbox` (channel console); one line per event on stdout after commit (at-least-once)",
     "net": "SQLite table `outbox` (channel net); each event is an HTTP request from the host config, sent "
            "after commit (at-least-once); the reply or failure arrives as a new top-level call",

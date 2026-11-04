@@ -35,6 +35,32 @@ def _store_kept(reports, store, exclude=None):
     return True
 
 
+def handler_sat(defs, h):
+    """Can an assumed handler's spec be met? ∀ args. needs → ∃ result. ensures. Returns
+    "satisfiable", "unsatisfiable" or "not checked" (Z3 gave no answer and sampling found nothing)."""
+    import z3
+    from .prove import Prover
+    pv = Prover(defs)
+    env = {p: z3.Int(p) for p, _ in h.params}
+    r = z3.Int("result")
+    needs = z3.And(*[z3.BoolVal(True)] + [pv.sev(n[1], env, None) for n in h.needs])
+    ens = z3.And(*[z3.BoolVal(True)] + [pv.sev(c, dict(env, result=r), None, None) for c in h.ensures])
+    s = z3.Solver()
+    s.set("timeout", 3000)
+    s.add(needs, z3.ForAll([r], z3.Not(ens)))          # some arguments with no possible result?
+    got = s.check()
+    if got == z3.unsat:
+        return "satisfiable"
+    if got == z3.sat:
+        return "unsatisfiable"
+    for vals in [(v,) * len(h.params) for v in (0, 1, 2, 5, 100)]:
+        s = z3.Solver()
+        s.add(*[env[p] == v for (p, _), v in zip(h.params, vals)], needs, z3.Not(z3.Exists([r], ens)))
+        if s.check() == z3.sat:
+            return "unsatisfiable"
+    return "not checked"
+
+
 def _clean(r):
     return all(g["status"] in ("proven", "assumed") for g in r["guarantees"]) and all(e["pass"] for e in r["examples"]) \
         and not r["props"]["violations"]
@@ -155,13 +181,20 @@ def analyse(defs, mutation=True, baseline=None, cache=None):
                 elif g["status"] == "unconfirmed" and weak:
                     g["status"], g["blocked_by"], g["via_broken_spec"] = "conditional", weak, True
                     changed = True
-    # ⊙ proven, assuming the declared spec of an observation (an assumed handler): not plain ✔
+    # ⊙ proven, assuming the declared spec of an observation (an assumed handler): not plain ✔.
+    # An assumption that can't be met would make every such proof vacuous: those are `!`.
+    sat = {n: handler_sat(defs, h) for n, h in getattr(defs, "handlers", {}).items()}
     for r in reports.values():
         assumed = sorted(_assumptions(reports, r))
-        if assumed:
-            for g in r["guarantees"]:
-                if g["status"] == "proven":
-                    g["status"], g["assuming"] = "assumed", assumed
+        r["assumptions"], r["handler_sat"] = assumed, sat
+        broken = [a for a in assumed if sat.get(a) == "unsatisfiable"]
+        for g in r["guarantees"]:
+            if g["status"] != "proven" or g["kind"] == "pre" or not assumed:
+                continue                      # a call-site need is about the caller's inputs
+            if broken:
+                g["status"], g["blocked_by"] = "conditional", [f"assumed {a}, whose spec can't be met" for a in broken]
+            else:
+                g["status"], g["assuming"] = "assumed", assumed
     # ◐ tested-only: no proof, but random tests reached success often enough and found nothing
     for r in reports.values():
         p = r["props"]

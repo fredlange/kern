@@ -332,8 +332,37 @@ def _walk_expr(e):
             yield from _walk_expr(a)
 
 
+def handler_problems(defs):
+    """An assumed spec may read only its arguments and `result`: anything else (ledger or state reads)
+    would let an assumption carry an unproven claim about owned state (kern-90)."""
+    out = []
+    for name, h in getattr(defs, "handlers", {}).items():
+        if h.ret != "Int":
+            out.append(f"handler {name}: must return Int (`-> Int`)")
+        if h.keeps or h.emits or h.examples or h.complete:
+            out.append(f"handler {name}: only `need` and `ensure` lines (an assumed spec)")
+        allowed = {p for p, _ in h.params} | {"result"}
+        for e in [n[1] for n in h.needs] + h.ensures:
+            for x in _walk_expr(e):
+                n = x[1] if x[0] == "name" else x[1][0] if x[0] == "app" else None
+                if n and n not in allowed and not n[:1].isupper() and n != "distinct":
+                    out.append(f"handler {name}: `{code(x)}`: an assumed spec may read only its arguments and `result`")
+        c = _Checker(defs, h)
+        for p, t in h.params:
+            if t not in PARAM_TYPES:
+                out.append(f"handler {name}: parameter type `{t}` is not supported")
+        scope = dict(h.params, result="Int")
+        for n in h.needs:
+            c.expect(code(n[1]), c.ty(n[1], scope, code(n[1]), spec=True), "Bool")
+        for e in h.ensures:
+            c.clause(e, scope, code(e))
+        out += c.out
+    return out
+
+
 def check_module(defs):
-    found = [p for d in defs.values() for p in problems(defs, d)] + cycles(defs) + invariant_problems(defs)
+    found = [p for d in defs.values() for p in problems(defs, d)] + cycles(defs) + invariant_problems(defs) + \
+        handler_problems(defs)
     if found:
         raise WellFormedError(found)
     return defs

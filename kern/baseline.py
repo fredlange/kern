@@ -25,9 +25,16 @@ def clauses(r):
 def refusals(r):
     """What a caller relies on about *when* the call refuses: the spec needs and the definition's
     own body-level conditions (inferred, `body need …`). Callees' conditions belong to the callees."""
-    from .syntax import stmt_code
+    from .syntax import code, stmt_code
     from .views import body_needs
-    return [stmt_code(n) for n in r["def"].needs] + body_needs(r)
+    out = [stmt_code(n) for n in r["def"].needs] + body_needs(r)
+    hs = getattr(r["defs"], "handlers", {})
+    for a in r.get("assumptions", []):               # a proof that rests on an assumed spec
+        h = hs.get(a)
+        if h:
+            out += [f"need assumes {a}: {stmt_code(n)}" for n in h.needs] + \
+                   [f"need assumes {a}: ensure {code(c)}" for c in h.ensures]
+    return out
 
 
 def write(path, reports):

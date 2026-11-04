@@ -7,7 +7,7 @@ import html
 
 from .infer import fails as inferred_fails
 from .infer import fmt_writes
-from .syntax import flat, negate
+from .syntax import code, flat, negate
 from .views import EFFECTS, en, en_emits, en_ensure, en_refusal, guarded_needs, lets_of, unguaranteed_writes
 
 ICON = {"proven": "✔", "refuted": "✗", "conditional": "!", "unknown": "?", "unconfirmed": "?",
@@ -32,7 +32,7 @@ def _status(r):
         return "warn", "Not proven: counterexample not reproduced"
     if any(g["status"] == "tested" for g in gs):
         return "warn", "Tested only, not proven"
-    if any(g["status"] != "proven" for g in gs):
+    if any(g["status"] not in ("proven", "assumed") for g in gs):
         return "warn", "Not proven: prover gave no answer"
     assumed = sorted({a for g in gs for a in g.get("assuming", [])})
     if assumed:
@@ -265,15 +265,38 @@ def host_html(host):
 
 
 def page(reports, whys, title, orphans=None, host=None):
-    cards = "\n".join(card(r, whys[n]) for n, r in reports.items()) + _orphan_html(orphans) + host_html(host)
+    lines = assumption_lines(reports)
+    top = ("<section class='card'><h2>Assumptions</h2><p class='muted'>Observations this module rests on. "
+           "Guarantees marked ⊙ are proven <em>assuming</em> these specs; the prover can't check them, the "
+           "host checks them on every call.</p><ul>" +
+           "".join(f"<li><code>{html.escape(h)}</code>: <code>{html.escape(sp)}</code> "
+                   f"<span class='{'failc' if sat == 'unsatisfiable' else 'muted'}'>(spec {html.escape(sat)})</span></li>"
+                   for _, h, sp, sat in lines) + "</ul></section>") if lines else ""
+    cards = top + "\n".join(card(r, whys[n]) for n, r in reports.items()) + _orphan_html(orphans) + host_html(host)
     return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>Kern proof: {html.escape(title)}</title><style>{CSS}</style></head><body><main>"
             f"<h1>Proof page · {html.escape(title)}</h1><p class='sub'>Generated from verifier results by fixed templates — "
             f"no text here was written by a model.</p>{cards}</main></body></html>")
 
 
+def assumption_lines(reports):
+    """The assumed handlers the module rests on, with their specs and whether they can be met."""
+    r = next(iter(reports.values()), None)
+    if r is None:
+        return []
+    out = []
+    for name, h in getattr(r["defs"], "handlers", {}).items():
+        spec = "; ".join([f"need {code(n[1])}" for n in h.needs] + [f"ensure {code(c)}" for c in h.ensures])
+        out.append((name, h.src_lines["header"][0], spec, r.get("handler_sat", {}).get(name, "not checked")))
+    return out
+
+
 def terminal(reports, whys, orphans=None):
     out = []
+    for name, header, spec, sat in assumption_lines(reports):
+        out.append(f"ASSUMES {header[len('handler '):]}: {spec}   (spec {sat}; the host provides it and checks it on every call)")
+    if out:
+        out.append("")
     for n, r in reports.items():
         cls, label = _status(r)
         out.append(f"{n} [{r['hash']}]  {label}")

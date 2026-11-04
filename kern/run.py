@@ -182,9 +182,9 @@ class Interp:
         h = assumed_op(self.defs, name)
         if h:                                   # an observation: a provider supplies it, its spec is checked
             env = {p: a for (p, _), a in zip(h.params, args)}
-            for n in h.needs:
+            for n in h.needs:                   # a precondition the caller had to prove: not a refusal
                 if not self.ev(n[1], env, world):
-                    raise Fail(n[2], [self.ev(a, env, world) for a in n[3]])
+                    raise KernError(f"need of {name} not met: {code(n[1])}")
             value = self.provider(name, list(args))
             env["result"] = value
             for c in h.ensures:

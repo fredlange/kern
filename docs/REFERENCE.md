@@ -53,6 +53,7 @@ body
 | `state NAME Int` or `state NAME Account` | a map to Int (default 0): `NAME.get k` (specs may read it), `NAME.set k v` |
 | `invariant x:Type COND` | COND holds for every key, before and after every call. It may read state only at `x` |
 | `channel NAME` | another output stream: `NAME.emit (Ev …)` |
+| `handler a.b p:Int -> Int`, then `need` and `ensure` lines (no body) | an observation inside a call, such as `rand.below n`. Its spec is *assumed*: it may read only its arguments and `result`. Its `need`s are preconditions every call must meet. The host provides the value and checks the spec at runtime |
 
 **States:** an unprimed read is the state before the call. A primed read (`ledger.balance' a`,
 `NAME.get' k`) is the state the clause is about: after the call in `ensure`, at the start of
@@ -89,7 +90,8 @@ Every guarantee gets an icon:
 - `?` no proof (unconfirmed counterexample, or no answer);
 - `!` proven, but relies on a callee that isn't;
 - ◐ held in random tests only;
-- ∅ the call can never succeed.
+- ∅ the call can never succeed;
+- ⊙ proven, assuming a handler's declared spec.
 
 Each definition gets one status:
 

@@ -1530,3 +1530,109 @@ def test_probe_p7_kept_goals_rest_on_the_refuted_invariant_and_vacuity_names_the
     kept = [g for g in r["guarantees"] if "(kept by every iteration)" in g["clause"]]
     assert kept and all(g["status"] != "proven" for g in kept)
     assert all("loop" in g["reason"] for g in r["guarantees"] if g["status"] == "vacuous")
+
+
+# =====================================================================================
+# Roadmap run S5: handlers declared in Kern with assumed specs (docs/ROADMAP_RUN.md)
+# =====================================================================================
+
+RAFFLE = open("examples/raffle.k").read()
+
+
+def test_s5_raffle_is_clean_and_assumed_guarantees_are_marked():
+    defs, reps = analysed(RAFFLE)
+    assert all(r["clean"] for r in reps.values())
+    gs = reps["draw_winner"]["guarantees"]
+    assert {g["status"] for g in gs if g["kind"] != "pre"} == {"assumed"}
+    assert render._status(reps["draw_winner"]) == ("ok", "Proven, assuming rand.below")
+    out = render.terminal(reps, no_whys(defs))
+    assert out.startswith("ASSUMES rand.below n:Int -> Int") and "⊙ ensure ledger.balance' pot" in out
+    assert "<h2>Assumptions</h2>" in render.page(reps, no_whys(defs), "raffle")
+
+
+def test_s5_a_weaker_assumption_cannot_prove_what_needs_the_stronger_one():
+    """pick_order's `picked < hi` needs `result < n`. (draw_winner's pot guarantee turned out not to
+    need it: its else-branch pays for any result >= 2. Recorded in docs/ROADMAP_RUN.md.)"""
+    defs, reps = analysed(RAFFLE.replace("  ensure result >= 0 and result < n\n", "  ensure result >= 0\n"))
+    g = [g for g in reps["pick_order"]["guarantees"] if g["clause"].startswith("picked.get' 0")][0]
+    assert g["status"] not in ("proven", "assumed")
+    pot = [g for g in reps["draw_winner"]["guarantees"] if g["clause"].startswith("ledger.balance' pot")][0]
+    assert pot["status"] == "assumed"
+
+
+def test_s5_two_draws_may_differ():
+    defs, reps = analysed(RAFFLE + """
+twice to:Account
+  ensure ledger.balance' to = ledger.balance to
+body
+  a = rand.below 5
+  b = rand.below 5
+  ledger.credit to (a - b)
+""")
+    assert reps["twice"]["guarantees"][0]["status"] not in ("proven", "assumed")
+
+
+def test_s5_a_provider_that_breaks_the_assumed_spec_is_a_fault():
+    defs = check_module(parse_module(RAFFLE))
+    w = World({"P": 100, "A": 0, "B": 0, "C": 0}, {k: "u" for k in "PABC"})
+    with pytest.raises(KernError, match="broke its assumed spec"):
+        Interp(defs, provider=lambda n, a: 7).run("draw_winner", ["P", "A", "B", "C", 30], w)
+    assert w.bal["P"] == 100                                             # atomic
+
+
+def test_s5_handler_need_is_a_call_site_precondition_not_a_refusal():
+    src = RAFFLE.replace("  k = lo + rand.below (hi - lo)\n", "  k = lo + rand.below (hi - lo - 5)\n")
+    defs, reps = analysed(src)
+    pre = [g for g in reps["pick_order"]["guarantees"] if g["kind"] == "pre"][0]
+    assert pre["status"] == "refuted" and pre["counterexample"]["confirmed_by_interpreter"]
+    assert "BadBound" not in fails(defs, defs["pick_order"])
+
+
+@pytest.mark.parametrize("spec,msg", [("  ensure result <= ledger.balance n\n", "only its arguments"),
+                                      ("  ensure result = hold.get n\n", "only its arguments")])
+def test_s5_assumed_specs_read_only_args_and_result(spec, msg):
+    with pytest.raises(WellFormedError, match=msg):
+        check_module(parse_module("state hold Int\n\nhandler rand.below n:Int -> Int\n" + spec))
+
+
+def test_s5_an_unsatisfiable_assumption_makes_callers_not_proven():
+    defs, reps = analysed(RAFFLE.replace("  ensure result >= 0 and result < n\n", "  ensure result >= n and result < n\n"))
+    assert reps["draw_winner"]["handler_sat"]["rand.below"] == "unsatisfiable"
+    assert all(g["status"] not in ("proven", "assumed") for g in reps["draw_winner"]["guarantees"] if g["kind"] != "pre")
+
+
+def test_s5_the_ratchet_sees_a_changed_assumption(tmp_path):
+    reps = _against_baseline(RAFFLE, RAFFLE.replace("ensure result >= 0 and result < n", "ensure result >= 0 and result <= n"), tmp_path)
+    assert any(x.startswith("spec changed") and "assumes rand.below" in x for x in reps["draw_winner"]["regression"])
+
+
+def test_s5_host_records_draws_and_replays_them():
+    import json
+    from kern.host import ConfigError, Host
+    defs = check_module(parse_module(RAFFLE))
+    rng = random.Random(3)
+    h = Host(defs, ":memory:", clock=iter(range(1, 10**6)).__next__, sinks=[],
+             providers={"rand.below": lambda a: rng.randrange(a[0])})
+    h.init("P:100000@u0 A:0@u1 B:0@u2 C:0@u3")
+    for i in range(200):
+        h.call("draw_winner", ["P", "A", "B", "C", 1 + i % 7])
+        h.call("pick_order", [i, i + 1 + i % 4])
+    assert h.replay() == []
+    obs = [json.loads(o) for (o,) in h.db.execute("select observed from log")]
+    assert all(len(o) == 1 and o[0][0] == "rand.below" for o in obs)
+    with pytest.raises(ConfigError, match="does not provide"):
+        Host(defs, ":memory:", sinks=[], providers={})
+
+
+def test_probe_tiers_record():
+    """With KERN_PROBE_DUMP=path, record every probe goal's tier (the S4 fix-up order check runs the
+    suite in three orders and compares these files)."""
+    import json
+    import os
+    path = os.environ.get("KERN_PROBE_DUMP")
+    tiers = {p: [(g["kind"], g["clause"], g["status"]) for g in _probe(p)["guarantees"]]
+             for p in ("p1", "p2", "p3", "p4", "p5", "p6", "p7")}
+    if path:
+        with open(path, "w") as f:
+            json.dump(tiers, f, indent=1)
+    assert tiers

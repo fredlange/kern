@@ -477,3 +477,76 @@ Also the S2 digest is unchanged, and batch.k stays clean.
 
 **Floors:** the S2 digest is still `3cb0e5efa3b63fb8`, batch.k is clean, and the suite runs
 green twice in a row (288 passed, 1 skipped, 2 xfailed).
+
+**S5, added after kern-90's review.** Part of the S5 code existed already: parsing, the
+provider, the ⊙ tier. These conditions were frozen before it was finished or measured.
+
+8. **A handler `need` is a precondition the caller must prove at each call** (its own goal,
+   ✗ or ? when it can fail). At runtime a violation is an error, not a refusal, and is not
+   among the inferred failures.
+9. **An assumed spec may read only its arguments and `result`.** Ledger or state reads are
+   rejected (no unproven frame or guarantee can hide in an assumption).
+10. **Satisfiability:** ∀ args. needs → ∃ result. ensures is checked. If it's unsatisfiable,
+    callers relying on it are not ✔ (`!` "its spec can't be met"). If Z3 can't decide, the
+    page says "not checked".
+11. **The ratchet sees assumptions:** changing a handler's assumed spec shows SPEC CHANGED in
+    every definition that relies on it.
+12. **The host** logs every draw in call order, replays from the log, refuses at startup a
+    handler it can't provide, and the manifest lists `rand`.
+13. **The page and terminal list the module's assumptions at the top,** each with its
+    satisfiability status.
+
+### S4 fix-up, part 2: tiers must not depend on test order (kern-90's audit of checkpoint 04)
+
+The p2 tier flipped between ✗ and `!` with earlier solver calls in the same process: it failed
+under `pytest -k probe`, which imports test_host.py, and passed alone.
+
+The cause: p2 writes at `k + 1`, which the loop analysis treated as "any key". The whole map was
+havocked, so Z3 offered witnesses at far-away keys that a real run can't reach (`other = 998`
+with lo=0, hi=1). Which witness came first depended on solver history.
+
+**Changes:**
+1. **A write at the loop key plus a constant** (`k + c`) gets a shifted frame inside the loop
+   (keys outside [lo+c, k+c) unchanged), so it's precise.
+2. **A small-world attempt first** for quantified goals (integer parameters in 0..5), then up to
+   8 alternative models.
+
+**Pass condition (frozen before the change):** the tier of every probe goal (p1–p7) is identical
+under three orders: the whole suite in default order; the test files in reverse order; and the
+probe file alone.
+
+**Result: pass.** The tiers of all probe goals are identical across four orders:
+- the whole suite;
+- the test files reversed;
+- the probe file alone;
+- `pytest -k probe` over all files, which failed before the change.
+
+The suite is green in both full orders (299 passed, 1 skipped, 2 xfailed), and the S2 digest is
+unchanged.
+
+**p7's remaining ✔ (dated note, 2026-11-04).** kern-90 agrees it's honest: "module invariant
+holds when the loop starts" is true and independent of the false loop invariant. The frozen
+condition "nothing ✔" stays as written and is reported as **failed as written**. It was
+over-strict, but it isn't edited (rule 1).
+
+### S5 results
+
+| # | condition | result |
+|---|---|---|
+| 1 | raffle.k is clean; guarantees resting on `rand.below` are marked | **pass.** Status "Proven, assuming rand.below"; ⊙ on each guarantee; `ASSUMES …` at the top of the terminal output and an "Assumptions" section on the page |
+| 2 | a guarantee needing more than the assumed spec isn't provable | **pass for the mechanism, wrong about the example.** pick_order's `picked < hi` is not provable with `ensure result >= 0` only, and two draws may differ (`a - b = 0` isn't provable). But I had claimed draw_winner's pot guarantee needs `result < 3`, and it doesn't: its `else` branch pays for any result ≥ 2. That claim was wrong, and the test now says so |
+| 3 | a provider breaking the assumed spec is caught | **pass:** a provider returning 7 for `rand.below 3` raises "broke its assumed spec", and the world is unchanged (atomic) |
+| 4 | host replay is deterministic | **pass:** 400 host calls with a seeded provider; every draw is in `log.observed` in call order, and `replay()` is clean |
+| 5 | the manifest lists the handler | **pass:** `rand: assumed handler rand.below: the OS random source …` |
+| 6 | floors | **pass:** S2 digest `3cb0e5efa3b63fb8` |
+| 7 | docs | **pass:** REFERENCE.md is 2,126 tokens; GUIDE.md covers the host part |
+| 8 | handler `need` = call-site precondition | **pass:** `rand.below (hi - lo - 5)` gives ✗ on the call-site goal, with a replaying `eg` ("error: need of rand.below not met"); `BadBound` isn't among pick_order's failures |
+| 9 | assumed specs read only args and `result` | **pass:** `ledger.balance n` and `hold.get n` in a handler spec are rejected |
+| 10 | satisfiability | **pass:** `result >= n and result < n` → "unsatisfiable", and every caller's guarantee is `!` "its spec can't be met" |
+| 11 | the ratchet sees assumptions | **pass:** changing `< n` to `<= n` gives SPEC CHANGED in draw_winner ("need assumes rand.below: …") |
+| 12 | host: log, replay, refuse unprovided | **pass:** a host with no provider for `rand.below` refuses to start (ConfigError) |
+| 13 | assumptions at the top | **pass** (see 1) |
+
+**Coarseness to know about:** ⊙ marks *every* proven guarantee of a definition that reaches an
+assumed handler, not only those whose proof needed it. That's conservative; precise marking
+would need a re-proof without the assumption.

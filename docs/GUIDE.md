@@ -105,6 +105,10 @@ say so instead.
   served. HTTP status codes: ok → 200, refused → 409, bad call → 400, unproven → 403, broken
   invariant → 500.
 - **Delivery is at-least-once,** so consumers dedupe on `seq`.
+- **Assumed handlers** (`handler rand.below …`):
+  - the host must provide each one, or it refuses to start;
+  - every value is checked against the assumed spec, and a violation is an atomic error;
+  - every value is recorded in `log.observed`, so `replay` feeds the same values back.
 - **Network replies arrive as new calls.** Details are in docs/HOST.md.
 
 ## The MCP server: working through views
