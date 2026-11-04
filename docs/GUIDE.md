@@ -129,6 +129,7 @@ Examples: `examples/shop/`, `examples/library/`, `examples/lottery/` (each with 
 | `--db X.db` | the SQLite database (default in memory) |
 | `--world WORLD` | the genesis world (only on a new database) |
 | `--port N` | `serve` |
+| `--bind ADDR` | `serve`: the address to listen on (default `127.0.0.1`; `0.0.0.0` inside a container) |
 | `--no-gate` | also serve definitions that aren't proven clean (the invariants are still checked at runtime) |
 | `--config FILE.host` | the network endpoints (default `FILE.host` next to the module) |
 | `--skip-proven` | skip the per-call invariant check for definitions whose invariant goals are all proven ✔ (the manifest says which). Off by default: the check is on for every definition until the loop and handler fuzzer has run clean (decided 2026-11-04) |
@@ -143,7 +144,9 @@ Examples: `examples/shop/`, `examples/library/`, `examples/lottery/` (each with 
   - the host must provide each one, or it refuses to start;
   - every value is checked against the assumed spec, and a violation is an atomic error;
   - every value is recorded in `log.observed`, so `replay` feeds the same values back.
-- **Network replies arrive as new calls.** Details are in docs/HOST.md.
+- **Network replies arrive as new calls.** `serve` and `repl` send a call's requests after it commits, then run
+  each reply (or failure) as its own logged call; `repl` prints them as `reply NAME ARGS -> ok`. Details are in
+  docs/HOST.md.
 
 ## The MCP server: working through views
 
@@ -191,16 +194,20 @@ package, so a plain `pip install` of a wheel can't build.
 - **`FILE.k`:** the module.
 - **`kern.pkg`:** marks a package root (it may be empty). In a package, the `.why` and `.strength`
   files are per package: `<root>/kern.why` and `<root>/kern.strength`.
-- **`FILE.why`:** rationale, never obligations. Each block is a definition anchored to its
-  build hash, followed by indented entries:
+- **`FILE.why`:** rationale, never obligations. Each block is a definition name and its
+  *interface anchor*, followed by indented entries:
 
   ```text
   transfer@4be917d8
     Insufficient carries the shortfall so support can tell the customer how much is missing
   ```
 
-  An entry goes stale when the definition or its inferred interface changes. An entry that
-  reads like a rule ("must …") is flagged: move it into the spec.
+  The anchor hashes the build hash together with the inferred interface (uses, fails, writes,
+  lifted refusals), so it is not the build hash `check` prints. Write any placeholder
+  (`transfer@new`) and run `kern anchor FILE.k`; `kern why` shows both anchors when they differ.
+  An entry goes stale when the definition or its inferred interface changes. A line at column 0
+  that isn't `name@anchor` is an error. An entry that reads like a rule ("must …") is flagged:
+  move it into the spec.
 - **`FILE.strength`:** the ratchet baseline, written by `kern baseline`. Don't edit it by hand.
 - **`FILE.host`** (in a package, `<root>/kern.host`): one line per network request constructor:
 

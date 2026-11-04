@@ -672,6 +672,24 @@ def repl(host, lines=None, out=print):
         else:
             out(f"error: {r['error']}")
         host.flush()
+        _run_replies(host, out)
+
+
+def _run_replies(host, out=None):
+    """Run network replies as new calls (after the request's call has committed and its events went out), and
+    report each one. Used by `repl` and `serve`; a reply to an unproven definition is skipped, as any call is."""
+    try:
+        results = host.pump()
+    except Unproven as e:
+        if out:
+            out(f"error: reply {e} is not proven clean; this host does not run it")
+        return []
+    for name, args, r in results:
+        if out:
+            said = "ok" if r["status"] == "ok" else (" ".join(["refused", r["refused"], *map(str, r["args"])])
+                                                    if r["status"] == "refused" else f"error: {r['error']}")
+            out(f"reply {' '.join(map(str, [name, *args]))} -> {said}")
+    return results
 
 
 # --- the network: POST /NAME with a JSON object of named parameters
@@ -720,15 +738,16 @@ def make_handler(host):
                 return self._send(500, {"error": f"host: {type(e).__name__}: {e}"})
             self._send(500 if r.get("fault") == "module" else STATUS[r["status"]], r)   # ○ tier fired
             host.flush()                                          # after commit, after the reply
+            _run_replies(host)                                    # network replies arrive as new calls
     return H
 
 
-def serve(host, port=8080, ready=None):
-    srv = HTTPServer(("127.0.0.1", port), make_handler(host))    # single-threaded: calls are serial
+def serve(host, port=8080, ready=None, bind="127.0.0.1"):
+    srv = HTTPServer((bind, port), make_handler(host))           # single-threaded: calls are serial
     if ready:
         ready(srv)
     else:
-        print(f"serving on http://127.0.0.1:{srv.server_address[1]}", flush=True)
+        print(f"serving on http://{bind}:{srv.server_address[1]}", flush=True)
     srv.serve_forever()
 
 
@@ -740,6 +759,7 @@ def main(argv=None):
     ap.add_argument("--db", default=":memory:")
     ap.add_argument("--world")
     ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument("--bind", default="127.0.0.1", help="serve: the address to listen on (0.0.0.0 in a container)")
     ap.add_argument("--no-gate", action="store_true", help="also serve definitions that are not proven clean")
     ap.add_argument("--config", help="host config (endpoints); default FILE.host next to the module")
     ap.add_argument("--skip-proven", action="store_true",
@@ -780,11 +800,13 @@ def main(argv=None):
         return 1 if bad else 0
     elif a.cmd == "repl":
         host.flush()                         # anything left undelivered by a crash goes out first
+        _run_replies(host, print)
         repl(host)
     else:
         host.flush()
+        _run_replies(host)
         try:
-            serve(host, a.port)
+            serve(host, a.port, bind=a.bind)
         except KeyboardInterrupt:
             pass
     return 0

@@ -433,6 +433,59 @@ def test_real_http_reply_and_failure():
         srv.shutdown()
 
 
+
+def _risk_server():
+    """A local risk service: /limit/A answers {"value": 300}, anything else a 500."""
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Risk(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body, code = (b'{"value": 300}', 200) if self.path == "/limit/A" else (b"no", 500)
+            self.send_response(code)
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+    srv = HTTPServer(("127.0.0.1", 0), Risk)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_serve_runs_network_replies():
+    """kern-44's R2: under `serve`, a request's reply runs as a new call; before, it waited in the inbox forever."""
+    from http.server import HTTPServer
+    risk = _risk_server()
+    h = limits_host(None, port=risk.server_address[1])
+    srv = HTTPServer(("127.0.0.1", 0), make_handler(h))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        for a in ("A", "B"):
+            req = urllib.request.Request(f"{base}/request_limit", json.dumps({"a": a}).encode(), method="POST")
+            with urllib.request.urlopen(req) as r:
+                assert r.status == 200
+        with urllib.request.urlopen(f"{base}/state") as r:             # served after the replies ran
+            st = json.loads(r.read())["state"]
+        assert st["limit"] == {"A": 300} and st["pending"] == {"A": 0, "B": 0}
+        names = [row[0] for row in h.db.execute("select name from log order by seq")]
+        assert names[-4:] == ["request_limit", "got_limit", "request_limit", "limit_failed"]
+        assert h.replay() == []
+    finally:
+        srv.shutdown()
+        risk.shutdown()
+
+
+def test_repl_runs_network_replies_and_says_so():
+    risk = _risk_server()
+    try:
+        h, out = limits_host(None, port=risk.server_address[1]), []
+        repl(h, ["request_limit A", "request_limit B", "withdraw A K 200"], out=out.append)
+        assert out == ["ok", "reply got_limit A 1 300 -> ok", "ok", "reply limit_failed B 1 -> ok", "ok"]
+    finally:
+        risk.shutdown()
+
 # --- item 8: crash recovery (a real process, killed with SIGKILL during a flush)
 
 CHILD = r"""

@@ -120,6 +120,8 @@ python -m kern.host replay   examples/escrow/escrow_s2.k --db e.db
 - **Replies are calls.** After commit, `flush` sends each request. `pump` runs whatever comes back
   as an ordinary logged top-level call, so replay covers it. Kern never sees bytes: a timeout, a
   non-2xx status or a non-Int becomes the `fail` call.
+  `serve` and `repl` pump after every call (before 2026-11-04 only the Python API did, so under `serve` a
+  reply never ran and its request stayed pending).
 - **Simulation:** `SimNet` is seeded. It drops, duplicates, delays or fails each reply, and
   `release()` lets held-back replies go in a random order.
 - **The page:** `python -m kern.host page FILE.k --html X` writes the proof page plus a Host
