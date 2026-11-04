@@ -299,7 +299,7 @@ def _ordered_events(world, defs):
 
 class Host:
     def __init__(self, defs, db=":memory:", clock=None, sinks=None, gate=True, channel_sinks=None,
-                 net=None, reports=None, endpoints=None, providers=None):
+                 net=None, reports=None, endpoints=None, providers=None, paranoid=False):
         self.defs = defs
         # assumed handlers (observations inside a call): a provider per handler, checked against the
         # assumed spec on every call by the interpreter, and every value recorded for replay
@@ -322,6 +322,10 @@ class Host:
         # Verification licenses running: only clean definitions are served (gate=False serves all).
         self.reports = reports or analyse(defs, mutation=False)
         self.gate = gate
+        # Proven checks removed: a definition whose invariant goals are all ✔ can't break an invariant
+        # (unless the database is edited outside Kern: `paranoid` keeps every runtime check on).
+        self.paranoid = paranoid
+        self.invariant_proven = {n: self._invariants_proven(r) for n, r in self.reports.items()}
         # The network is policy: every request the module can send needs a configured endpoint,
         # checked now, at startup (endpoints=None with net requests in the module is refused too).
         reqs = net_requests(defs)
@@ -332,6 +336,15 @@ class Host:
         if reqs and self.net is None:
             self.net = HttpNet(self.endpoints)
         self.inbox = []                        # replies waiting to become top-level calls
+
+    @staticmethod
+    def _invariants_proven(r):
+        goals = [g for g in r["guarantees"] if g["kind"] == "invariant" or
+                 (g["kind"] == "loop" and g["clause"].startswith("module invariant"))]
+        return bool(goals) and all(g["status"] == "proven" for g in goals)
+
+    def runtime_check_skipped(self, name):
+        return not self.paranoid and self.invariant_proven.get(name, False)
 
     # --- the world in SQLite
     def init(self, world_src):
@@ -431,7 +444,8 @@ class Host:
             else:
                 if outcome == ("ok",):
                     # tier ○, checked at runtime: at the keys this call wrote (sound: wf.invariant_problems)
-                    broken = self.interp.broken_invariants(world, world.written_keys())
+                    broken = [] if self.runtime_check_skipped(name) else \
+                        self.interp.broken_invariants(world, world.written_keys())
                     if broken:
                         res = {"status": "error", "fault": "module", "error": f"invariant broken: {broken[0][0]} at {broken[0][1]}"}
                     else:
@@ -536,7 +550,8 @@ class Host:
             gs = r["guarantees"]
             out[n] = {"params": [f"{p}:{t}" for p, t in d.params], "uses": sorted(uses(self.defs, d)),
                       "fails": sorted(fails(self.defs, d)), "served": r["clean"] or not self.gate,
-                      "proven": f"{sum(g['status'] == 'proven' for g in gs)}/{len(gs)}"}
+                      "proven": f"{sum(g['status'] == 'proven' for g in gs)}/{len(gs)}",
+                      "runtime_invariant_check": "removed (proven)" if self.runtime_check_skipped(n) else "on"}
         return out
 
 
@@ -575,7 +590,8 @@ def manifest_text(host):
     for n, v in m.items():
         mark = "serve" if v["served"] else "BLOCK"
         lines.append(f"{mark} {n} {' '.join(v['params'])}  proven {v['proven']}  "
-                     f"uses {', '.join(v['uses']) or '-'}  fails {', '.join(v['fails']) or '-'}")
+                     f"uses {', '.join(v['uses']) or '-'}  fails {', '.join(v['fails']) or '-'}  "
+                     f"runtime invariant check {v['runtime_invariant_check']}")
     return "\n".join(lines)
 
 
@@ -702,6 +718,7 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--no-gate", action="store_true", help="also serve definitions that are not proven clean")
     ap.add_argument("--config", help="host config (endpoints); default FILE.host next to the module")
+    ap.add_argument("--paranoid", action="store_true", help="keep every runtime check on, even where proven")
     a = ap.parse_args(argv)
     try:
         defs = check_module(parse_module(open(a.file).read()))
@@ -712,7 +729,7 @@ def main(argv=None):
     cfg = a.config or os.path.splitext(a.file)[0] + ".host"
     try:
         endpoints = load_config(open(cfg).read(), defs) if os.path.exists(cfg) else None
-        host = Host(defs, a.db, gate=not a.no_gate, endpoints=endpoints)
+        host = Host(defs, a.db, gate=not a.no_gate, endpoints=endpoints, paranoid=a.paranoid)
     except ConfigError as e:
         print(f"{a.file}: host refuses to start: {e}", file=sys.stderr)
         return 2

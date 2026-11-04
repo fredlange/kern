@@ -99,6 +99,7 @@ say so instead.
 | `--port N` | `serve` |
 | `--no-gate` | also serve definitions that aren't proven clean (the invariants are still checked at runtime) |
 | `--config FILE.host` | the network endpoints (default `FILE.host` next to the module) |
+| `--paranoid` | keep every runtime check on. Normally the per-call invariant check is skipped for definitions whose invariant goals are proven ✔ (the manifest says which) |
 | `--html OUT.html` | `page` |
 
 - **One call is one transaction.** A refusal writes nothing, and an unproven definition isn't

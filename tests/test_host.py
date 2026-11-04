@@ -494,3 +494,23 @@ def test_proof_page_host_section_is_assumed_not_proven():
     assert section.count("badge warn'>assumed</span>") == len(host_facts(h)["assumptions"])
     plain = render.host_html(host_facts(host()))                   # escrow: no network
     assert "Network endpoints" not in plain and "network reply" not in plain
+
+
+# --- S7 (docs/ROADMAP_RUN.md): proven checks removed at runtime
+
+def test_proven_invariants_skip_the_runtime_check_and_paranoid_restores_it():
+    h = host()
+    assert h.manifest()["transfer"]["runtime_invariant_check"] == "removed (proven)"
+    assert Host(ESCROW, ":memory:", sinks=[], paranoid=True).manifest()["transfer"]["runtime_invariant_check"] == "on"
+    b = host(BURN, "A:10@u1", gate=False)                     # unproven: still checked at runtime
+    assert b.manifest()["burn"]["runtime_invariant_check"] == "on"
+    assert "invariant" in b.call("burn", ["A", 50])["error"]
+
+
+def test_paranoid_catches_an_invariant_broken_outside_kern():
+    """A hand-edited database breaks the induction the proof relies on: only --paranoid notices."""
+    for paranoid, want in ((True, "error"), (False, "ok")):
+        h = host(ESCROW, WORLD, paranoid=paranoid)
+        h.db.execute("update account set balance = -5 where name='B'")      # outside Kern
+        r = h.call("transfer", ["A", "B", 1])                               # B ends at -4
+        assert r["status"] == want, (paranoid, r)

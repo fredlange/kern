@@ -585,3 +585,40 @@ Everything kern-90 asked for:
   unchanged) and in TS (no spec).
 
 **Not run:** 27 runs need Fredrik's approval, and Fredrik freezes the final thresholds.
+
+## S7: proven checks removed at runtime (roadmap 4, small)
+
+**Why:** the host checks module invariants after every successful call (tier ○, at the keys the
+call wrote). For a definition whose invariant goals are all proven ✔, that check can't fail
+unless the host's state was changed outside Kern, so it's pure cost. Removing it is what
+verification is supposed to buy.
+
+**Change:**
+- The host skips the runtime invariant check for definitions whose `invariant` goals (and loop
+  module-invariant goals) are all ✔.
+- It keeps the check for every other definition (`!`, `?`, ◐, ✗ with the gate off). For ⊙,
+  the assumed-handler check stays on.
+- `--paranoid` keeps every check on, for state edited outside Kern. Replay detects tampering
+  anyway.
+- The manifest says, per definition, which runtime checks are removed and why.
+
+**Pass conditions (frozen before the code):**
+1. `test_sqlite_host_matches_the_interpreter` (600 calls) still passes.
+2. The gate-off BURN test still catches its broken invariant at runtime.
+3. A measured per-call speedup for `transfer` on escrow_s2 at 5,000 accounts (before and after,
+   in memory), reported as measured.
+4. The manifest says which checks are removed, and `--paranoid` restores them (tested).
+
+### S7 results
+
+1. **pass:** `test_sqlite_host_matches_the_interpreter` (600 calls) passes.
+2. **pass:** BURN (unproven, gate off) still has the check on and still catches its broken
+   invariant at runtime.
+3. **Measured:** `transfer` on escrow_s2, in memory, 300 calls. Per-call time went from 0.034 /
+   0.038 / 0.038 ms to 0.028 / 0.031 / 0.031 ms at 50 / 500 / 5,000 accounts, roughly −18%. That's
+   small, because H1 had already made the check key-scoped.
+4. **pass:** the manifest shows `runtime invariant check removed (proven)` or `on` per
+   definition, and `--paranoid` restores the check (tested).
+   - **The trade-off, now tested:** with a balance made negative outside Kern, a non-paranoid
+     host lets the next call through (B ends at −4); `--paranoid` refuses it with an error.
+   - Replay detects the tampering either way.
