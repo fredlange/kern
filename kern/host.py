@@ -782,8 +782,11 @@ def main(argv=None):
     except ConfigError as e:
         print(f"{a.file}: host refuses to start: {e}", file=sys.stderr)
         return 2
-    if a.world and not host.init(a.world):
-        print("note: database already has a world; --world ignored", file=sys.stderr)
+    if a.world is not None:
+        if not host.init(a.world):
+            print("note: database already has a world; --world ignored", file=sys.stderr)
+    elif a.cmd in ("serve", "repl"):
+        host.init("")                        # a new database: an empty genesis world, so `replay` has a start
     if a.cmd == "manifest":
         print(manifest_text(host))
     elif a.cmd == "page":

@@ -127,7 +127,7 @@ Examples: `examples/shop/`, `examples/library/`, `examples/lottery/` (each with 
 | option | for |
 |---|---|
 | `--db X.db` | the SQLite database (default in memory) |
-| `--world WORLD` | the genesis world (only on a new database) |
+| `--world WORLD` | the genesis world (only on a new database; `serve` and `repl` start a new database with an empty world when it's left out) |
 | `--port N` | `serve` |
 | `--bind ADDR` | `serve`: the address to listen on (default `127.0.0.1`; `0.0.0.0` inside a container) |
 | `--no-gate` | also serve definitions that aren't proven clean (the invariants are still checked at runtime) |

@@ -486,6 +486,21 @@ def test_repl_runs_network_replies_and_says_so():
     finally:
         risk.shutdown()
 
+
+def test_a_new_database_without_world_gets_an_empty_genesis(tmp_path):
+    """kern-44: `repl`/`serve --db X.db` with no --world recorded no genesis, so `replay` said "no genesis world"."""
+    import subprocess
+    import sys
+    db = str(tmp_path / "x.db")
+
+    def host_cli(*args, stdin=""):
+        return subprocess.run([sys.executable, "-m", "kern.host", *args], input=stdin, capture_output=True, text=True)
+    assert host_cli("repl", "examples/shop", "--db", db, stdin="restock 1 2\n").stdout.strip() == "ok"
+    assert host_cli("replay", "examples/shop", "--db", db).stdout.strip() == "replay of 1 logged calls matches the database"
+    db2 = str(tmp_path / "y.db")
+    assert host_cli("repl", "examples/shop", "--db", db2, "--world", "", stdin="restock 1 2\n").returncode == 0
+    assert "matches the database" in host_cli("replay", "examples/shop", "--db", db2).stdout
+
 # --- item 8: crash recovery (a real process, killed with SIGKILL during a flush)
 
 CHILD = r"""
