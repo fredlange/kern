@@ -1,6 +1,7 @@
-request@0b88e770
+request@5dc35465
   the slot is reserved at request time and travels in the event, so the reply writes a parameter key; a computed key would leave the invariants unproven
   one request per source at a time keeps the public APIs from being hammered by a button-masher
+  the 5-second cooldown is politeness toward free APIs with no key; 5 is a guess, not a published limit
 store@9ba1bdfe
   the reply carries src and slot back from the event, so one definition serves every source
 give_up@dd413476

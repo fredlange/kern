@@ -11,6 +11,8 @@ random-portal/
 ├── portal.k               request, store, fetch_failed, give_up, upvote
 ├── portal.host            where each request goes, and which call carries the reply
 ├── portal.why             rationale, anchored to each definition's hash
+├── portal.strength        the ratchet baseline (`kern baseline`): check flags any weakening
+├── smoke.sh               the acceptance test: build, run, 16 checks, restart, replay
 ├── proof-pages/portal.html
 ├── web/                   the React app (Vite); talks to the host only through /api
 ├── Dockerfile             builds web/, installs Kern from this checkout, renders the proof page
@@ -20,7 +22,10 @@ random-portal/
 ## Status
 
 `kern check portal.k`: **5 of 5 definitions clean, every guarantee proven, spec strength
-56/56** (request 18/18, store 22/22, fetch_failed 7/7, give_up 4/4, upvote 5/5).
+58/58** (request 20/20, store 22/22, fetch_failed 7/7, give_up 4/4, upvote 5/5).
+`./smoke.sh`: **16/16 checks pass** (2026-11-04). The build itself is one of the checks: the
+Dockerfile runs `kern check`, which exits 1 if any definition isn't clean. Tested by mutating
+`upvote` to add 2: check exits 1, so the build fails.
 
 **The loop works in Docker. The jokes don't show yet.** Container smoke test, 2026-11-04:
 - three real fetches stored joke 162, pun 73 and joke 417, and `pending` went back to 0;
@@ -43,6 +48,8 @@ without `--world`. Rechecked in the container: "replay of 5 logged calls matches
 
 Proven for all inputs (✔ on the proof page):
 - at most one outstanding request per source (`AlreadyPending`); `pending` is always 0 or 1;
+- each source is asked at most once every 5 seconds (`TooSoon n` gives the seconds left), so
+  the page can't hammer a free API however fast people click;
 - a reply is stored only if it answers the request still pending for that source and slot.
   A late or duplicated reply is refused with `Stale`, and a non-positive id with `BadId`;
 - a source stuck pending can be freed only after its 30-second deadline (`NotYet n` gives the
@@ -67,6 +74,7 @@ Check and inspect, from the repository root:
 ```text
 kern check examples/random-portal/portal.k
 python -m kern.host manifest examples/random-portal/portal.k
+examples/random-portal/smoke.sh        # builds and tests the image; needs docker and internet
 ```
 
 Docker (the build context is the repository root, because the image installs Kern from this
@@ -84,7 +92,7 @@ Development: run `python -m kern.host serve portal.k --db portal.db --port 8080`
 
 | call | body | outcomes |
 |---|---|---|
-| `POST /api/request` | `{"src": 1}` (1 = joke, 2 = pun) | 200, 409 `AlreadyPending` / `UnknownSource` |
+| `POST /api/request` | `{"src": 1}` (1 = joke, 2 = pun) | 200, 409 `AlreadyPending` / `TooSoon n` / `UnknownSource` |
 | `POST /api/upvote` | `{"item": 3}` | 200, 409 `NoSuchItem` |
 | `POST /api/give_up` | `{"src": 1}` | 200, 409 `NotPending` / `NotYet n` |
 | `GET /api/state` | | the world: `state.ref`, `state.source`, `state.votes`, `state.pending` by key |

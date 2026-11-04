@@ -4,6 +4,7 @@ import { giveUp, loadWorld, request, upvote } from './kern.js'
 const REFUSALS = {
   AlreadyPending: 'Already fetching one of those. Kern allows one request per source at a time.',
   NotYet: 'Still within the 30-second grace period.',
+  TooSoon: 'Kern lets each source be asked at most once every 5 seconds. Try again in a moment.',
   NoSuchItem: 'That item does not exist.',
   UnknownSource: 'Unknown source.',
 }

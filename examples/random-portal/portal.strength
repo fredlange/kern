@@ -1,0 +1,53 @@
+# kern baseline v2: guarantees, spec needs and own body-level refusals
+request 20/20
+  ok otherwise
+  ensure last.get' src = clock.now
+  ensure next.get' 0 = next.get 0 + 1
+  ensure pending.get' src = 1
+  ensure want.get' src = next.get 0 + 1
+  ensure deadline.get' src = clock.now + 30
+  invariant s:Int pending.get s = 0 or pending.get s = 1
+  emit net FetchJoke src (next.get 0 + 1) when src = 1, then FetchPun src (next.get 0 + 1) when src = 2
+  need src = 1 or src = 2 else UnknownSource
+  need pending.get src = 0 else AlreadyPending
+  need clock.now >= last.get src + 5 else TooSoon (last.get src + 5 - clock.now)
+store 22/22
+  ok otherwise
+  keep next.get 0
+  ensure source.get' slot = src
+  ensure ref.get' slot = id
+  ensure pending.get' src = 0
+  invariant s:Int pending.get s = 0 or pending.get s = 1
+  invariant i:Int ref.get i >= 0
+  emit Stored slot src id clock.now
+  need src = 1 or src = 2 else UnknownSource
+  need pending.get src = 1 else Stale
+  need want.get src = slot else Stale
+  need id > 0 else BadId
+fetch_failed 7/7
+  ok otherwise
+  keep next.get 0
+  ensure pending.get' src = 0
+  ensure ref.get' slot = ref.get slot
+  invariant s:Int pending.get s = 0 or pending.get s = 1
+  emit FetchFailed src slot clock.now
+  need src = 1 or src = 2 else UnknownSource
+  need pending.get src = 1 else Stale
+  need want.get src = slot else Stale
+give_up 4/4
+  ok otherwise
+  keep next.get 0
+  ensure pending.get' src = 0
+  invariant s:Int pending.get s = 0 or pending.get s = 1
+  emit GaveUp src (want.get src) clock.now
+  need src = 1 or src = 2 else UnknownSource
+  need pending.get src = 1 else NotPending
+  need clock.now >= deadline.get src else NotYet (deadline.get src - clock.now)
+upvote 5/5
+  ok otherwise
+  keep next.get 0
+  keep ref.get item
+  ensure votes.get' item = votes.get item + 1
+  invariant i:Int votes.get i >= 0
+  emit Voted item (votes.get item + 1) clock.now
+  need ref.get item > 0 else NoSuchItem

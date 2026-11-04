@@ -16,13 +16,14 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 .ic{font-weight:700;width:16px;flex:none}li.proven .ic{color:var(--ok)}li.refuted .ic{color:var(--fail)}li.conditional .ic,li.unknown .ic{color:var(--warn)}
 .how{color:var(--muted);font-size:14px}.src{margin-top:2px;font-size:12px}ul.ex{margin:4px 0;padding-left:18px}
 .okc{color:var(--ok)}.failc{color:var(--fail)}.warnc{color:var(--warn)}details{margin-top:16px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;font-weight:600}
-</style></head><body><main><h1>Proof page · portal.k</h1><p class='sub'>Generated from verifier results by fixed templates — no text here was written by a model.</p><section class="card"><header><h2><code>request</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build e8f89af9</span></header>
-<h3>Can touch</h3><p>the clock, state <code>deadline</code> (read and write), state <code>net</code> (read only), state <code>next</code> (read and write), state <code>pending</code> (read and write), state <code>want</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
-<p>Changes: deadline.src next.* pending.src want.src. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+</style></head><body><main><h1>Proof page · portal.k</h1><p class='sub'>Generated from verifier results by fixed templates — no text here was written by a model.</p><section class="card"><header><h2><code>request</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 1337b802</span></header>
+<h3>Can touch</h3><p>the clock, state <code>deadline</code> (read and write), state <code>last</code> (read and write), state <code>net</code> (read only), state <code>next</code> (read and write), state <code>pending</code> (read and write), state <code>want</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: deadline.src last.src next.* pending.src want.src. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
 <p class='warnc'>No guarantee says what the new value of <code>next.*</code> is.</p>
-<h3>Refuses when</h3><table><tr><td><code>src</code> ≠ 1 and <code>src</code> ≠ 2</td><td class='fail-name'>→ <code>UnknownSource</code></td></tr><tr><td>pending of <code>src</code> ≠ 0</td><td class='fail-name'>→ <code>AlreadyPending</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Refuses when</h3><table><tr><td><code>src</code> ≠ 1 and <code>src</code> ≠ 2</td><td class='fail-name'>→ <code>UnknownSource</code></td></tr><tr><td>pending of <code>src</code> ≠ 0</td><td class='fail-name'>→ <code>AlreadyPending</code></td></tr><tr><td>the time of the call &lt; last of <code>src</code> + 5</td><td class='fail-name'>→ <code>TooSoon</code> <span class='muted'>with</span> last of <code>src</code> + 5 − the time of the call</td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
 <h3>Guarantees</h3><ul class='g'>
 <li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>last of <code>src</code> <em>after</em> = the time of the call before</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure last.get&#x27; src = clock.now</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>next of 0 <em>after</em> = next of 0 <em>before</em> + 1</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure next.get&#x27; 0 = next.get 0 + 1</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>pending of <code>src</code> <em>after</em> = 1</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure pending.get&#x27; src = 1</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>want of <code>src</code> <em>after</em> = next of 0 <em>before</em> + 1</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure want.get&#x27; src = next.get 0 + 1</code></div></div></li>
@@ -30,14 +31,16 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>s</code> (Int): pending of <code>s</code> = 0 or pending of <code>s</code> = 1</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant s:Int pending.get s = 0 or pending.get s = 1</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>sends exactly these events on channel <code>net</code>, in order, each one only when its condition holds before the call: <code>FetchJoke</code> (<code>src</code>, next of 0 + 1) <em>only when</em> <code>src</code> = 1, then <code>FetchPun</code> (<code>src</code>, next of 0 + 1) <em>only when</em> <code>src</code> = 2</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>emit net FetchJoke src (next.get 0 + 1) when src = 1, then FetchPun src (next.get 0 + 1) when src = 2</code></div></div></li>
 </ul>
-<h3>Examples <span class='muted'>4/4 pass, executed against build e8f89af9</span></h3><ul class='ex'>
-<li><code>| request 1 -&gt; ok | next.0:1 pending.1:1 want.1:1</code> <span class='okc'>✔</span></li>
-<li><code>next.0:4 | request 2 -&gt; ok | next.0:5 pending.2:1 want.2:5</code> <span class='okc'>✔</span></li>
+<h3>Examples <span class='muted'>6/6 pass, executed against build 1337b802</span></h3><ul class='ex'>
+<li><code>now:100 | request 1 -&gt; ok | next.0:1 pending.1:1 want.1:1 last.1:100</code> <span class='okc'>✔</span></li>
+<li><code>now:100 next.0:4 | request 2 -&gt; ok | next.0:5 pending.2:1 want.2:5</code> <span class='okc'>✔</span></li>
 <li><code>pending.1:1 | request 1 -&gt; AlreadyPending</code> <span class='okc'>✔</span></li>
 <li><code>| request 3 -&gt; UnknownSource</code> <span class='okc'>✔</span></li>
+<li><code>now:12 last.1:10 | request 1 -&gt; TooSoon 3</code> <span class='okc'>✔</span></li>
+<li><code>now:15 last.1:10 | request 1 -&gt; ok | last.1:15</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 15 succeeded and were checked against every guarantee; refused: UnknownSource 467, AlreadyPending 18.</p>
-<h3>Spec strength <span class='muted'>guarantees catch 18/18 deliberate bugs (100%)</span></h3><p>Caught by the prover: 18; by random tests checking the guarantees: 18. The examples alone catch 8/18; everything together 18/18.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 11 succeeded and were checked against every guarantee; refused: UnknownSource 467, AlreadyPending 18, TooSoon 4.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 20/20 deliberate bugs (100%)</span></h3><p>Caught by the prover: 20; by random tests checking the guarantees: 20. The examples alone catch 10/20; everything together 20/20.</p>
 <details><summary>Why (2)</summary><ul><li>the slot is reserved at request time and travels in the event, so the reply writes a parameter key; a computed key would leave the invariants unproven</li><li>one request per source at a time keeps the public APIs from being hammered by a button-masher</li></ul></details>
 </section>
 <section class="card"><header><h2><code>store</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build bdae93ae</span></header>

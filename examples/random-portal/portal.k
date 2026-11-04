@@ -7,6 +7,7 @@ state next Int
 state source Int
 state ref Int
 state votes Int
+state last Int
 
 invariant s:Int pending.get s = 0 or pending.get s = 1
 invariant i:Int votes.get i >= 0
@@ -15,23 +16,28 @@ invariant i:Int ref.get i >= 0
 request src:Int
   need src = 1 or src = 2 else UnknownSource
   need pending.get src = 0 else AlreadyPending
+  need clock.now >= last.get src + 5 else TooSoon (last.get src + 5 - clock.now)
   ok otherwise
+  ensure last.get' src = clock.now
   ensure next.get' 0 = next.get 0 + 1
   ensure pending.get' src = 1
   ensure want.get' src = next.get 0 + 1
   ensure deadline.get' src = clock.now + 30
   emit net FetchJoke src (next.get 0 + 1) when src = 1
   emit net FetchPun src (next.get 0 + 1) when src = 2
-  eg | request 1 -> ok | next.0:1 pending.1:1 want.1:1
-  eg next.0:4 | request 2 -> ok | next.0:5 pending.2:1 want.2:5
+  eg now:100 | request 1 -> ok | next.0:1 pending.1:1 want.1:1 last.1:100
+  eg now:100 next.0:4 | request 2 -> ok | next.0:5 pending.2:1 want.2:5
   eg pending.1:1 | request 1 -> AlreadyPending
   eg | request 3 -> UnknownSource
+  eg now:12 last.1:10 | request 1 -> TooSoon 3
+  eg now:15 last.1:10 | request 1 -> ok | last.1:15
 body
   slot = next.get 0 + 1
   next.set 0 slot
   pending.set src 1
   want.set src slot
   deadline.set src (clock.now + 30)
+  last.set src clock.now
   if src = 1
     net.emit (FetchJoke src slot)
   else
