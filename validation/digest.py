@@ -12,7 +12,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from tests.chains import gen  # noqa: E402  (the C6 generator; experiments/challenge/c6/gen.py is the frozen original)
+from validation.chains import gen  # noqa: E402  (the C6 generator; experiments/challenge/c6/gen.py is the frozen original)
 
 from kern.report import analyse  # noqa: E402
 from kern.syntax import parse_module  # noqa: E402

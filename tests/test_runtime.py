@@ -79,3 +79,10 @@ def test_unsupported_is_loud_never_wrong(tmp_path):
     p.write_text("wrap a:Account\nbody\n  audit.emit (Outer (Inner a))\n")
     with pytest.raises(emit_rust.Unsupported):
         emit_rust.emit(str(p), str(tmp_path / "out"))
+
+
+@pytest.mark.parametrize("app", ["shop", "library", "lottery"])
+def test_a_package_compiles_and_matches_run_py(app):
+    """`kern build` takes packages: every eg line and random calls give the same results as run.py."""
+    res = difftest.run_module(os.path.join(ROOT, "examples", app), 100, 1)
+    assert res["egs"] > 0 and not res["eg_failures"] and res["n_divergences"] == 0, res

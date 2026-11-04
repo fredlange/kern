@@ -1,5 +1,5 @@
-"""Synthetic chain modules for the S2 cache tests: a copy of experiments/challenge/c6/gen.py, which is frozen
-(C6 measured with it), so tests/ does not import from experiments/.
+"""Synthetic chain modules (S2 cache tests, the S2 digest): a copy of experiments/challenge/c6/gen.py, which is
+frozen (C6 measured with it), so nothing outside experiments/ imports from there.
 
     gen(d, k, e, n, state) -> module source
 

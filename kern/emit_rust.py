@@ -1,7 +1,7 @@
 """Kern -> Rust. Turns a checked Kern module into a Rust crate that links with the runtime crate
 kern-rt (runtime/).
 
-    python -m kern.emit_rust MODULE.k [--out DIR] [--build]      (crates and the cargo target go in build/)
+    python -m kern build FILE.k [--out DIR]      (a file, a package or its directory; crates and cargo's target go in build/)
 
 Each definition becomes one Rust function over a `Tx` (the runtime's call in progress). `need`s are
 behaviour and are compiled; `keep`/`ensure`/`emit` are proven, so they compile to nothing. The
@@ -18,8 +18,9 @@ import sys
 
 from .infer import uses as infer_uses
 from .run import HANDLERS, assumed_op, channel_op, state_op
-from .syntax import code, parse_module
-from .wf import SIG, check_module
+from .package import load, root_of
+from .syntax import code
+from .wf import SIG
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNTIME = os.path.join(ROOT, "runtime")                 # the kern-rt crate
@@ -303,13 +304,15 @@ class Gen:
 
 
 def crate_name(path):
-    return re.sub(r"\W", "_", os.path.splitext(os.path.basename(path))[0])
+    """The file's name, or the package directory's name for any file of a package."""
+    base = root_of(path) or os.path.abspath(path)
+    return re.sub(r"\W", "_", os.path.splitext(os.path.basename(base))[0])
 
 
 def emit(path, out_dir=None):
     """Generate the crate for module `path`; returns its directory. Raises Unsupported."""
     name = crate_name(path)
-    defs = check_module(parse_module(open(path).read()))
+    defs = load(path)
     src = Gen(defs, name).module()
     out_dir = out_dir or os.path.join(BUILD, name)
     os.makedirs(os.path.join(out_dir, "src"), exist_ok=True)
@@ -346,25 +349,3 @@ def build(crate_dir):
     if r.returncode != 0:
         raise RuntimeError(f"cargo build failed in {crate_dir}:\n{r.stderr}")
     return os.path.join(BUILD, "target", "release", os.path.basename(crate_dir))
-
-
-def main(argv):
-    import argparse
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("module")
-    ap.add_argument("--out")
-    ap.add_argument("--build", action="store_true")
-    a = ap.parse_args(argv)
-    try:
-        d = emit(a.module, a.out)
-    except Unsupported as e:
-        print(f"unsupported: {e}", file=sys.stderr)
-        return 1
-    print(d)
-    if a.build:
-        print(build(d))
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))

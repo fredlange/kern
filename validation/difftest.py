@@ -26,8 +26,7 @@ sys.path.insert(0, ROOT)
 
 from kern import emit_rust  # noqa: E402
 from kern.run import Interp, KernError, World  # noqa: E402
-from kern.syntax import parse_module  # noqa: E402
-from kern.wf import check_module  # noqa: E402
+from kern.package import load  # noqa: E402
 
 NAMES = ["A", "B", "C", "D", "E", "H"]
 INTS = [-1, 0, 1, 2, 3, 5, 7, 50, 99, 100, 101, 150, 250, 1000]
@@ -190,7 +189,7 @@ def eg_problems(ex, line, world_dump):
 
 
 def run_module(path, per_def, seed, show_max=5):
-    defs = check_module(parse_module(open(path).read()))
+    defs = load(path)
     crate = emit_rust.emit(path)
     binary = emit_rust.build(crate)
     rng = random.Random(seed)

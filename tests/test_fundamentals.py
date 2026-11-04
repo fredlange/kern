@@ -1375,7 +1375,7 @@ def test_s1_against_a_committed_baseline_ignores_the_file(tmp_path):
 
 import sys as _sys  # noqa: E402
 
-from tests.chains import gen as _gen  # noqa: E402
+from validation.chains import gen as _gen  # noqa: E402
 from kern import report as _report  # noqa: E402
 
 

@@ -2,7 +2,7 @@
 
 - every ```kern block parses and passes the checker; ```kern clean blocks also prove clean
 - every handler, spec clause and declaration form is documented in REFERENCE.md
-- every CLI command and option of `kern`, `kern.host` and `kern.emit_rust` is documented in GUIDE.md, and
+- every CLI command and option of `kern` and `kern.host` is documented in GUIDE.md, and
   the fuzzer's in validation/README.md
 - every `kern.module.name` in GUIDE.md's API table exists
 - REFERENCE.md stays within its token budget (docs/research/CHALLENGE.md, C2: 2,500)
@@ -61,7 +61,6 @@ def _cli(path):
 @pytest.mark.parametrize("path,doc,section", [
     ("kern/__main__.py", "docs/GUIDE.md", "## `python -m kern` commands"),
     ("kern/host.py", "docs/GUIDE.md", "## `python -m kern.host` commands"),
-    ("kern/emit_rust.py", "docs/GUIDE.md", "## `python -m kern.emit_rust`"),
     ("validation/fuzz.py", "validation/README.md", "## `python -m validation.fuzz`")])
 def test_every_cli_command_and_option_is_documented(path, doc, section):
     part = open(doc).read().split(section, 1)[1].split("\n## ", 1)[0]

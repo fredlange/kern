@@ -8,3 +8,4 @@ experiments/compare/go/diffbin
 .checkpoints/
 .kern-cache/
 /build/
+*.egg-info/

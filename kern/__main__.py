@@ -20,7 +20,7 @@ from .wf import check_module
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="kern")
-    ap.add_argument("cmd", choices=["check", "view", "why", "anchor", "run", "baseline"])
+    ap.add_argument("cmd", choices=["check", "view", "why", "anchor", "run", "baseline", "build"])
     ap.add_argument("file")
     ap.add_argument("name", nargs="?")
     ap.add_argument("--why", dest="whyfile")
@@ -31,7 +31,16 @@ def main(argv=None):
     ap.add_argument("--against", dest="rev", help="check: take the baseline from git at REV, not from the file")
     ap.add_argument("--quick", action="store_true", help="check: skip mutation testing (spec strength: not measured)")
     ap.add_argument("--cache", default=".kern-cache", help="check: result cache directory ('' = none)")
+    ap.add_argument("--out", help="build: the crate directory (default build/<module>)")
     a = ap.parse_args(argv)
+    if a.cmd == "build":
+        from .emit_rust import Unsupported, build, emit
+        try:
+            print(build(emit(a.file, a.out)))
+        except (Unsupported, ParseError, RuntimeError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        return 0
     try:
         from .package import load as load_package
         defs = load_package(a.file)        # a single file as before; a package (kern.pkg) or imports: every file

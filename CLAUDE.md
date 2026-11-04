@@ -129,7 +129,7 @@ kern/package.py   packages + imports: a dir with kern.pkg; `import a.b`; one mer
 kern/host.py      OS boundary (docs/HOST.md): SQLite state, outbox + channels, recorded clock, net endpoints,
                   HTTP + console front ends, replay, permission manifest, proof gate, `page`
 kern/mcp.py       MCP server (stdio): views, why, check, callers, structural edits that re-check callers
-kern/emit_rust.py Kern -> Rust crate in build/<module>, linked with runtime/ (single files only so far)
+kern/emit_rust.py `kern build`: Kern (file or package) -> Rust crate in build/<module>, linked with runtime/
 runtime/          kern-rt, the Rust runtime crate (src/lib.rs: world, Tx, rollback; src/driver.rs: the binary's CLI)
 
 examples/         ledger_v1..v7 (+ .why: the demo loop, see README), ledger_large, escrow_s1..s3 (scale
@@ -143,11 +143,12 @@ tests/test_package.py     loader errors, tools across files, MCP edits per file,
 tests/test_fuzz.py        small fuzz run is clean and deterministic; an injected prover fault is found
 tests/test_runtime.py     the compiled Rust program against run.py (skipped without cargo)
 tests/test_docs.py        keeps REFERENCE/GUIDE (and validation/README) in step with the code
-tests/probes/             small modules the tests and validation tools use; tests/chains.py: a C6 generator copy
+tests/probes/             small modules the tests and validation tools use
 
 validation/fuzz.py        soundness fuzzer: random loop/handler programs + template mutants, interpreter as oracle
 validation/digest.py      results digests (S2 and --loops): the floor for prover changes
 validation/difftest.py, fuzzdiff.py, sensitivity.py   Rust runtime vs run.py, and whether that test has teeth
+validation/chains.py      synthetic chain modules (a copy of C6's frozen generator)
 
 experiments/challenge/    C1, C2, C6 (frozen; scripts expect the pre-2026-11-04 layout, rerun from d521236)
 experiments/compare/      Kern vs TS and Go (docs/research/COMPARE.md)

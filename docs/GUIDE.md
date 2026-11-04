@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 `z3-solver` is required. `tokenizers` and `anthropic` only provide token counts.
 `pip install -e .` from the repository root installs the same thing plus a `kern` command (see
-`pyproject.toml`). Validation tools and experiments aren't part of it: see
+`pyproject.toml`; needs pip ≥ 21.3, so run `pip install -U pip` first in an older venv). Validation tools and experiments aren't part of it: see
 [validation/README.md](../validation/README.md) and [experiments/README.md](../experiments/README.md).
 
 ## The loop
@@ -100,6 +100,7 @@ Examples: `examples/shop/`, `examples/library/`, `examples/lottery/`.
 | `anchor FILE.k` | re-anchor the `.why` file to the current builds (confirm the entries still hold first) |
 | `run FILE.k "NAME ARGS" --world "A:500@u1 …"` | run one call in the interpreter |
 | `baseline FILE.k` | record the ratchet baseline (`FILE.strength`) |
+| `build FILE.k` | compile to a native binary (see Compiling to Rust); prints the binary's path. Needs `cargo` |
 
 | option | for |
 |---|---|
@@ -110,6 +111,7 @@ Examples: `examples/shop/`, `examples/library/`, `examples/lottery/`.
 | `--baseline FILE.strength` | `check`: compare against this baseline (default `FILE.strength`) |
 | `--quick` | `check`: no mutation testing (most of the time); strength reads "not measured" unless the cache has it for exactly this code |
 | `--cache DIR` | `check`: reuse results of definitions whose code (and everything they reach) is unchanged (default `.kern-cache`, `''` = off) |
+| `--out DIR` | `build`: where to write the Rust crate (default `build/<module>`) |
 | `--against REV` | `check`: take the baseline from git at REV (`git show REV:FILE.strength`), so rewriting the file can't hide a change |
 
 ## `python -m kern.host` commands: run a module for real
@@ -173,19 +175,16 @@ What an edit does and reports:
 - **`kern_remove` refuses** while anything references the name.
 - **`KERN_MCP_LOG=path`** logs one JSON line per call, with the tokens it returned.
 
-## `python -m kern.emit_rust`: compile to Rust
+## Compiling to Rust
 
-`python -m kern.emit_rust FILE.k` writes a Rust crate for the module to `build/<module>/`, linked
-with the runtime crate `kern-rt` in `runtime/`. `need`s compile to code. `keep`, `ensure` and
+`kern build FILE.k` writes a Rust crate for the module (or the whole package) to `build/<module>/`,
+links it with the runtime crate `kern-rt` in `runtime/`, and runs `cargo build --release` (the
+target directory is `build/target`). `need`s compile to code. `keep`, `ensure` and
 `emit` are proven, so they compile to nothing. `kern/run.py` stays the reference semantics: the
 runtime is wrong wherever the two disagree. The contract and the known divergences (for example,
 Int is i64 at run time) are in [research/RUNTIME_PLAN.md](research/RUNTIME_PLAN.md). Needs `cargo`.
-It reads single files only, not packages yet.
-
-| option | for |
-|---|---|
-| `--out DIR` | where to write the crate (default `build/<module>`) |
-| `--build` | also `cargo build --release`; prints the binary's path (cargo's target is `build/target`) |
+It works from a checkout (or `pip install -e .`): the crate in `runtime/` isn't inside the Python
+package, so a plain `pip install` of a wheel can't build.
 
 ## Files
 

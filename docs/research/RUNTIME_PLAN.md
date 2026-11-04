@@ -5,7 +5,7 @@ Status: 2026-11-04, R1 done (C1, C2, C3, P1 pass; M1 failed as pre-registered an
 
 > **2026-11-04, notes:** kern-90 is away, so the main session owns the runtime for now (Fredrik). The repository
 > was reorganised: the crate is `runtime/` itself (was `runtime/kern-rt/`), the emitter is `kern/emit_rust.py`
-> (`python -m kern.emit_rust`), the harnesses are in `validation/`, the tests in `tests/test_runtime.py`, the
+> (`python -m kern build FILE`, which also takes packages), the harnesses are in `validation/`, the tests in `tests/test_runtime.py`, the
 > benchmarks in `experiments/bench/`, and generated crates and cargo output in `build/`.
 
 ## Decision (Fredrik, 2026-11-04)

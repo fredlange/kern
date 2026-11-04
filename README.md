@@ -8,6 +8,7 @@ humans get a proof page generated from verifier results. The toolchain is Python
 5,500 lines) with Z3 as the prover. A Rust runtime (about 800 lines) runs compiled programs.
 
 ```
+pip install -U pip               # editable installs need pip >= 21.3
 pip install -e .                 # the toolchain, its one dependency (z3-solver) and a `kern` command
 pip install -e '.[tokens,dev]'   # optional: token counts in `view`, and pytest
 python -m kern check  examples/ledger_v3.k --why examples/ledger.why --html build/proof.html
@@ -18,7 +19,7 @@ python -m kern baseline examples/ledger_v4.k     # record guarantee strength; ch
 python -m kern check  examples/shop --quick      # a package: every file, grouped by module
 python -m kern.host repl examples/escrow_s2.k --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"   # run it for real (docs/HOST.md)
 python -m kern.host manifest examples/limits.k   # effects and network endpoints the module can reach
-python -m kern.emit_rust examples/escrow_s2.k --build   # compile to a native binary (needs cargo)
+python -m kern build examples/shop             # compile to a native binary in build/ (needs cargo)
 ```
 
 Tests: `pytest` from the repository root runs the whole suite. `tests/test_fundamentals.py` is the
@@ -38,7 +39,7 @@ audit against [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md). Known gaps are stric
 | `validation/` | tools that check the toolchain itself: fuzzer, digests, Rust-vs-interpreter tests ([validation/README.md](validation/README.md)) | no |
 | `experiments/` | measurements behind the design claims: challenges, language comparison, benchmarks ([experiments/README.md](experiments/README.md)) | no |
 | `docs/research/` | plans, pre-registered scorecards and results ([docs/research/README.md](docs/research/README.md)) | no |
-| `build/` | generated: Rust crates and cargo output (ignored by git) | no |
+| `build/` | generated: Rust crates, cargo output, ad hoc proof pages (ignored by git) | no |
 
 ## What a definition is
 
