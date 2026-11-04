@@ -15,3 +15,4 @@ pub mod infer;
 pub mod wf;
 pub mod why;
 pub mod report;
+pub mod package;

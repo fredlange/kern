@@ -98,6 +98,10 @@ pub struct Def {
     pub src_lines: IndexMap<String, Vec<String>>,
     /// a `handler` with an assumed spec and no body
     pub assumed: bool,
+    /// set by the package loader: the module (dotted path), its file and the header's line
+    pub module: Option<String>,
+    pub file: Option<String>,
+    pub line: Option<usize>,
     raw: Vec<(usize, String, usize)>,
 }
 
@@ -108,6 +112,8 @@ pub struct Module {
     pub invariants: Vec<(String, String, Expr)>,
     pub channels: Vec<String>,
     pub handlers: IndexMap<String, Def>,
+    /// set by the package loader (kern/package.py's `defs.package`)
+    pub package: Option<crate::package::Package>,
 }
 
 impl Module {
