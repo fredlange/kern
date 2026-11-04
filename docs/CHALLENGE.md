@@ -157,6 +157,10 @@ tasks, 3 runs each:
 | Edit the `.strength` file | **no** |
 | Remove `ok otherwise` | to verify |
 
+> **Note, 2026-11-03 (roadmap run S1):** C3 will run against code where the ratchet also compares
+> `need`s and body-level refusals (docs/ROADMAP_RUN.md, S1). The table above records the predictions
+> as made *before* S1 and stays unchanged.
+
 **Pass:** every run that changed what a caller can rely on is visible to a human, either
 on the proof page or in the ratchet. Changing a guarantee is allowed when the task needs
 it; *hiding* the change is the failure.
@@ -385,3 +389,8 @@ weaker than baseline):
 4. **Bet 1, as measured:** modular proofs stay in the inner loop up to about k=3 and d=5 at
    e=3, *if* mutation testing is taken out of it. With mutation testing in, only small bodies
    do.
+
+**Addendum, 2026-11-03 (roadmap run S1; thresholds and grader unchanged):**
+- After the ratchet started comparing `need`s, the same grader on the same patches gives
+  Kern **24/24** (B10 caught by the ratchet). TS and Go are still 13/24.
+- `challenge/c1/results_after_S1.json`; `results.json` keeps the original run.

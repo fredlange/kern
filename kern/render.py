@@ -21,6 +21,8 @@ def _status(r):
     if any(g["status"] == "refuted" for g in gs) or r["props"]["violations"] or not all(e["pass"] for e in r["examples"]):
         return "fail", "Broken guarantees"
     if r.get("regression"):
+        if all(x.startswith("spec changed") for x in r["regression"]):
+            return "warn", "Spec changed since baseline"
         return "warn", "Weaker than baseline"
     if not gs:
         return "warn", "No guarantees stated"
@@ -172,7 +174,8 @@ def card(r, why):
         out.append("<h3>Spec strength</h3><p class='muted'>Not measured until every guarantee holds.</p>")
 
     if r.get("regression"):
-        out.append("<h3>Weaker than baseline</h3><ul class='ex'>" +
+        out.append("<h3>Changed since the baseline</h3><p class='muted'>What callers could rely on at the "
+                   "baseline and can't now. A change may be intended; it must not be invisible.</p><ul class='ex'>" +
                    "".join(f"<li class='failc'>{html.escape(x)}</li>" for x in r["regression"]) + "</ul>")
 
     if r["relied_on"]:
@@ -293,7 +296,8 @@ def terminal(reports, whys, orphans=None):
             for e in m["errors"]:
                 out.append(f"      checker error: {e}")
         for x in r.get("regression", []):
-            out.append(f"  WEAKER THAN BASELINE: {x}")
+            label = "SPEC CHANGED SINCE BASELINE" if x.startswith("spec changed") else "WEAKER THAN BASELINE"
+            out.append(f"  {label}: {x[len('spec changed: '):] if x.startswith('spec changed') else x}")
         w = whys[n]
         if w["count"]:
             out.append(f"  why {w['count']}" + ("  STALE (definition or its interface changed since written)"

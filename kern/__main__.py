@@ -28,6 +28,7 @@ def main(argv=None):
     ap.add_argument("--as", dest="view", default="iface", choices=["iface", "spec", "editor"])
     ap.add_argument("--world")
     ap.add_argument("--baseline", dest="basefile")
+    ap.add_argument("--against", dest="rev", help="check: take the baseline from git at REV, not from the file")
     a = ap.parse_args(argv)
     if a.cmd == "score":
         from .scorecard import score, show
@@ -76,7 +77,19 @@ def main(argv=None):
         basemod.write(basefile, analyse(defs))
         print(f"recorded guarantee strength in {basefile}")
         return 0
-    reports = analyse(defs, mutation=(a.cmd == "check"), baseline=basemod.load(basefile) if a.cmd == "check" else None)
+    base = None
+    if a.cmd == "check":
+        if a.rev:                                 # a committed baseline can't be rewritten by the edit
+            import subprocess
+            rel = os.path.relpath(basefile)
+            p = subprocess.run(["git", "show", f"{a.rev}:{rel}"], capture_output=True, text=True)
+            if p.returncode:
+                print(f"{a.file}: no baseline {rel} at {a.rev}: {p.stderr.strip()[:200]}", file=sys.stderr)
+                return 2
+            base = basemod.parse(p.stdout)
+        else:
+            base = basemod.load(basefile)
+    reports = analyse(defs, mutation=(a.cmd == "check"), baseline=base)
     if a.cmd == "view":
         text = {"iface": lambda: views.iface(reports[a.name], whys[a.name]),
                 "spec": lambda: views.spec(reports[a.name], whys[a.name]),

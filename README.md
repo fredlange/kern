@@ -1,5 +1,8 @@
 # Kern — prototype
 
+New here? Read [docs/REFERENCE.md](docs/REFERENCE.md) (the language) and
+[docs/GUIDE.md](docs/GUIDE.md) (tools, files, API). Agents: [AGENTS.md](AGENTS.md).
+
 A small language for agent-written code. The agent reads only what it needs, and
 humans get a proof page generated from verifier results. Python, about 1,200 lines,
 with Z3 as the prover.

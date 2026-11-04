@@ -44,9 +44,13 @@ python3 -m venv .venv
      `emit` or an `ok otherwise`.
 5. **Read `missed:` lines.** Each is a body change no guarantee would notice. Add the
    guarantee that pins it, or accept it if the mutant is equivalent (it changes nothing).
-6. **Ratchet:** `python -m kern baseline FILE.k` records guarantee strength and clauses in
-   `FILE.strength`. From then on, `check` flags "Weaker than baseline". The ratchet does
-   **not** compare `need`s yet (docs/CHALLENGE.md, C1 finding 1).
+6. **Ratchet:** `python -m kern baseline FILE.k` records, in `FILE.strength`, the
+   guarantee strength, the guarantee clauses, the spec `need`s and each definition's own
+   body-level refusals.
+   - From then on, `check` flags "Weaker than baseline" (a guarantee removed, strength
+     fell) and "Spec changed since baseline" (a refusal added, removed or changed).
+   - Commit the baseline and use `check --against REV`, so the edit you're checking can't
+     also rewrite the baseline.
 
 **Don't** add a `need` that refuses the case you can't prove, delete a guarantee to go green,
 or re-run `kern baseline` to hide a drop. Each of these changes what callers may rely on;
@@ -71,6 +75,7 @@ say so instead.
 | `--as iface\|spec\|editor` | `view`: which view |
 | `--world WORLD` | `run`: the world, in `eg` syntax |
 | `--baseline FILE.strength` | `check`: compare against this baseline (default `FILE.strength`) |
+| `--against REV` | `check`: take the baseline from git at REV (`git show REV:FILE.strength`), so rewriting the file can't hide a change |
 
 ## `python -m kern.host` commands: run a module for real
 

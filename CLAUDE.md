@@ -5,6 +5,9 @@ primary authors and readers of code. Humans don't review code; they review a
 generated **proof page**. This file carries over the design decisions and findings
 from the design conversation, so they don't need re-deriving.
 
+**Start with [AGENTS.md](AGENTS.md)** (working rules, including keeping the docs current), the language
+reference [docs/REFERENCE.md](docs/REFERENCE.md) and the how-to guide [docs/GUIDE.md](docs/GUIDE.md).
+
 Design fundamentals and the three bets: [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md).
 Latest audit against them (status per fundamental, ranked gaps):
 [docs/AUDIT.md](docs/AUDIT.md). Fix pass with before/after evidence per step:
@@ -124,6 +127,11 @@ examples/escrow_s3.k      scale size 3: 55 defs, pure functions (-> Int) usable 
 examples/limits.k, .host  host demo: limits fetched from a risk service over `net` (docs/HOST.md)
 kern/host.py              host: SQLite state, outbox + channels, net endpoints, replay, `page`
 kern/scorecard.py         `kern score FILE.k`: the per-size scorecard of docs/SCALE.md
+docs/REFERENCE.md         the language reference (≤ 2,500 tokens; C2's language tax)
+docs/GUIDE.md             how-to: tools, file formats, Python API, common errors
+tests/test_docs.py        keeps REFERENCE/GUIDE in step with the code (blocks check, CLI/API/handlers documented)
+AGENTS.md                 working rules for agents, including the docs-update rule
+docs/ROADMAP_RUN.md       the overnight roadmap run: pre-registered conditions and results per step
 kern/host.py              OS boundary (docs/HOST.md): SQLite state, outbox, recorded clock,
                           HTTP + console front ends, replay, permission manifest, proof gate
 tests/test_fundamentals.py  adversarial audit tests, one section per fundamental

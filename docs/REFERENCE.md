@@ -99,6 +99,7 @@ Each definition gets one status:
 | Not proven: … / Tested only, not proven | `?` or ◐ |
 | No guarantees stated | there's nothing to prove |
 | Weaker than baseline | below the recorded `kern baseline` |
+| Spec changed since baseline | a `need` was added, removed or changed |
 
 `spec strength` is mutation testing of the body:
 - **guarantees** = mutants the proofs and random tests catch, out of all mutants;
