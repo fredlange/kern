@@ -23,6 +23,12 @@ sha2 = "0.10"
 z3 = "0.22"
 z3-sys = "0.14"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+# token counts for views (Python: the optional `tokens` extra); pure Rust (fancy-regex, no oniguruma)
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"], optional = true }
+
+[features]
+default = ["tokens"]
+tokens = ["dep:tokenizers"]
 
 [dev-dependencies]
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }   # float_roundtrip: exact float parsing (pyrandom vectors)

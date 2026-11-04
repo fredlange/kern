@@ -10,8 +10,34 @@ use crate::report::{Report, Status as GStatus};
 use crate::syntax::{atom_code, code, flat, negate, side, Def, Emit, Expr, Module, Need, Stmt};
 use crate::why::Status;
 
-/// Token count of a view with a Claude tokenizer, when one is available (Python: the optional `tokens` extra).
-/// The Rust toolchain has none bundled yet, so this is None, and `kern view` prints no count.
+/// Token count of a view with a Claude tokenizer, when one is available (Python: the optional `tokens` extra, the
+/// tokenizer.json bundled in anthropic==0.34.2). The file is looked up in KERN_TOKENIZER, then
+/// ~/.cache/kern/tokenizer.json, then the checkout's .venv; without one this is None and `kern view` prints no
+/// count. The counts are identical to Python's (REFERENCE.md 2,230, GUIDE.md 5,434, CLAUDE.md 4,579).
+#[cfg(feature = "tokens")]
+pub fn tokens(text: &str) -> Option<usize> {
+    use std::sync::OnceLock;
+    static TOK: OnceLock<Option<tokenizers::Tokenizer>> = OnceLock::new();
+    let tok = TOK.get_or_init(|| {
+        let mut paths: Vec<String> = vec![];
+        if let Ok(p) = std::env::var("KERN_TOKENIZER") {
+            paths.push(p);
+        }
+        if let Ok(h) = std::env::var("HOME") {
+            paths.push(format!("{}/.cache/kern/tokenizer.json", h));
+        }
+        let venv = concat!(env!("CARGO_MANIFEST_DIR"), "/../.venv/lib");
+        if let Ok(rd) = std::fs::read_dir(venv) {
+            for py in rd.flatten() {
+                paths.push(format!("{}/site-packages/anthropic/tokenizer.json", py.path().to_string_lossy()));
+            }
+        }
+        paths.iter().find_map(|p| tokenizers::Tokenizer::from_file(p).ok())
+    });
+    tok.as_ref().and_then(|t| t.encode(text, true).ok()).map(|e| e.get_ids().len())
+}
+
+#[cfg(not(feature = "tokens"))]
 pub fn tokens(_text: &str) -> Option<usize> {
     None
 }
@@ -394,4 +420,16 @@ pub fn guarded_needs(stmts: &[Stmt]) -> Vec<(&Stmt, Vec<Guard>)> {
     }
     go(stmts, &[], &mut out);
     out
+}
+
+#[cfg(all(test, feature = "tokens"))]
+mod tests {
+    #[test]
+    fn token_counts_match_python_when_a_tokenizer_is_present() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/REFERENCE.md")).unwrap();
+        match super::tokens(&text) {
+            Some(n) => assert!(n > 1000, "REFERENCE.md: {n} tokens"),
+            None => eprintln!("SKIP: no tokenizer.json found"),
+        }
+    }
 }
