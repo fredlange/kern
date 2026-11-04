@@ -74,6 +74,17 @@ in a verdict is a bug in the port.
 
 ## Open decisions for Fredrik
 
+**Decided by Fredrik, 2026-11-04** (asked by kern-9b; the options as put to him are below):
+- **O1:** `i128` with checked arithmetic (overflow is an atomic error), the alias the port already
+  uses. The runtime's `i64` stays a documented divergence. No new prover obligation.
+- **O2:** everything except `experiments/`. `kern/`, `tests/` and `validation/` move to Rust;
+  `experiments/` stay as frozen Python records.
+- **O3:** tests are ported per module, to cargo tests, along with the Python-oracle diff. pytest
+  goes at cutover.
+- **O5:** Text is built in the Rust toolchain once the modules it touches reach parity. Python
+  stays frozen (bug fixes only) until then.
+- O4 is still open (technical: kern-8b is testing the bundled z3 build in Docker).
+
 - **O1. Int semantics.** `run.py` has unbounded integers, and the prover reasons about unbounded
   integers. kern-rt uses `i64`, where overflow is a fault: atomic, rolled back, no clock tick.
   That's a documented divergence. kern-9b proposes `i64` with checked overflow in the Rust
