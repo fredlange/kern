@@ -2,46 +2,11 @@
 //! `.venv/bin/python validation/oracle_wf.py build/oracle_wf.json`) must give the same problems in the same order,
 //! and every mutant body the same problems(). Skipped (with a note) when the dump is missing.
 
-use kern::syntax::{op, parse_module, Expr, Stmt};
+mod common;
+use common::{s, stmts};
+use kern::syntax::parse_module;
 use kern::wf::{module_problems, problems};
 use serde_json::Value as J;
-
-fn s(j: &J) -> String {
-    j.as_str().unwrap().to_string()
-}
-
-fn expr(j: &J) -> Expr {
-    let a = j.as_array().unwrap();
-    match a[0].as_str().unwrap() {
-        "int" => Expr::Int(a[1].as_i64().unwrap() as i128),
-        "name" => Expr::Name(s(&a[1]), a[2].as_bool().unwrap()),
-        "bin" => Expr::Bin(op(a[1].as_str().unwrap()), Box::new(expr(&a[2])), Box::new(expr(&a[3]))),
-        "app" => Expr::App(s(&a[1][0]), a[1][1].as_bool().unwrap(), a[2].as_array().unwrap().iter().map(expr).collect()),
-        "all" => Expr::All(s(&a[1]), Box::new(expr(&a[2])), Box::new(expr(&a[3])), Box::new(expr(&a[4]))),
-        k => panic!("expr kind {k}"),
-    }
-}
-
-fn exprs(j: &J) -> Vec<Expr> {
-    j.as_array().unwrap().iter().map(expr).collect()
-}
-
-pub fn stmt(j: &J) -> Stmt {
-    let a = j.as_array().unwrap();
-    match a[0].as_str().unwrap() {
-        "let" => Stmt::Let(s(&a[1]), expr(&a[2])),
-        "need" => Stmt::Need(expr(&a[1]), s(&a[2]), exprs(&a[3])),
-        "do" => Stmt::Do(expr(&a[1])),
-        "if" => Stmt::If(expr(&a[1]), stmts(&a[2]), stmts(&a[3])),
-        "for" => Stmt::For(s(&a[1]), expr(&a[2]), expr(&a[3]), exprs(&a[4]), stmts(&a[5])),
-        "inv" => Stmt::Inv(expr(&a[1])),
-        k => panic!("stmt kind {k}"),
-    }
-}
-
-fn stmts(j: &J) -> Vec<Stmt> {
-    j.as_array().unwrap().iter().map(stmt).collect()
-}
 
 #[test]
 fn type_checker_matches_python() {

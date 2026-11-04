@@ -18,3 +18,6 @@ pub mod report;
 pub mod package;
 pub mod cli;
 pub mod zz;
+pub mod views;
+pub mod render;
+pub mod baseline;
