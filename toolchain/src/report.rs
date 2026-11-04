@@ -98,21 +98,53 @@ pub struct Guarantee {
     pub vacuity: Option<String>,
     /// tested: how many random runs reached success
     pub tested: Option<u64>,
+    /// an unknowable emit goal on a declared channel names it (Python key "channel")
+    pub channel: Option<String>,
 }
 
-/// Python's `expr` value per guarantee kind.
+/// Python's `expr` value per guarantee kind (prove.py builds these exact shapes; render.py reads them).
 #[derive(Clone, Debug)]
 pub enum GoalExpr {
-    /// `ok otherwise`
+    /// `ok otherwise`: Python None
     None,
-    /// keep, ensure, pre, loop goals: one expression
+    /// keep, ensure: the clause
     Expr(Expr),
     /// a module invariant: (variable, type, condition)
     Invariant(String, String, Expr),
-    /// emit: the exact event sequence
+    /// emit on audit: the exact event sequence
     Emits(Vec<Emit>),
-    /// anything prove.py builds that the above doesn't cover yet; replaced as prove.rs lands
-    Other(Py),
+    /// emit on a declared channel: Python ("channel", ch, emits)
+    ChannelEmits(String, Vec<Emit>),
+    /// a loop goal: Python ("entry" | "kept", ast)
+    Loop(String, LoopAst),
+    /// an assumed handler's need at a call site: Python (handler, need)
+    Pre(String, Expr),
+}
+
+/// What a loop goal is about: one of the loop's own invariants, or a module invariant (Python ("module", text)).
+#[derive(Clone, Debug)]
+pub enum LoopAst {
+    Inv(Expr),
+    Module(String),
+}
+
+impl GoalExpr {
+    /// The Python value, for the oracle dump.
+    pub fn to_py(&self) -> Py {
+        let emits = |es: &[Emit]| Py::List(es.iter().map(Emit::to_py).collect());
+        match self {
+            GoalExpr::None => Py::None,
+            GoalExpr::Expr(e) => e.to_py(),
+            GoalExpr::Invariant(v, t, c) => Py::Tuple(vec![Py::s(v), Py::s(t), c.to_py()]),
+            GoalExpr::Emits(es) => emits(es),
+            GoalExpr::ChannelEmits(ch, es) => Py::Tuple(vec![Py::s("channel"), Py::s(ch), emits(es)]),
+            GoalExpr::Loop(part, ast) => Py::Tuple(vec![Py::s(part), match ast {
+                LoopAst::Inv(e) => e.to_py(),
+                LoopAst::Module(t) => Py::Tuple(vec![Py::s("module"), Py::s(t)]),
+            }]),
+            GoalExpr::Pre(h, e) => Py::Tuple(vec![Py::s(h), e.to_py()]),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
