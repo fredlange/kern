@@ -23,3 +23,4 @@ pub mod render;
 pub mod baseline;
 pub mod oracle;
 pub mod emit_rust;
+pub mod pyjson;
