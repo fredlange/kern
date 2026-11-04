@@ -1,0 +1,7 @@
+[package]
+name = "kern-rt"
+version = "0.1.0"
+edition = "2021"
+description = "Kern runtime: the hand-written half of every compiled Kern program"
+
+[dependencies]
