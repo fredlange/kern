@@ -33,6 +33,9 @@ tokenizers = { version = "0.22", default-features = false, features = ["fancy-re
 [features]
 default = ["tokens"]
 tokens = ["dep:tokenizers"]
+# Z3 5.3.3 compiled from source and linked statically (z3-src 503.3.0; needs cmake and a C++ compiler). The
+# Docker image uses it, since distribution libz3 packages aren't 5.3.3. Default: the system libz3 via pkg-config.
+static-z3 = ["z3/bundled"]
 
 [dev-dependencies]
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }   # float_roundtrip: exact float parsing (pyrandom vectors)

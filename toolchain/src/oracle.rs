@@ -108,6 +108,27 @@ pub fn prove_json(path: &str) -> J {
     json!({"defs": out})
 }
 
+/// Per mutant of one definition: [description, statuses of the first_kill prove run] (debugging kill counts).
+pub fn mutants_json(path: &str, name: &str) -> J {
+    let defs = match package::load(path, &IndexMap::new()) {
+        Ok(d) => d,
+        Err(e) => return json!({"error": e.to_string()}),
+    };
+    let d = &defs.defs[name];
+    let mut out = vec![];
+    for (desc, body) in crate::check::mutants(d) {
+        let mut md = d.clone();
+        md.body = body;
+        let mdefs = defs.with_def(md.clone());
+        if !crate::wf::problems(&mdefs, &md).is_empty() {
+            continue;
+        }
+        let (gs, _) = crate::prove::Prover::new(&mdefs).prove(&md, true);
+        out.push(json!([desc, gs.iter().map(|g| g.status.as_str()).collect::<Vec<_>>()]));
+    }
+    J::Array(out)
+}
+
 pub fn main(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let usage = "usage: kern oracle analyse PATH [--mutation] | kern oracle prove PATH";
     let (cmd, rest) = match argv.split_first() {
@@ -125,6 +146,7 @@ pub fn main(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let j = match cmd {
         "analyse" => analyse_json(path, mutation),
         "prove" => prove_json(path),
+        "mutants" => mutants_json(path, rest.iter().filter(|a| !a.starts_with("--")).nth(1).map(String::as_str).unwrap_or("")),
         _ => {
             let _ = writeln!(err, "{usage}");
             return 2;

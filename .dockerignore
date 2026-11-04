@@ -1,0 +1,10 @@
+.git
+.venv
+.checkpoints
+.kern-cache
+**/.kern-cache
+target
+build
+experiments
+**/__pycache__
+.pytest_cache
