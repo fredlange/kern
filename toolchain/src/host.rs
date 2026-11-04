@@ -1273,7 +1273,7 @@ fn respond(req: tiny_http::Request, code: u16, body: &J) {
 }
 
 /// One HTTP request; Err only for a host fault outside a call.
-fn handle_http(host: &mut Host, mut req: tiny_http::Request) -> Result<(), HostError> {
+pub fn handle_http(host: &mut Host, mut req: tiny_http::Request) -> Result<(), HostError> {
     let path = req.url().to_string();
     if *req.method() == tiny_http::Method::Get {
         match path.as_str() {

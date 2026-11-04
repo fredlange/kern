@@ -20,6 +20,10 @@ fn emitter_matches_python() {
     let mut bad = vec![];
     for r in &oracle {
         let path = match r["path"].as_str() {
+            Some(p) if !std::path::Path::new(&format!("{root}/{p}")).exists() => {
+                eprintln!("SKIP {p}: not in this checkout");
+                continue;
+            }
             Some(p) => format!("{root}/{p}"),
             None => {
                 let p = tmp.join(format!("{}.k", r["crate"].as_str().unwrap()));

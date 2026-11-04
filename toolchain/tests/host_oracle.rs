@@ -82,7 +82,7 @@ fn host_matches_python() {
     std::fs::create_dir_all(&dbs).unwrap();
     let oracle: Vec<J> = serde_json::from_str(&text).unwrap();
     let (mut bad, mut n_ops, mut n_cross) = (Vec::<String>::new(), 0, 0);
-    for sc in &oracle {
+    for sc in oracle.iter().filter(|s| s.get("ops").is_some()) {
         let name = sc["name"].as_str().unwrap();
         let defs = kern::package::load(sc["path"].as_str().unwrap(), &IndexMap::new()).unwrap();
         let delivered: Rc<RefCell<Vec<J>>> = Rc::new(RefCell::new(vec![]));
@@ -179,8 +179,77 @@ fn host_matches_python() {
             }
         }
     }
-    eprintln!("{} scenarios, {n_ops} ops compared, {n_cross} Python databases replayed, {} mismatches", oracle.len(), bad.len());
+    eprintln!("{} scenarios, {n_ops} ops compared, {n_cross} Python databases replayed, {} mismatches",
+              oracle.iter().filter(|s| s.get("ops").is_some()).count(), bad.len());
     for b in bad.iter().take(15) {
+        eprintln!("{b}");
+    }
+    assert!(bad.is_empty());
+}
+
+#[test]
+fn http_front_end_matches_python() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let Ok(text) = std::fs::read_to_string(format!("{root}/build/oracle_host.json")) else {
+        eprintln!("SKIP: no build/oracle_host.json; run validation/oracle_host.py");
+        return;
+    };
+    let oracle: Vec<J> = serde_json::from_str(&text).unwrap();
+    let sc = oracle.iter().find(|s| s["name"] == "http").expect("an http scenario");
+    let defs = kern::package::load(sc["path"].as_str().unwrap(), &IndexMap::new()).unwrap();
+    let mut tick = 999;
+    let opts = Options {
+        clock: Some(Box::new(move || {
+            tick += 1;
+            tick
+        })),
+        sinks: Some(vec![]),
+        gate: false,
+        ..Default::default()
+    };
+    let mut h = Host::new(&defs, IndexMap::new(), opts).unwrap();
+    h.init(sc["world"].as_str().unwrap()).unwrap();
+    let srv = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let port = srv.server_addr().to_ip().unwrap().port();
+    let reqs: Vec<(String, String, Option<String>)> = sc["http"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| (q[0].as_str().unwrap().into(), q[1].as_str().unwrap().into(), q[2].as_str().map(String::from)))
+        .collect();
+    let n = reqs.len();
+    let client = std::thread::spawn(move || {
+        reqs.into_iter()
+            .map(|(m, p, body)| {
+                let req = ureq::request(&m, &format!("http://127.0.0.1:{port}{p}"));
+                let r = match body {
+                    Some(b) => req.send_string(&b),
+                    None => req.call(),
+                };
+                let resp = match r {
+                    Ok(resp) => resp,
+                    Err(ureq::Error::Status(_, resp)) => resp,
+                    Err(e) => panic!("{e}"),
+                };
+                json!([resp.status(), resp.into_string().unwrap()])
+            })
+            .collect::<Vec<J>>()
+    });
+    for _ in 0..n {
+        let req = srv.recv().unwrap();
+        kern::host::handle_http(&mut h, req).unwrap();
+    }
+    let got = client.join().unwrap();
+    let want = sc["responses"].as_array().unwrap();
+    let bad: Vec<String> = got
+        .iter()
+        .zip(want)
+        .zip(sc["http"].as_array().unwrap())
+        .filter(|((g, w), _)| g != w)
+        .map(|((g, w), q)| format!("{q}\n  want {w}\n  got  {g}"))
+        .collect();
+    eprintln!("{n} HTTP requests compared, {} mismatches", bad.len());
+    for b in &bad {
         eprintln!("{b}");
     }
     assert!(bad.is_empty());

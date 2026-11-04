@@ -4,10 +4,10 @@
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let code = match argv.first().map(|s| s.as_str()) {
-        Some("host") | Some("mcp") => {
-            eprintln!("kern {}: not ported to the Rust toolchain yet (use `python -m kern.{}`)", argv[0], argv[0]);
-            2
-        }
+        Some("mcp") => kern::mcp::main(),
+        Some("host") => kern::host::main(&argv[1..], &|defs, mutation| {
+            kern::report::analyse(defs, mutation, None, None).map_err(|e| e.message())
+        }),
         Some("oracle") => {
             let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
             kern::oracle::main(&argv[1..], &mut out, &mut err)

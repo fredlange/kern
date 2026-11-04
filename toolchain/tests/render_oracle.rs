@@ -189,8 +189,12 @@ fn check_file(file: &str, bad: &mut Vec<String>) -> usize {
         if m.get("error").is_some() {
             continue;
         }
-        n += 1;
         let path = format!("{root}/{}", s(&m["path"]));
+        if !std::path::Path::new(&path).exists() {
+            eprintln!("SKIP {path}: not in this checkout");
+            continue;
+        }
+        n += 1;
         let defs = kern::package::load(&path, &IndexMap::new()).unwrap();
         let mut reports: IndexMap<String, Report> = m["reports"]
             .as_object()

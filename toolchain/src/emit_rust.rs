@@ -1,7 +1,9 @@
 //! Kern -> Rust (port of kern/emit_rust.py). Turns a checked Kern module into a Rust crate that links with the
 //! runtime crate kern-rt (runtime/).
 //!
-//!     kern build FILE.k [--out DIR]      (a file, a package or its directory; crates and cargo's target go in build/)
+//! ```text
+//! kern build FILE.k [--out DIR]      (a file, a package or its directory; crates and cargo's target go in build/)
+//! ```
 //!
 //! Each definition becomes one Rust function over a `Tx` (the runtime's call in progress). `need`s are behaviour and
 //! are compiled; `keep`/`ensure`/`emit` are proven, so they compile to nothing. The semantics are the interpreter's

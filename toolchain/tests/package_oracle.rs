@@ -14,6 +14,10 @@ fn package_loader_matches_python() {
         return;
     };
     let root = kern::package::abspath(&format!("{dir}/oracle_package"));
+    if !std::path::Path::new(&root).is_dir() {
+        eprintln!("SKIP: no scratch tree {root}; run validation/oracle_package.py");
+        return;
+    }
     let rel = |p: &Option<String>| p.as_ref().map(|p| relpath(p, &root));
     let oracle: Vec<J> = serde_json::from_str(&text).unwrap();
     let mut bad = vec![];

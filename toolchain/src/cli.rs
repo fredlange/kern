@@ -304,14 +304,97 @@ pub fn main_with(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
             let _ = writeln!(out, "{}", if w.entries.is_empty() { "(no why entries)".to_string() } else { w.entries.join("\n") });
             0
         }
-        _ => {
-            let _ = writeln!(
-                err,
-                "error: `kern {}` needs the prover and the report, which are not ported to Rust yet (use `python -m kern {}`)",
-                a.cmd, a.cmd
-            );
-            1
+        _ => check_view_baseline(&a, &defs, &whys, &orphans, out, err),
+    }
+}
+
+/// `check`, `view` and `baseline`: the commands that need the prover's report.
+fn check_view_baseline(a: &Args, defs: &crate::syntax::Module, whys: &IndexMap<String, why::Status>,
+                       orphans: &IndexMap<String, Vec<String>>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    use crate::{baseline as basemod, render, report::analyse, views};
+    let basefile = a.basefile.clone().unwrap_or_else(|| store_path(&a.file, ".strength"));
+    if a.cmd == "baseline" {
+        let reports = match analyse(defs, true, None, None) {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = writeln!(err, "{}: {}", a.file, e.message());
+                return 2;
+            }
+        };
+        if let Err(e) = basemod::write(&basefile, &reports, defs) {
+            let _ = writeln!(err, "error: {}: {}", basefile, e);
+            return 2;
         }
+        let _ = writeln!(out, "recorded guarantee strength in {}", basefile);
+        return 0;
+    }
+    let mut base = None;
+    if a.cmd == "check" {
+        if let Some(rev) = &a.rev {
+            // a committed baseline can't be rewritten by the edit
+            let cwd = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            let rel = crate::package::relpath(&basefile, &cwd);
+            let p = std::process::Command::new("git").args(["show", &format!("{}:./{}", rev, rel)]).output();
+            match p {
+                Ok(p) if p.status.success() => base = Some(basemod::parse(&String::from_utf8_lossy(&p.stdout))),
+                Ok(p) => {
+                    let msg: String = String::from_utf8_lossy(&p.stderr).trim().chars().take(200).collect();
+                    let _ = writeln!(err, "{}: no baseline {} at {}: {}", a.file, rel, rev, msg);
+                    return 2;
+                }
+                Err(e) => {
+                    let _ = writeln!(err, "{}: no baseline {} at {}: {}", a.file, rel, rev, e);
+                    return 2;
+                }
+            }
+        } else {
+            base = Some(basemod::load(&basefile));
+        }
+    }
+    let check = a.cmd == "check";
+    let cache = if check && !a.cache.is_empty() { Some(a.cache.as_str()) } else { None };
+    let base = base.filter(|b| !b.is_empty());
+    let reports = match analyse(defs, check && !a.quick, base.as_ref(), cache) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = writeln!(err, "{}: {}", a.file, e.message());
+            return 2;
+        }
+    };
+    if let Some(c) = cache {
+        let n = reports.values().filter(|r| r.cached).count();
+        let _ = writeln!(err, "cache: {}/{} definitions reused ({})", n, reports.len(), c);
+    }
+    if a.cmd == "view" {
+        let name = a.name.clone().unwrap_or_default();
+        if !reports.contains_key(&name) {
+            let _ = writeln!(err, "{}: no definition named `{}`", a.file, name);
+            return 2;
+        }
+        let text = match a.view.as_str() {
+            "iface" => views::iface(&reports[&name], &whys[&name]),
+            "spec" => views::spec(&reports[&name], &whys[&name]),
+            _ => views::editor(&reports, &name, whys),
+        };
+        let _ = writeln!(out, "{}", text);
+        if let Some(n) = views::tokens(&text) {
+            let _ = writeln!(err, "\n[{} tokens]", n);
+        }
+        return 0;
+    }
+    let _ = writeln!(out, "{}", render::terminal(&reports, defs, whys, orphans));
+    if let Some(html) = &a.html {
+        let title = a.file.rsplit('/').next().unwrap_or(&a.file);
+        if let Err(e) = std::fs::write(html, render::page(&reports, defs, whys, title, orphans, None)) {
+            let _ = writeln!(err, "error: {}: {}", html, e);
+            return 2;
+        }
+        let _ = writeln!(out, "proof page: {}", html);
+    }
+    if reports.values().all(|r| r.clean) {
+        0
+    } else {
+        1
     }
 }
 

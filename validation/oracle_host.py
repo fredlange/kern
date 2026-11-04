@@ -150,6 +150,42 @@ def run(sc, db):
     return {"results": results, "delivered": delivered, "tables": tables}
 
 
+HTTP = [["GET", "/state", None], ["GET", "/nope", None], ["POST", "/nope", "{}"],
+        ["POST", "/transfer", '{"from": "A", "to": "B", "amount": 5}'],
+        ["POST", "/transfer", '{"from": "A", "to": "B", "amount": 5000}'],
+        ["POST", "/transfer", '{"from": "A", "to": "Z", "amount": 5}'],
+        ["POST", "/transfer", '{"from": "A", "to": "B", "amount": "x"}'],
+        ["POST", "/transfer", '{"from": "A", "to": "B"}'], ["POST", "/transfer", "not json"],
+        ["POST", "/transfer", '[1, 2]'], ["POST", "/transfer", ""], ["GET", "/state", None]]
+
+
+def http(sc):
+    """The HTTP front end: each request's status and exact body bytes."""
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import HTTPServer
+
+    from kern.host import make_handler
+    defs = package.load(sc["path"])
+    ticks = iter(range(1000, 10**9))
+    h = Host(defs, ":memory:", clock=lambda: next(ticks), sinks=[], gate=False)
+    h.init(sc["world"])
+    srv = HTTPServer(("127.0.0.1", 0), make_handler(h))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    out = []
+    for method, path, body in HTTP:
+        req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}{path}", method=method,
+                                     data=None if body is None else body.encode())
+        try:
+            with urllib.request.urlopen(req) as r:
+                out.append([r.status, r.read().decode()])
+        except urllib.error.HTTPError as e:
+            out.append([e.code, e.read().decode()])
+    srv.shutdown()
+    return out
+
+
 def replay_dir(d):
     ok = True
     for sc in scenarios():
@@ -183,6 +219,9 @@ def main(argv):
         out.append({**sc, **rec})
         print(f"{sc['name']}: {len(sc['ops'])} ops, {sum(1 for r in rec['results'] if isinstance(r, list) and r[:1] == ['exception'])} "
               f"exceptions, {len(rec['delivered'])} deliveries", file=sys.stderr)
+    sc = {"name": "http", "path": os.path.join(ROOT, "examples/escrow/escrow_s2.k"),
+          "world": "A:1000@u1 C:300@u3 E:0@u0 B:0@u2 H:0@u9", "http": HTTP}
+    out.append({**sc, "responses": http(sc)})
     with open(argv[0], "w") as f:
         json.dump(out, f, ensure_ascii=False)
     return 0
