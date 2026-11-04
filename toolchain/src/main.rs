@@ -8,6 +8,10 @@ fn main() {
             eprintln!("kern {}: not ported to the Rust toolchain yet (use `python -m kern.{}`)", argv[0], argv[0]);
             2
         }
+        Some("oracle") => {
+            let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
+            kern::oracle::main(&argv[1..], &mut out, &mut err)
+        }
         _ => kern::cli::main(&argv),
     };
     std::process::exit(code);
