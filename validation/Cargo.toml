@@ -1,0 +1,14 @@
+# Tools that check the toolchain itself (validation/README.md): not part of the distribution. Each tool is a binary
+# (`cargo run -p kern-validation --bin NAME --release -- ...`) over the library `kern_validation`.
+[package]
+name = "kern-validation"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+kern = { path = "../toolchain" }
+indexmap = "2"
