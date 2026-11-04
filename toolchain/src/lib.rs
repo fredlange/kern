@@ -21,6 +21,5 @@ pub mod zz;
 pub mod views;
 pub mod render;
 pub mod baseline;
-pub mod prove;
 pub mod oracle;
 pub mod emit_rust;
