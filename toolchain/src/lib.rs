@@ -11,3 +11,4 @@ pub mod pyrepr;
 pub mod syntax;
 pub mod pyrandom;
 pub mod run;
+pub mod infer;
