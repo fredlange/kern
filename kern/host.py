@@ -299,7 +299,7 @@ def _ordered_events(world, defs):
 
 class Host:
     def __init__(self, defs, db=":memory:", clock=None, sinks=None, gate=True, channel_sinks=None,
-                 net=None, reports=None, endpoints=None, providers=None, paranoid=False):
+                 net=None, reports=None, endpoints=None, providers=None, paranoid=False, audit_rate=0.0):
         self.defs = defs
         # assumed handlers (observations inside a call): a provider per handler, checked against the
         # assumed spec on every call by the interpreter, and every value recorded for replay
@@ -326,6 +326,15 @@ class Host:
         # (unless the database is edited outside Kern: `paranoid` keeps every runtime check on).
         self.paranoid = paranoid
         self.invariant_proven = {n: self._invariants_proven(r) for n, r in self.reports.items()}
+        # defence in depth: also check a sampled fraction of the skipped calls (host/interpreter bugs)
+        self.audit_rate, self.audit_stats = audit_rate, {"sampled": 0, "violations": 0}
+        self._audit_rng = random.Random(0)
+        # the induction also has to start right: a database from elsewhere (another process, a
+        # migration, an older binary) is audited in full before anything is served
+        if self.db.execute("select 1 from meta where k='genesis'").fetchone():
+            broken = self.interp.broken_invariants(self.load())
+            if broken:
+                raise ConfigError(f"startup audit: invariant {broken[0][0]} is broken at {broken[0][1]}; not serving")
         # The network is policy: every request the module can send needs a configured endpoint,
         # checked now, at startup (endpoints=None with net requests in the module is refused too).
         reqs = net_requests(defs)
@@ -444,8 +453,13 @@ class Host:
             else:
                 if outcome == ("ok",):
                     # tier ○, checked at runtime: at the keys this call wrote (sound: wf.invariant_problems)
-                    broken = [] if self.runtime_check_skipped(name) else \
-                        self.interp.broken_invariants(world, world.written_keys())
+                    skip = self.runtime_check_skipped(name)
+                    if skip and self.audit_rate and self._audit_rng.random() < self.audit_rate:
+                        skip = False
+                        self.audit_stats["sampled"] += 1
+                    broken = [] if skip else self.interp.broken_invariants(world, world.written_keys())
+                    if broken and self.runtime_check_skipped(name):
+                        self.audit_stats["violations"] += 1       # a proven definition broke one: a host bug
                     if broken:
                         res = {"status": "error", "fault": "module", "error": f"invariant broken: {broken[0][0]} at {broken[0][1]}"}
                     else:
@@ -554,6 +568,10 @@ class Host:
                       "runtime_invariant_check": "removed (proven)" if self.runtime_check_skipped(n) else "on"}
         return out
 
+    def audit_report(self):
+        """Startup audit (always), sampled checks of skipped calls, and the paranoid switch."""
+        return dict(self.audit_stats, rate=self.audit_rate, paranoid=self.paranoid, startup_audit="passed")
+
 
 def _system_below(args):
     import secrets
@@ -586,6 +604,10 @@ def manifest_text(host):
             pattern = pattern.replace("{%d}" % i, "*")
         lines.append(f"  net: {ctor} -> {ep.method} {pattern}  reply {ep.reply}, fail {ep.fail}")
     lines.append("nothing else: the module cannot name any other effect or endpoint.")
+    a = host.audit_report()
+    lines.append(f"runtime checks: invariants audited in full at startup ({a['startup_audit']}); per call, skipped "
+                 f"where every invariant goal is proven" + (" (off: --paranoid)" if a["paranoid"] else "") +
+                 f"; sampled audit rate {a['rate']} ({a['sampled']} sampled, {a['violations']} violations)")
     lines.append("")
     for n, v in m.items():
         mark = "serve" if v["served"] else "BLOCK"
@@ -719,6 +741,7 @@ def main(argv=None):
     ap.add_argument("--no-gate", action="store_true", help="also serve definitions that are not proven clean")
     ap.add_argument("--config", help="host config (endpoints); default FILE.host next to the module")
     ap.add_argument("--paranoid", action="store_true", help="keep every runtime check on, even where proven")
+    ap.add_argument("--audit-rate", type=float, default=0.0, help="also run the skipped checks on this fraction of calls")
     a = ap.parse_args(argv)
     try:
         defs = check_module(parse_module(open(a.file).read()))
@@ -729,7 +752,7 @@ def main(argv=None):
     cfg = a.config or os.path.splitext(a.file)[0] + ".host"
     try:
         endpoints = load_config(open(cfg).read(), defs) if os.path.exists(cfg) else None
-        host = Host(defs, a.db, gate=not a.no_gate, endpoints=endpoints, paranoid=a.paranoid)
+        host = Host(defs, a.db, gate=not a.no_gate, endpoints=endpoints, paranoid=a.paranoid, audit_rate=a.audit_rate)
     except ConfigError as e:
         print(f"{a.file}: host refuses to start: {e}", file=sys.stderr)
         return 2

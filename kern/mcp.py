@@ -112,7 +112,15 @@ def _one_def(source):
     return m.group(1)
 
 
+def _inside_root(path):
+    """KERN_MCP_ROOT=dir: the server only touches modules under dir (C2's isolation)."""
+    root = os.environ.get("KERN_MCP_ROOT")
+    if root and not os.path.realpath(path).startswith(os.path.realpath(root) + os.sep):
+        raise ToolError(f"{path} is outside this server's root")
+
+
 def _load(path):
+    _inside_root(path)
     text = open(path).read()
     try:
         return text, check_module(parse_module(text))

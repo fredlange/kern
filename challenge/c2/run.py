@@ -20,13 +20,16 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PY = f"{ROOT}/.venv/bin/python"
 MODEL = "claude-opus-5-5"
 MAX_TURNS = 40
-TOOLS = {   # allowed tools per arm; nothing else (no Grep/Glob/WebFetch, no other MCP servers)
-    "kview": ["mcp__kern__kern_list", "mcp__kern__kern_view", "mcp__kern__kern_callers", "mcp__kern__kern_why",
-              "mcp__kern__kern_check", "mcp__kern__kern_run", "mcp__kern__kern_edit", "mcp__kern__kern_add",
-              "mcp__kern__kern_replace", "mcp__kern__kern_remove"],
-    "kfull": ["Read", "Edit", "Write", f"Bash({PY} -m kern:*)"],
-    "ts": ["Read", "Edit", "Write", "Bash(node --test:*)"],
-}
+MAX_BUDGET_USD = 4.0         # per run; a run that hits it ends there and is graded as it stands
+KVIEW = ["mcp__kern__kern_list", "mcp__kern__kern_view", "mcp__kern__kern_callers", "mcp__kern__kern_why",
+         "mcp__kern__kern_check", "mcp__kern__kern_run", "mcp__kern__kern_edit", "mcp__kern__kern_add",
+         "mcp__kern__kern_replace", "mcp__kern__kern_remove"]
+
+
+def tools(arm, ws):
+    """Allowed tools per arm, file tools scoped to the workspace (kern-90: Read takes absolute paths)."""
+    scoped = [f"Read({ws}/**)", f"Edit({ws}/**)", f"Write({ws}/**)"]
+    return {"kview": KVIEW, "kfull": scoped + [f"Bash({PY} -m kern:*)"], "ts": scoped + ["Bash(node --test:*)"]}[arm]
 
 
 def preamble(arm, ws):
@@ -65,16 +68,19 @@ def command(arm, task, ws, seed):
     mcp = f"{ws}/.mcp.json"
     with open(mcp, "w") as f:
         servers = {"kern": {"command": PY, "args": ["-m", "kern.mcp"], "cwd": ROOT,
-                            "env": {"KERN_MCP_LOG": f"{ws}/mcp_log.jsonl"}}} if arm == "kview" else {}
+                            "env": {"KERN_MCP_LOG": f"{ws}/mcp_log.jsonl", "KERN_MCP_ROOT": ws}}} if arm == "kview" else {}
         json.dump({"mcpServers": servers}, f)
     prompt = preamble(arm, ws) + task_text(task)
-    return ["claude", "-p", prompt, "--model", MODEL, "--max-turns", str(MAX_TURNS), "--output-format", "stream-json",
-            "--verbose", "--mcp-config", mcp, "--strict-mcp-config", "--allowedTools", ",".join(TOOLS[arm])], prompt
+    return ["claude", "-p", prompt, "--model", MODEL, "--max-turns", str(MAX_TURNS), "--max-budget-usd",
+            str(MAX_BUDGET_USD), "--output-format", "stream-json", "--verbose", "--mcp-config", mcp,
+            "--strict-mcp-config", "--allowedTools", ",".join(tools(arm, ws))], prompt
 
 
-def verify(arm, transcript_lines):
-    """Every tool the agent used is one its arm allows (and no file reads in the K-view arm)."""
-    used = []
+def verify(arm, transcript_lines, ws):
+    """Every tool the agent used is one its arm allows, no tool call names a path outside the workspace,
+    and no Bash command chains commands. A run that fails this is INVALID: replaced and counted."""
+    import re
+    used, outside = [], []
     for line in transcript_lines:
         try:
             ev = json.loads(line)
@@ -83,8 +89,16 @@ def verify(arm, transcript_lines):
         for block in (ev.get("message") or {}).get("content", []) if isinstance(ev.get("message"), dict) else []:
             if isinstance(block, dict) and block.get("type") == "tool_use":
                 used.append(block["name"])
-    allowed = {t.split("(")[0] for t in TOOLS[arm]}
-    return {"tools_used": used, "outside_arm": sorted(set(u for u in used if u not in allowed))}
+                text = json.dumps(block.get("input", {}))
+                for path in re.findall(r"(/[\w./-]+)", text):
+                    if not os.path.realpath(path).startswith(os.path.realpath(ws)) and not path.startswith(PY):
+                        outside.append(path)
+                if block["name"] == "Bash" and re.search(r"[;&|`]|\$\(", block.get("input", {}).get("command", "")):
+                    outside.append("chained Bash command")
+    allowed = {t.split("(")[0] for t in tools(arm, ws)}
+    bad = sorted(set(u for u in used if u not in allowed))
+    return {"tools_used": used, "outside_arm": bad, "outside_workspace": sorted(set(outside)),
+            "valid": not bad and not outside}
 
 
 def main():
@@ -92,7 +106,7 @@ def main():
     ws = workspace(arm)
     cmd, prompt = command(arm, task, ws, seed)
     record = {"arm": arm, "task": task, "seed": seed, "model": MODEL, "max_turns": MAX_TURNS, "workspace": ws,
-              "tools": TOOLS[arm], "prompt_sha256": __import__("hashlib").sha256(prompt.encode()).hexdigest()}
+              "max_budget_usd": MAX_BUDGET_USD, "tools": tools(arm, ws), "prompt_sha256": __import__("hashlib").sha256(prompt.encode()).hexdigest()}
     if "--go" not in sys.argv:
         print(json.dumps(dict(record, dry_run=True, command=cmd[:2] + ["<prompt>"] + cmd[3:]), indent=1))
         return
@@ -101,7 +115,7 @@ def main():
     open(f"{ws}/transcript.jsonl", "w").write(p.stdout)
     final = json.loads(lines[-1]) if lines else {}
     json.dump(final, open(f"{ws}/final.json", "w"))
-    record.update(verify(arm, lines), exit=p.returncode)
+    record.update(verify(arm, lines, ws), exit=p.returncode)
     json.dump(record, open(f"{ws}/record.json", "w"), indent=1)
     print(json.dumps(record, indent=1))
 

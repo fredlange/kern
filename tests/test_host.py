@@ -514,3 +514,20 @@ def test_paranoid_catches_an_invariant_broken_outside_kern():
         h.db.execute("update account set balance = -5 where name='B'")      # outside Kern
         r = h.call("transfer", ["A", "B", 1])                               # B ends at -4
         assert r["status"] == want, (paranoid, r)
+
+
+def test_startup_audit_refuses_a_database_broken_outside_kern(tmp_path):
+    db = str(tmp_path / "e.db")
+    h = Host(ESCROW, db, clock=lambda: 1, sinks=[])
+    h.init(WORLD)
+    h.db.execute("update account set balance = -5 where name='B'")         # e.g. another process
+    h.db.close()
+    with pytest.raises(ConfigError, match="startup audit"):
+        Host(ESCROW, db, sinks=[])
+
+
+def test_sampled_audit_runs_skipped_checks():
+    h = host(audit_rate=1.0)
+    for _ in range(5):
+        h.call("transfer", ["A", "B", 1])
+    assert h.audit_report()["sampled"] == 5 and h.audit_report()["violations"] == 0

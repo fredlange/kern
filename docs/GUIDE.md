@@ -99,6 +99,7 @@ say so instead.
 | `--port N` | `serve` |
 | `--no-gate` | also serve definitions that aren't proven clean (the invariants are still checked at runtime) |
 | `--config FILE.host` | the network endpoints (default `FILE.host` next to the module) |
+| `--audit-rate R` | also run the skipped invariant checks on a fraction R of calls (defence in depth; the counts are in the manifest). The full invariant audit at startup always runs |
 | `--paranoid` | keep every runtime check on. Normally the per-call invariant check is skipped for definitions whose invariant goals are proven ✔ (the manifest says which) |
 | `--html OUT.html` | `page` |
 

@@ -196,3 +196,11 @@ def test_c14_expect_hash(module):
         mcp.kern_replace(module, "transfer", TRANSFER_SAME, expect_hash="00000000")
     assert mcp.kern_replace(module, "transfer", TRANSFER_SAME, expect_hash=real)["ok"]
     assert h
+
+
+def test_root_keeps_the_server_inside_the_workspace(module, monkeypatch):
+    """C2 isolation (kern-90): with KERN_MCP_ROOT set, no tool opens a module outside it."""
+    monkeypatch.setenv("KERN_MCP_ROOT", os.path.dirname(module))
+    assert mcp.kern_list(module)["definitions"]
+    with pytest.raises(mcp.ToolError, match="outside this server's root"):
+        mcp.kern_view(os.path.abspath("examples/escrow_s2.k"), "capture")

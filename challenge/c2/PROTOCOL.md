@@ -24,8 +24,19 @@ freezing (rule 5). Until then, CHALLENGE.md's proposed defaults stand as proposa
 
 - **Workspaces** are fresh temp directories with only the arm's files: no docs/, CLAUDE.md,
   AGENTS.md, .why, out/, challenge/ or git history.
-- **`run.py` checks every run's transcript** for tools outside its arm. A run that used one is
-  reported and excluded, not graded.
+- **Isolation** (kern-90's audit closed this hole: `Read` takes absolute paths):
+  - Read, Edit and Write are scoped to the workspace (`Read(<ws>/**)` …).
+  - The K-view MCP server gets `KERN_MCP_ROOT=<ws>` and refuses any module outside it.
+- **The validity rule, applied after each run.** `run.py` checks the stream-json transcript.
+  A run is **INVALID**, then replaced and counted, if any tool call:
+  - uses a tool outside its arm;
+  - names a path outside the workspace;
+  - is a Bash command that chains commands (`;`, `&`, `|`, `` ` ``, `$(`).
+
+  It's untested whether `Bash(python -m kern:*)` and `Bash(node --test:*)` refuse chained
+  commands, so this rule covers that case either way.
+- **Budget:** `--max-budget-usd 4` per run. A run that hits it ends there and is graded as it
+  stands; the hit is reported.
 
 ## Grading (`grade.py`, scripts only)
 

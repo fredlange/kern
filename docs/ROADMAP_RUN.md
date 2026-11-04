@@ -8,6 +8,57 @@ are appended under each step, failures included.
 Git is blocked (the Xcode licence prompt). Every step is checkpointed in `.checkpoints/` (see
 its LOG.md) so it can be committed in order later.
 
+## Summary for Fredrik (morning of 2026-11-04)
+
+**Done:** eight steps, each pre-registered, tested and checkpointed (`.checkpoints/00`–`08`), and
+reviewed by kern-90 at every checkpoint. **Not committed: git is blocked** by the Xcode licence
+prompt. Run `sudo xcodebuild -license accept`, then commit the checkpoints in order
+(`.checkpoints/LOG.md` has the messages).
+
+| step | roadmap | result |
+|---|---|---|
+| S1 the ratchet sees refusals | C1/C3 fix | C1 re-run: Kern 24/24 (B10 now *visible as a spec change*, not refuted). `check --against REV` is untested (git) |
+| S2 quick + cached check | C6 fix, start of roadmap 2 | Results identical. `--quick` meets C6's thresholds; **the full cold check still fails** them (11.8 s per definition, 92.7 s) |
+| S3 MCP server | roadmap 2 | 10 tools, structural edits re-check callers; a real `claude -p` client works |
+| S4 loops | roadmap 1, **proposal** | batch.k clean. Found: a spec can't *state* a frame, there's no sum, and events in loops are flagged. kern-90's 7 wrong programs now carry the right tiers, identical across test orders (one frozen condition "failed as written", see p7) |
+| S5 assumed handlers | roadmap 1, **proposal** | raffle.k clean with ⊙; satisfiability and scope checks; the host records draws and replays them. My claim about draw_winner needing the assumption was **wrong** (recorded) |
+| S6 C2 prepared | roadmap 3 | tasks, arms, grader validated without agents, hidden cases hashed, isolation hole closed. **Not run:** needs your approval (27 runs) and your thresholds |
+| S7 proven checks removed | roadmap 4 (small) | ~18% per host call; startup audit, `--audit-rate`, `--paranoid` |
+
+**Decisions waiting for you:**
+- the loop syntax and the handler syntax (both proposals, with token tables);
+- whether to run C2, and its thresholds;
+- the S7 default (skip proven checks, always audit at startup).
+
+**kern-90's findings on the whole run** (an independent session of the same model, so not a
+human review):
+1. **S7's rationale overstated it.** The skipped check can't fail *if the prover, interpreter
+   and host are correct*, and tonight showed the prover wasn't, until fixed (p3 rendered ✔ on a
+   false `ensure` at checkpoint 03). `--audit-rate` is the guard against that, so it's not
+   optional decoration. The "B ends at −4" result now applies only to edits made by another
+   process *while* the host runs; the startup audit catches edits between runs.
+2. **The evidence that loops are sound is thin:** batch.k (5 definitions) plus 7 hand-written
+   probes, which found 4 tier bugs and 1 order dependence.
+   - Recommendation: a fuzzer of random bounded-loop programs with random, often wrong,
+     invariants and ensures, asserting that nothing is ✔ when the interpreter finds a violation.
+   - Do this before loops stop being a proposal.
+3. **The same for assumed handlers:** 13 conditions plus 6 probes. The satisfiability fallback
+   ("not checked") hasn't been exercised by any example that needs it.
+4. **Independence:** every review tonight was between two sessions of the same model. The new
+   surface (loops, handlers, MCP, host policy) hasn't been used by any other agent. C2 would be
+   the first real test of S3.
+5. **Process:** git is blocked and nothing is committed; S3 ran before S4/S5, against the agreed
+   order; the S4/S5 syntax is a proposal; the S7 default is your call; C2 is ready but not run
+   (27 runs, $4 cap each).
+6. **On the record:** every pre-registered failure was reported as such (the C6 full check, p7
+   "nothing ✔", the draw_winner claim).
+
+**Corrections made overnight:**
+- In the docs step I told you CLAUDE.md and README linked the new docs. They didn't:
+  `/usr/bin/python3` is gated like git, and the edit scripts silently did nothing. Now fixed
+  and verified.
+- A token measurement written before measuring (20 vs 22) was corrected to the measured 26 vs 26.
+
 Order (sent to kern-90 for review):
 - **S1:** the ratchet covers `need`s.
 - **S2:** incremental and quick `check`.
@@ -590,7 +641,9 @@ Everything kern-90 asked for:
 
 **Why:** the host checks module invariants after every successful call (tier ○, at the keys the
 call wrote). For a definition whose invariant goals are all proven ✔, that check can't fail
-unless the host's state was changed outside Kern, so it's pure cost. Removing it is what
+unless the host's state was changed outside Kern, so it's pure cost.
+**Correction, 2026-11-04 (kern-90):** that holds only *if the prover, interpreter and host are
+correct*. Tonight's p3 showed the prover can be wrong, and `--audit-rate` is the guard. Removing it is what
 verification is supposed to buy.
 
 **Change:**
@@ -621,4 +674,23 @@ verification is supposed to buy.
    definition, and `--paranoid` restores the check (tested).
    - **The trade-off, now tested:** with a balance made negative outside Kern, a non-paranoid
      host lets the next call through (B ends at −4); `--paranoid` refuses it with an error.
+     Since the startup audit (S7 additions), that applies only to edits made by another
+     process *while* the host runs.
    - Replay detects the tampering either way.
+
+**S7 additions (kern-90's review):**
+- **A full invariant audit at host startup, always.** The host refuses to serve a database
+  whose invariants don't hold. That closes "tampered between runs" (another process, a
+  migration, an older binary), which replay would only catch when someone runs it. Tested.
+- **`--audit-rate R`:** also runs the skipped checks on a sampled fraction of calls. That's
+  defence in depth against host/interpreter bugs, which the proofs say nothing about. Counts are
+  in the manifest; tested at R = 1.
+- **The skip applies only where every invariant goal of the definition, as served, is ✔.**
+  `!`, `?`, ◐, unknown (e.g. a computed key outside a loop frame) and ⊙ keep the check on.
+- **The default** (skip proven checks, audit at startup) is a deliberate choice, recorded here
+  for Fredrik. `--paranoid` turns everything back on.
+
+**C2 isolation hole (kern-90's audit of checkpoint 06), closed:** file tools are scoped to the
+workspace, the MCP server is rooted at the workspace, a run is invalid if any tool call names
+an outside path or chains Bash commands (tested on a synthetic transcript), and each run has a
+$4 cap. `HIDDEN.sha256.json` is re-hashed, and PROTOCOL.md updated.
