@@ -428,6 +428,8 @@ pub struct Interp<'m, 'p> {
     pub budget: Option<Int>,
     /// the result of the last successful top-level call (functions set it)
     pub last_result: Option<Value>,
+    /// when Some, every built-in handler call appends its effect label (tests observe effects with it)
+    pub effect_log: Option<Vec<&'static str>>,
     call_pre: Option<World>,
 }
 
@@ -448,6 +450,7 @@ impl<'m, 'p> Interp<'m, 'p> {
             loop_violations: vec![],
             budget: None,
             last_result: None,
+            effect_log: None,
             call_pre: None,
         }
     }
@@ -551,7 +554,10 @@ impl<'m, 'p> Interp<'m, 'p> {
     }
 
     pub fn call(&mut self, name: &str, args: Vec<Value>, world: &mut World) -> SResult<Value> {
-        if let Some((arity, _)) = handler(name) {
+        if let Some((arity, label)) = handler(name) {
+            if let Some(log) = self.effect_log.as_mut() {
+                log.push(label);
+            }
             if args.len() != arity {
                 return Err(RunError::Kern(format!("{} takes {} argument(s), got {}", name, arity, args.len())).into());
             }
