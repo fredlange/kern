@@ -9,3 +9,4 @@ experiments/compare/go/diffbin
 .kern-cache/
 /build/
 *.egg-info/
+/target/

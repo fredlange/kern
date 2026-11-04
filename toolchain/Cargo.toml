@@ -1,0 +1,23 @@
+[package]
+name = "kern"
+version = "0.1.0"
+edition = "2021"
+description = "A language for agent-written code: machine-checked specs and a generated proof page"
+
+[lib]
+name = "kern"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kern"
+path = "src/main.rs"
+
+# Crate-wide rule: no std HashMap/HashSet where iteration order can reach terms, mutants or output (FZ finding 6).
+# IndexMap keeps Python dict order; BTreeMap where sorted order is wanted.
+[dependencies]
+indexmap = "2"
+regex = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
