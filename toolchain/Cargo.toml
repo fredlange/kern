@@ -18,6 +18,10 @@ path = "src/main.rs"
 indexmap = "2"
 regex = "1"
 sha2 = "0.10"
+# Z3 5.3.3, the version Python's z3-solver bundles (docs/research/RUST_PORT_PLAN.md). z3-sys for the few terms the
+# crate builds differently from z3py (quantifier weight/qid/skid), so the solver sees the same input.
+z3 = "0.22"
+z3-sys = "0.14"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 
 [dev-dependencies]
