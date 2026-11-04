@@ -2,31 +2,49 @@
 
 A working guide: set up, write a module, read what `check` says, fix it, keep it honest, run it.
 The language itself is in [REFERENCE.md](REFERENCE.md); read that first. This guide covers
-the tools, the file formats and the Python API.
+the tools, the file formats and the Rust library API.
 
-`tests/test_docs.py` keeps this file honest. Every `kern` code block must parse and
+`toolchain/tests/docs.rs` keeps this file honest. Every `kern` code block must parse and
 check. Every CLI command and option must be documented here, and every API name listed must
 exist. If you change any of them, update this file in the same commit (see
 [AGENTS.md](../AGENTS.md)).
 
 ## Set up
 
+Kern is one binary, `kern`, built from `toolchain/` (Rust). Install it as a dev tool:
+
 ```text
-python3 -m venv .venv
-.venv/bin/pip install z3-solver tokenizers anthropic==0.34.2 pytest
-.venv/bin/pytest                       # the whole suite; strict xfails are known gaps
+brew install z3                              # Z3 5.3.3, the version the prover is pinned to
+cargo install --path toolchain               # puts `kern` in ~/.cargo/bin
+kern check examples/ledger-tour/ledger_v3.k
 ```
 
-`z3-solver` is required. `tokenizers` and `anthropic` only provide token counts.
-`pip install -e .` from the repository root installs the same thing plus a `kern` command (see
-`pyproject.toml`; needs pip ≥ 21.3, so run `pip install -U pip` first in an older venv). Validation tools and experiments aren't part of it: see
-[validation/README.md](../validation/README.md) and [experiments/README.md](../experiments/README.md).
+Without a system Z3, `cargo install --path toolchain --features static-z3` compiles Z3 5.3.3 from
+source and links it in (needs `cmake` and a C++ compiler; a few minutes). Or use the container,
+which needs nothing but Docker:
+
+```text
+docker build -t kern .
+docker run --rm -v "$PWD:/work" kern check examples/shop --quick
+docker run --rm -i -v "$PWD:/work" kern mcp                      # the MCP server on stdio
+docker run --rm -p 8080:8080 -v "$PWD:/work" kern host serve examples/shop --bind 0.0.0.0
+```
+
+- **Token counts** (`view`, the MCP tools) need the Claude tokenizer file that `anthropic==0.34.2`
+  bundles: set `KERN_TOKENIZER=/path/tokenizer.json`, or put it in `~/.cache/kern/tokenizer.json`.
+  Without it, counts are simply absent.
+- **`kern build`** needs `cargo`. An installed `kern` carries the `kern-rt` sources and writes them
+  out under the build directory; `KERN_RUNTIME` and `KERN_BUILD` override where the runtime and the
+  build directory are.
+- **Tests:** `cargo test` from the repository root (oracle tests skip when their Python-generated
+  input in `build/` is missing). Validation tools: [validation/README.md](../validation/README.md);
+  experiments: [experiments/README.md](../experiments/README.md).
 
 ## The loop
 
 1. **Write the spec before the body.** Write the `need`s, then `ok otherwise` if callers may
    rely on *when* the call succeeds, then `keep`/`ensure`/`emit`, and one or two `eg` lines.
-2. **Check:** `python -m kern check FILE.k`. Everything must read `All guarantees proven`.
+2. **Check:** `kern check FILE.k`. Everything must read `All guarantees proven`.
    While iterating, use `check --quick` (no mutation testing). Definitions whose code, and
    everything they reach, didn't change come from `.kern-cache/` (shown on stderr). Run a
    full `check` before you commit, since strength is only measured there.
@@ -49,7 +67,7 @@ python3 -m venv .venv
      `emit` or an `ok otherwise`.
 5. **Read `missed:` lines.** Each is a body change no guarantee would notice. Add the
    guarantee that pins it, or accept it if the mutant is equivalent (it changes nothing).
-6. **Ratchet:** `python -m kern baseline FILE.k` records, in `FILE.strength`, the
+6. **Ratchet:** `kern baseline FILE.k` records, in `FILE.strength`, the
    guarantee strength, the guarantee clauses, the spec `need`s and each definition's own
    body-level refusals.
    - From then on, `check` flags "Weaker than baseline" (a guarantee removed, strength
@@ -90,7 +108,7 @@ shop/
 
 Examples: `examples/shop/`, `examples/library/`, `examples/lottery/` (each with a README).
 
-## `python -m kern` commands
+## `kern` commands
 
 | command | does |
 |---|---|
@@ -114,7 +132,7 @@ Examples: `examples/shop/`, `examples/library/`, `examples/lottery/` (each with 
 | `--out DIR` | `build`: where to write the Rust crate (default `build/<module>`) |
 | `--against REV` | `check`: take the baseline from git at REV (`git show REV:FILE.strength`), so rewriting the file can't hide a change |
 
-## `python -m kern.host` commands: run a module for real
+## `kern host` commands: run a module for real
 
 | command | does |
 |---|---|
@@ -150,10 +168,9 @@ Examples: `examples/shop/`, `examples/library/`, `examples/lottery/` (each with 
 
 ## The MCP server: working through views
 
-`python -m kern.mcp` serves the tools below over stdio (MCP, JSON-RPC 2.0, no dependencies), so
-an agent works through views instead of files. To register it with Claude Code:
-`claude mcp add kern -- .venv/bin/python -m kern.mcp`, or pass the same command with
-`--mcp-config`.
+`kern mcp` serves the tools below over stdio (MCP, JSON-RPC 2.0), so an agent works through views
+instead of files. To register it with Claude Code: `claude mcp add kern -- kern mcp`, or pass the
+same command with `--mcp-config`.
 
 | tool | does |
 |---|---|
@@ -183,11 +200,10 @@ What an edit does and reports:
 `kern build FILE.k` writes a Rust crate for the module (or the whole package) to `build/<module>/`,
 links it with the runtime crate `kern-rt` in `runtime/`, and runs `cargo build --release` (the
 target directory is `build/target`). `need`s compile to code. `keep`, `ensure` and
-`emit` are proven, so they compile to nothing. `kern/run.py` stays the reference semantics: the
-runtime is wrong wherever the two disagree. The contract and the known divergences (for example,
-Int is i64 at run time) are in [research/RUNTIME_PLAN.md](research/RUNTIME_PLAN.md). Needs `cargo`.
-It works from a checkout (or `pip install -e .`): the crate in `runtime/` isn't inside the Python
-package, so a plain `pip install` of a wheel can't build.
+`emit` are proven, so they compile to nothing. The interpreter (`toolchain/src/run.rs`) stays the
+reference semantics: the runtime is wrong wherever the two disagree. The contract and the known divergences (for example,
+Int is i64 at run time, i128 in the interpreter and the prover's model is unbounded) are in
+[research/RUNTIME_PLAN.md](research/RUNTIME_PLAN.md). Needs `cargo`.
 
 ## Files
 
@@ -218,49 +234,50 @@ package, so a plain `pip install` of a wheel can't build.
   `{i}` is the event's i-th argument and `$.field` an Int from the JSON reply. A missing
   endpoint, an unknown constructor or wrong reply types stop the host at startup.
 
-## Python API
+## Rust library API
 
-Everything is plain Python and the AST is tuples. These are the entry points:
+The `kern` crate (`toolchain/`) is a library as well as the binary. The AST is plain enums
+(`Expr`, `Stmt`, `Need`, `Emit`); maps keep insertion order (`IndexMap`). These are the entry points:
 
 | API | does |
 |---|---|
-| `kern.syntax.parse_module(text)` | text → `Module` (a dict of name → `Def`, plus `.states`, `.invariants`, `.channels`) |
-| `kern.package.load(path)` | a file, a package directory or `kern.pkg` → the checked `Module` of everything it needs; each `Def` has `.module` and `.file` in a package |
-| `kern.syntax.parse_expr(src)` | one expression → AST tuple |
-| `kern.syntax.code(e)` | AST → source text |
-| `kern.syntax.Def` | a definition: `.params .needs .keeps .ensures .emits .examples .body .complete .hash` |
-| `kern.syntax.ParseError` | a parse error, with line number |
-| `kern.wf.check_module(defs)` | well-formedness and types; raises `WellFormedError` (`.problems`) |
-| `kern.report.analyse(defs, mutation=True, baseline=None, cache=None)` | everything `check` does: name → report (`guarantees`, `examples`, `props`, `mutation`, `clean`, …) |
-| `kern.prove.Prover(defs).prove(d)` | the proofs of one definition: `[{kind, clause, status, counterexample?}]`, plus the callees relied on |
-| `kern.run.Interp(defs).run(name, args, world)` | one atomic call → `(outcome, world)` |
-| `kern.run.World` | `bal`, `own`, `clock`, `audit`, `maps`, `out`; `World.from_example(w, now, maps)` |
-| `kern.check.run_examples(defs, d)` | run d's `eg` lines |
-| `kern.check.proptest(defs, d)` | random tests of d's guarantees |
-| `kern.check.mutation_score(defs, d)` | spec strength |
-| `kern.infer.uses(defs, d)` | inferred effects |
-| `kern.infer.fails(defs, d)` | inferred failures |
-| `kern.infer.writes(defs, d)` | inferred written balances and state |
-| `kern.views.iface(r, why)`, `kern.views.spec(r, why)`, `kern.views.editor(reports, name, whys)` | the agent views (text) |
-| `kern.views.tokens(text)` | token count (None without a tokenizer) |
-| `kern.render.page(reports, whys, title)` | the proof page (HTML) |
-| `kern.render.terminal(reports, whys)` | the `check` output |
-| `kern.baseline.write(path, reports)`, `kern.baseline.load(path)` | the ratchet |
-| `kern.why.load(path)`, `kern.why.status(store, d, defs)` | the rationale store |
-| `kern.host.Host(defs, db, …)` | the host: `.init(world)`, `.call(name, args)`, `.flush()`, `.pump()`, `.replay()`, `.manifest()` |
-| `kern.host.load_config(text, defs)` | parse and validate a `.host` file |
-| `kern.host.SimNet(endpoints, answer, seed)` | a hostile simulated network for tests |
-| `kern.emit_rust.emit(path)`, `kern.emit_rust.build(crate)` | Kern → a Rust crate in `build/`; `cargo build` it → the binary's path |
+| `kern::syntax::parse_module(text, expand)` | text → `Module` (`.defs` name → `Def`, plus `.states`, `.invariants`, `.channels`, `.handlers`) |
+| `kern::package::load(path, overrides)` | a file, a package directory or `kern.pkg` → the checked `Module` of everything it needs; each `Def` has `.module` and `.file` in a package |
+| `kern::syntax::parse_expr(src, line)` | one expression → `Expr` |
+| `kern::syntax::code(e)` | `Expr` → source text |
+| `kern::syntax::Def` | a definition: `.params .needs .keeps .ensures .emits .examples .body .complete`, `.hash()` |
+| `kern::syntax::ParseError` | a parse error, with line number |
+| `kern::wf::check_module(defs)` | well-formedness and types; `Err(WellFormedError { problems })` |
+| `kern::report::analyse(defs, mutation, baseline, cache)` | everything `check` does: name → `Report` (`guarantees`, `examples`, `props`, `mutation`, `clean`, …) |
+| `kern::prove::Prover` | the proofs of one definition (`Prover::new(defs).prove(d, first_kill)`): guarantees, plus the callees relied on |
+| `kern::run::Interp` | the interpreter: `Interp::new(defs).run(name, args, world)` → the outcome; the world is updated or rolled back |
+| `kern::run::World` | `bal`, `own`, `clock`, `audit`, `maps`, `out`; `World::from_example(w, now, maps)` |
+| `kern::check::run_examples` | run a definition's `eg` lines |
+| `kern::check::proptest` | random tests of a definition's guarantees |
+| `kern::check::mutation_score` | spec strength |
+| `kern::infer::uses` | inferred effects |
+| `kern::infer::fails` | inferred failures |
+| `kern::infer::writes` | inferred written balances and state |
+| `kern::views::iface`, `kern::views::spec`, `kern::views::editor` | the agent views (text) |
+| `kern::views::tokens` | token count (None without a tokenizer) |
+| `kern::render::page` | the proof page (HTML) |
+| `kern::render::terminal` | the `check` output |
+| `kern::baseline::write`, `kern::baseline::load` | the ratchet |
+| `kern::why::load`, `kern::why::status` | the rationale store |
+| `kern::host::Host` | the host: `Host::new(defs, reports, options)`, `.init(world)`, `.call(name, args)`, `.flush()`, `.pump(extra)`, `.replay()`, `.manifest()` |
+| `kern::host::load_config` | parse and validate a `.host` file |
+| `kern::host::SimNet` | a hostile simulated network for tests |
+| `kern::emit_rust::emit`, `kern::emit_rust::build` | Kern → a Rust crate in `build/`; `cargo build` it → the binary's path |
+| `kern::mcp::handle` | one MCP JSON-RPC message → the response |
 
-A minimal script:
+A minimal program:
 
 ```text
-from kern.syntax import parse_module
-from kern.wf import check_module
-from kern.report import analyse
-defs = check_module(parse_module(open("examples/escrow/escrow_s1.k").read()))
-reports = analyse(defs, mutation=False)
-print({n: r["clean"] for n, r in reports.items()})
+let defs = kern::package::load("examples/escrow/escrow_s1.k", &Default::default())?;
+let reports = kern::report::analyse(&defs, false, None, None)?;
+for (name, r) in &reports {
+    println!("{name}: {}", r.clean);
+}
 ```
 
 ## Common errors
