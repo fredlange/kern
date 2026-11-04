@@ -1,0 +1,189 @@
+# How to Kern
+
+A working guide: set up, write a module, read what `check` says, fix it, keep it honest, run it.
+The language itself is in [REFERENCE.md](REFERENCE.md); read that first. This guide covers
+the tools, the file formats and the Python API.
+
+`tests/test_docs.py` keeps this file honest. Every `kern` code block must parse and
+check. Every CLI command and option must be documented here, and every API name listed must
+exist. If you change any of them, update this file in the same commit (see
+[AGENTS.md](../AGENTS.md)).
+
+## Set up
+
+```text
+python3 -m venv .venv
+.venv/bin/pip install z3-solver tokenizers anthropic==0.34.2 pytest
+.venv/bin/pytest                       # the whole suite; strict xfails are known gaps
+```
+
+`z3-solver` is required. `tokenizers` and `anthropic` only provide token counts.
+`compare/diff.py` also needs `node` ≥ 23 and `go`.
+
+## The loop
+
+1. **Write the spec before the body.** Write the `need`s, then `ok otherwise` if callers may
+   rely on *when* the call succeeds, then `keep`/`ensure`/`emit`, and one or two `eg` lines.
+2. **Check:** `python -m kern check FILE.k`. Everything must read `All guarantees proven`.
+3. **Read a ✗ as a test case.** It comes with an `eg` line that was replayed in the
+   interpreter, for example:
+
+   ```text
+   ✗ ok otherwise
+       counterexample: eg A:1@u1 B:253@u1 | payout A B B 1 0 -> BadAmount | A:1 B:253
+   ```
+
+   Here a call that passes payout's needs still refuses (transfer refuses a zero fee). Either
+   the body is wrong, or the spec is: in this case add the missing `need`. Paste the line
+   into the spec as an `eg` if it's worth keeping.
+4. **Read a `?`, `!` or ◐ as a spec too weak to prove from.**
+   - `?` with "not reproduced": a callee's spec doesn't say enough, so strengthen the
+     callee's `ensure`.
+   - `!`: a callee isn't proven, so fix the callee first.
+   - "relies on X, whose spec does not say what it emits / when it refuses": give X an
+     `emit` or an `ok otherwise`.
+5. **Read `missed:` lines.** Each is a body change no guarantee would notice. Add the
+   guarantee that pins it, or accept it if the mutant is equivalent (it changes nothing).
+6. **Ratchet:** `python -m kern baseline FILE.k` records guarantee strength and clauses in
+   `FILE.strength`. From then on, `check` flags "Weaker than baseline". The ratchet does
+   **not** compare `need`s yet (docs/CHALLENGE.md, C1 finding 1).
+
+**Don't** add a `need` that refuses the case you can't prove, delete a guarantee to go green,
+or re-run `kern baseline` to hide a drop. Each of these changes what callers may rely on;
+say so instead.
+
+## `python -m kern` commands
+
+| command | does |
+|---|---|
+| `check FILE.k` | prove, run the examples and random tests, measure spec strength; exit 1 if anything is not clean |
+| `view FILE.k NAME --as iface\|spec\|editor` | what an agent reads (token count on stderr). `editor` = the full definition plus its callees' spec views |
+| `why FILE.k NAME` | the rationale entries for NAME, with staleness |
+| `anchor FILE.k` | re-anchor the `.why` file to the current builds (confirm the entries still hold first) |
+| `run FILE.k "NAME ARGS" --world "A:500@u1 …"` | run one call in the interpreter |
+| `baseline FILE.k` | record the ratchet baseline (`FILE.strength`) |
+| `score FILE.k` | the scale scorecard (docs/SCALE.md): strength, reading ratio, time |
+
+| option | for |
+|---|---|
+| `--why FILE.why` | the rationale store (default `FILE.why` next to the module; `/dev/null` for none) |
+| `--html OUT.html` | `check`: also write the proof page |
+| `--as iface\|spec\|editor` | `view`: which view |
+| `--world WORLD` | `run`: the world, in `eg` syntax |
+| `--baseline FILE.strength` | `check`: compare against this baseline (default `FILE.strength`) |
+
+## `python -m kern.host` commands: run a module for real
+
+| command | does |
+|---|---|
+| `manifest FILE.k` | the effects and network endpoints the module can reach, and which definitions are served |
+| `repl FILE.k --db X.db --world "…"` | one call per line on stdin; events are delivered after commit |
+| `serve FILE.k --db X.db --port 8080` | HTTP: `POST /NAME` with a JSON object of the parameters, `GET /state`, `GET /manifest` |
+| `replay FILE.k --db X.db` | re-run the call log from genesis; it must match the database |
+| `page FILE.k --html OUT.html` | the proof page plus a Host section (everything marked *assumed*) |
+
+| option | for |
+|---|---|
+| `--db X.db` | the SQLite database (default in memory) |
+| `--world WORLD` | the genesis world (only on a new database) |
+| `--port N` | `serve` |
+| `--no-gate` | also serve definitions that aren't proven clean (the invariants are still checked at runtime) |
+| `--config FILE.host` | the network endpoints (default `FILE.host` next to the module) |
+| `--html OUT.html` | `page` |
+
+- **One call is one transaction.** A refusal writes nothing, and an unproven definition isn't
+  served. HTTP status codes: ok → 200, refused → 409, bad call → 400, unproven → 403, broken
+  invariant → 500.
+- **Delivery is at-least-once,** so consumers dedupe on `seq`.
+- **Network replies arrive as new calls.** Details are in docs/HOST.md.
+
+## Files
+
+- **`FILE.k`:** the module.
+- **`FILE.why`:** rationale, never obligations. Each block is a definition anchored to its
+  build hash, followed by indented entries:
+
+  ```text
+  transfer@4be917d8
+    Insufficient carries the shortfall so support can tell the customer how much is missing
+  ```
+
+  An entry goes stale when the definition or its inferred interface changes. An entry that
+  reads like a rule ("must …") is flagged: move it into the spec.
+- **`FILE.strength`:** the ratchet baseline, written by `kern baseline`. Don't edit it by hand.
+- **`FILE.host`:** one line per network request constructor:
+
+  ```text
+  Fetch -> GET http://127.0.0.1:9/limit/{1}; reply got_limit {1} {2} $.value; fail limit_failed {1} {2}
+  ```
+
+  `{i}` is the event's i-th argument and `$.field` an Int from the JSON reply. A missing
+  endpoint, an unknown constructor or wrong reply types stop the host at startup.
+
+## Python API
+
+Everything is plain Python and the AST is tuples. These are the entry points:
+
+| API | does |
+|---|---|
+| `kern.syntax.parse_module(text)` | text → `Module` (a dict of name → `Def`, plus `.states`, `.invariants`, `.channels`) |
+| `kern.syntax.parse_expr(src)` | one expression → AST tuple |
+| `kern.syntax.code(e)` | AST → source text |
+| `kern.syntax.Def` | a definition: `.params .needs .keeps .ensures .emits .examples .body .complete .hash` |
+| `kern.syntax.ParseError` | a parse error, with line number |
+| `kern.wf.check_module(defs)` | well-formedness and types; raises `WellFormedError` (`.problems`) |
+| `kern.report.analyse(defs, mutation=True, baseline=None)` | everything `check` does: name → report (`guarantees`, `examples`, `props`, `mutation`, `clean`, …) |
+| `kern.prove.Prover(defs).prove(d)` | the proofs of one definition: `[{kind, clause, status, counterexample?}]`, plus the callees relied on |
+| `kern.run.Interp(defs).run(name, args, world)` | one atomic call → `(outcome, world)` |
+| `kern.run.World` | `bal`, `own`, `clock`, `audit`, `maps`, `out`; `World.from_example(w, now, maps)` |
+| `kern.check.run_examples(defs, d)` | run d's `eg` lines |
+| `kern.check.proptest(defs, d)` | random tests of d's guarantees |
+| `kern.check.mutation_score(defs, d)` | spec strength |
+| `kern.infer.uses(defs, d)` | inferred effects |
+| `kern.infer.fails(defs, d)` | inferred failures |
+| `kern.infer.writes(defs, d)` | inferred written balances and state |
+| `kern.views.iface(r, why)`, `kern.views.spec(r, why)`, `kern.views.editor(reports, name, whys)` | the agent views (text) |
+| `kern.views.tokens(text)` | token count (None without a tokenizer) |
+| `kern.render.page(reports, whys, title)` | the proof page (HTML) |
+| `kern.render.terminal(reports, whys)` | the `check` output |
+| `kern.baseline.write(path, reports)`, `kern.baseline.load(path)` | the ratchet |
+| `kern.why.load(path)`, `kern.why.status(store, d, defs)` | the rationale store |
+| `kern.host.Host(defs, db, …)` | the host: `.init(world)`, `.call(name, args)`, `.flush()`, `.pump()`, `.replay()`, `.manifest()` |
+| `kern.host.load_config(text, defs)` | parse and validate a `.host` file |
+| `kern.host.SimNet(endpoints, answer, seed)` | a hostile simulated network for tests |
+| `kern.scorecard.score(path)` | the scale scorecard as a dict |
+
+A minimal script:
+
+```text
+from kern.syntax import parse_module
+from kern.wf import check_module
+from kern.report import analyse
+defs = check_module(parse_module(open("examples/escrow_s1.k").read()))
+reports = analyse(defs, mutation=False)
+print({n: r["clean"] for n, r in reports.items()})
+```
+
+## Common errors
+
+| message | fix |
+|---|---|
+| `need must say what it fails with` | write `need COND else Ctor` |
+| `` `x` shadows an existing name `` | pick a new name; names are never reused, even across branches |
+| `` specs may only read state; `ledger.debit` has an effect `` | specs describe; move the effect into the body |
+| `` `ledger.balance'` (after-state) is only allowed in `ensure` `` | use the after-state in `ensure` only |
+| `` `when` is only allowed at the end of an `ensure` or `emit` `` | for a conditional need, write `need C2 or COND else …` |
+| `` `/` needs a positive number on the right `` | arithmetic is linear: divide by a literal |
+| `every path must set result` | a function needs `result = …` in both branches |
+| `` invariant …: `…` must read state at `x` only `` | an invariant may only read state at its own bound key |
+| `` `as F`: … `` / `as` references loop | `need as` / `emit as` must name a definition with the right number of arguments |
+| `recursive (f -> g -> f)` | no recursion yet (there are no termination measures) |
+
+## Limits worth knowing
+
+- **Types:** Int and Account only. No text, records or loops. There's one hard-coded ledger,
+  plus declared state.
+- **A refusal after a write can't be inherited.** Restate it as a `need` on the caller.
+- **Exact audit specs grow with the call tree, and each `if` doubles the paths.** `check` is
+  not incremental, and mutation testing is ~95% of its time (docs/CHALLENGE.md, C6).
+- The full list is in CLAUDE.md, "Known limitations".

@@ -5,3 +5,4 @@ __pycache__/
 .split/
 .DS_Store
 compare/go/diffbin
+.checkpoints/
