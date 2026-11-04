@@ -748,12 +748,14 @@ def main(argv=None):
                     help="with --skip-proven: still run the skipped checks on this fraction of calls")
     a = ap.parse_args(argv)
     try:
-        defs = check_module(parse_module(open(a.file).read()))
+        from .package import load as load_package
+        defs = load_package(a.file)
     except ParseError as e:
         print(f"{a.file}: {e}", file=sys.stderr)
         return 2
     import os
-    cfg = a.config or os.path.splitext(a.file)[0] + ".host"
+    from .package import store_path
+    cfg = a.config or store_path(a.file, ".host")           # a package: <root>/kern.host
     try:
         endpoints = load_config(open(cfg).read(), defs) if os.path.exists(cfg) else None
         host = Host(defs, a.db, gate=not a.no_gate, endpoints=endpoints, skip_proven=a.skip_proven, audit_rate=a.audit_rate)

@@ -19,7 +19,7 @@ def _small(seed):
 def test_a_small_fuzz_run_has_no_contradictions_and_is_deterministic():
     s = _small(7)
     assert s["contradictions"] == 0 and not s["crashes"], s["programs_with_contradictions"]
-    assert s["well_formed"] == s["programs"] and s["unmapped"] == 0
+    assert s["well_formed"] >= 0.8 * s["programs"] and s["unmapped"] == 0       # FZ's bar for the generator
     assert s["tiers"]["loop"].get("proven", 0) and s["tiers"]["loop"].get("refuted", 0)   # not testing nothing
     assert _small(7) == s
 
@@ -74,3 +74,37 @@ def test_the_mutant_that_hung_replay_finishes():
     t = time.time()
     analyse(mod, mutation=False)
     assert time.time() - t < 60
+
+
+def test_fz2_no_kept_goal_is_proven_while_a_sibling_invariant_is_not():
+    """FZ findings 6/7: tests/probes/fz2.k (loop#249). Its `aux` invariant isn't kept; every other 'kept'
+    goal assumed it, so none may be ✔."""
+    from kern.report import analyse
+    from kern.syntax import parse_module
+    r = analyse(parse_module(open(os.path.join(ROOT, "tests/probes/fz2.k")).read()), mutation=False)["f"]
+    kept = [g for g in r["guarantees"] if g["kind"] == "loop" and "(kept by every iteration)" in g["clause"]]
+    assert any(g["status"] != "proven" and g["clause"].startswith("aux") for g in kept)
+    assert not any(g["status"] in ("proven", "assumed") for g in kept)
+
+
+def test_fz_a_conditional_sibling_still_blocks_a_kept_goal(monkeypatch):
+    """FZ finding 7, independent of solver luck: a sibling that is `?` (and so becomes `!`) blocks the others."""
+    from kern import report
+    from kern.prove import Prover
+    from kern.syntax import parse_module
+    src = open(os.path.join(ROOT, "tests/probes/fz2.k")).read()
+    real = Prover.prove
+
+    def fake(self, d, first_kill=False):
+        gs, relied = real(self, d, first_kill)
+        for g in gs:                              # make the aux 'kept' goal unconfirmed, everything else ✔
+            if g["kind"] == "loop" and g["clause"].startswith("aux") and "kept" in g["clause"]:
+                g["status"] = "unconfirmed"
+            elif g["status"] in ("refuted", "conditional", "unknown", "unconfirmed"):
+                g["status"] = "proven"
+                g.pop("counterexample", None)
+        return gs, relied
+    monkeypatch.setattr(Prover, "prove", fake)
+    r = report.analyse(parse_module(src), mutation=False)["f"]
+    kept = [g for g in r["guarantees"] if g["kind"] == "loop" and "kept" in g["clause"] and not g["clause"].startswith("aux")]
+    assert kept and all(g["status"] == "conditional" for g in kept), [(g["clause"][:30], g["status"]) for g in kept]

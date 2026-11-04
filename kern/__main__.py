@@ -37,11 +37,13 @@ def main(argv=None):
         print(show(score(a.file)))
         return 0
     try:
-        defs = check_module(parse_module(open(a.file).read()))
+        from .package import load as load_package
+        defs = load_package(a.file)        # a single file as before; a package (kern.pkg) or imports: every file
     except ParseError as e:
         print(f"{a.file}: {e}", file=sys.stderr)
         return 2
-    whyfile = a.whyfile or os.path.splitext(a.file)[0] + ".why"
+    from .package import store_path
+    whyfile = a.whyfile or store_path(a.file, ".why")
     store = whymod.load(whyfile)
     whys = {n: whymod.status(store, d, defs) for n, d in defs.items()}
     orphans = whymod.orphans(store, defs)
@@ -74,7 +76,7 @@ def main(argv=None):
         print("\n".join(w["entries"]) or "(no why entries)")
         return 0
 
-    basefile = a.basefile or os.path.splitext(a.file)[0] + ".strength"
+    basefile = a.basefile or store_path(a.file, ".strength")
     if a.cmd == "baseline":
         basemod.write(basefile, analyse(defs))
         print(f"recorded guarantee strength in {basefile}")

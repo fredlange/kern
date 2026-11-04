@@ -32,6 +32,7 @@ from .report import analyse
 from .run import Interp, World
 from .syntax import ParseError, parse_module, parse_world, split_maps, split_now
 from .wf import check_module
+from . import package
 
 PROTOCOL = "2024-11-05"
 FILE = {"type": "string", "description": "path to the .k module"}
@@ -123,13 +124,16 @@ def _load(path):
     _inside_root(path)
     text = open(path).read()
     try:
-        return text, check_module(parse_module(text))
+        defs = package.load(path)                  # a package (kern.pkg) or imports: every file it needs
+        for f in package.files_of(defs).values():   # ... all of them inside this server's root
+            _inside_root(f)
+        return text, defs
     except ParseError as e:
         raise ToolError(f"{path}: {e}")
 
 
 def _whys(path, defs):
-    store = whymod.load(os.path.splitext(path)[0] + ".why")
+    store = whymod.load(package.store_path(path, ".why"))
     return {n: whymod.status(store, d, defs) for n, d in defs.items()}
 
 
@@ -151,13 +155,16 @@ def _callers(defs, name):
     return out
 
 
-def _apply(text, defs, op):
+def _apply(text, defs, op, file=None):
     """One structural edit on the module text. Returns (new text, touched definition or None)."""
     kind = op.get("op")
     name = op.get("name")
     if kind in ("replace", "remove"):
         if name not in defs:
             raise ToolError(f"no definition named {name!r}")
+        home = getattr(defs[name], "file", None)
+        if home and file and os.path.abspath(home) != os.path.abspath(file):
+            raise ToolError(f"{name} is defined in {home}; pass that file")
         if op.get("expect_hash") and defs[name].hash != op["expect_hash"]:
             raise ToolError(f"{name} changed underneath: its build hash is {defs[name].hash}, not {op['expect_hash']}")
     if kind == "add":
@@ -190,9 +197,10 @@ def kern_edit(file, ops):
     old_whys = _whys(file, defs)
     touched = []
     for op in ops:
-        text, t = _apply(text, defs, op)
-        try:
-            defs = parse_module(text)           # later ops see earlier ones; full check below
+        text, t = _apply(text, defs, op, file)
+        try:                                    # later ops see earlier ones; full check below
+            defs = package.load(file, overrides={file: text}) if package.is_package_file(file, text) \
+                else parse_module(text)
         except ParseError as e:
             raise ToolError(f"rejected, file unchanged: {e}")
         if t:
@@ -210,7 +218,7 @@ def kern_edit(file, ops):
     whys = _whys(file, defs)
     report = {n: _status(reps[n]) for n in sorted(affected)}
     broken = {n: s for n, s in report.items() if s != "All guarantees proven"}
-    store = whymod.load(os.path.splitext(file)[0] + ".why")
+    store = whymod.load(package.store_path(file, ".why"))
     return {"ok": not broken, "affected": report, "broken": sorted(broken),
             "rechecked": sorted(n for n, r in reps.items() if not r["cached"]),
             "details": render.terminal({n: reps[n] for n in broken}, whys) if broken else "",

@@ -59,11 +59,40 @@ python3 -m venv .venv
 or re-run `kern baseline` to hide a drop. Each of these changes what callers may rely on;
 say so instead.
 
+## Packages: several files
+
+A program of several files is a **package**: a directory with a `kern.pkg` file (empty is fine).
+
+```text
+shop/
+  kern.pkg
+  money/ledger.k          module money.ledger: transfer
+  inventory/catalog.k     module inventory.catalog: state price, stock; set_price, restock
+  orders.k                import money.ledger / import inventory.catalog; buy, refund
+```
+
+- **`import a.b`** at column 0 names a module by its path from the root. Names come in
+  unqualified, and a file may use only what it declares or imports. That covers definitions,
+  `state`, `handler` and `channel`. Leaving an import out is an error that says which one to
+  add.
+- **Names are unique across the package.** A duplicate is an error naming both files.
+- **Every tool loads the whole package from any of its files:** `check`, `view`, the MCP tools
+  and the host. `check` prints a `== module (file)` line before each file's definitions, and the
+  page says which module each definition is in.
+- **MCP edits** go to the file you pass. Editing a definition that lives in another file is
+  refused, with its file named, and every caller across the package is re-checked.
+- **Outside a package,** a file with `import` lines loads itself plus what it imports, resolved
+  from its own directory.
+- **The prover, interpreter and host** see one merged module, so specs, proofs and trust work
+  across files exactly as within one.
+
+Examples: `examples/shop/`, `examples/library/`, `examples/lottery/`.
+
 ## `python -m kern` commands
 
 | command | does |
 |---|---|
-| `check FILE.k` | prove, run the examples and random tests, measure spec strength; exit 1 if anything is not clean |
+| `check FILE.k` | prove, run the examples and random tests, measure spec strength; exit 1 if anything is not clean. In a package (or a package directory), every file of the package, grouped by module |
 | `view FILE.k NAME --as iface\|spec\|editor` | what an agent reads (token count on stderr). `editor` = the full definition plus its callees' spec views |
 | `why FILE.k NAME` | the rationale entries for NAME, with staleness |
 | `anchor FILE.k` | re-anchor the `.why` file to the current builds (confirm the entries still hold first) |
@@ -167,6 +196,8 @@ contradiction becomes a `tests/probes/fz*.k` file with a test.
 ## Files
 
 - **`FILE.k`:** the module.
+- **`kern.pkg`:** marks a package root (it may be empty). In a package, the `.why` and `.strength`
+  files are per package: `<root>/kern.why` and `<root>/kern.strength`.
 - **`FILE.why`:** rationale, never obligations. Each block is a definition anchored to its
   build hash, followed by indented entries:
 
@@ -178,7 +209,7 @@ contradiction becomes a `tests/probes/fz*.k` file with a test.
   An entry goes stale when the definition or its inferred interface changes. An entry that
   reads like a rule ("must …") is flagged: move it into the spec.
 - **`FILE.strength`:** the ratchet baseline, written by `kern baseline`. Don't edit it by hand.
-- **`FILE.host`:** one line per network request constructor:
+- **`FILE.host`** (in a package, `<root>/kern.host`): one line per network request constructor:
 
   ```text
   Fetch -> GET http://127.0.0.1:9/limit/{1}; reply got_limit {1} {2} $.value; fail limit_failed {1} {2}
@@ -194,6 +225,7 @@ Everything is plain Python and the AST is tuples. These are the entry points:
 | API | does |
 |---|---|
 | `kern.syntax.parse_module(text)` | text → `Module` (a dict of name → `Def`, plus `.states`, `.invariants`, `.channels`) |
+| `kern.package.load(path)` | a file, a package directory or `kern.pkg` → the checked `Module` of everything it needs; each `Def` has `.module` and `.file` in a package |
 | `kern.syntax.parse_expr(src)` | one expression → AST tuple |
 | `kern.syntax.code(e)` | AST → source text |
 | `kern.syntax.Def` | a definition: `.params .needs .keeps .ensures .emits .examples .body .complete .hash` |

@@ -93,6 +93,9 @@ def _loop_offset(e, var):
     return None
 
 
+# deterministic solver limits: Z3 steps, not wall-clock (L1). The largest check that finishes on the
+# example modules, probes and C6 uses 86k steps; ~3.1M steps/s on the 2026 dev machine, so this is ~3 s
+RLIMIT = 10_000_000
 REPLAY_BUDGET = 200_000     # loop iterations + quantifier steps one counterexample replay may take
 
 
@@ -400,7 +403,7 @@ class Prover:
             elif name in self.defs:
                 callee = self.defs[name]
                 cenv = {p: a for (p, _), a in zip(callee.params, args)}
-                for w in writes(self.defs, callee):
+                for w in sorted(writes(self.defs, callee)):    # sorted: set order follows the hash seed
                     x, dot, q = w.rpartition(".")
                     if not dot:
                         acc.append(cenv[q] if q != ANY_ACCOUNT else None)
@@ -426,14 +429,14 @@ class Prover:
                 H.bal = z3.Store(H.bal, self.sev(a, env, S), fresh_int("bal_loop_"))
         if acc:
             H.total = fresh_int("total")
-        for x in set(ranged) | full:
+        for x in sorted(set(ranged) | full):      # sorted: set order follows the hash seed (FZ finding 6)
             H.maps[x] = z3.Array(f"{x}_loop{next(_fresh)}", z3.IntSort(), z3.IntSort())
             if x in ranged:
                 c, j = ranged[x], z3.Int(f"j_{next(_fresh)}")
                 ax.append(z3.ForAll([j], z3.Implies(z3.Or(j < lo + c, j >= K + c),
                                                     z3.Select(H.maps[x], j) == z3.Select(S.maps[x], j))))
         if empty is not None:                      # a loop that never ran changed nothing
-            same = [H.bal == S.bal, H.total == S.total] + [H.maps[x] == S.maps[x] for x in set(ranged) | full]
+            same = [H.bal == S.bal, H.total == S.total] + [H.maps[x] == S.maps[x] for x in sorted(set(ranged) | full)]
             ax.append(z3.Implies(empty, z3.And(*same)))
         return H, ax
 
@@ -482,7 +485,7 @@ class Prover:
         K = z3.If(hi >= lo, hi, lo)
         A, ax = self._havoc(p.S, eff, p.env, lo, K, empty=hi <= lo)
         p.pc += ax + self._inv(invs, var, K, p.env, A) + [g for _, g in self._module_invs_over(stores, A)]
-        for ch in eff[3]:                          # events inside a loop are not described yet
+        for ch in sorted(eff[3]):                  # events inside a loop are not described yet
             A.append(ch, [("opaque", "a loop")])
         p.S = A
 
@@ -581,7 +584,7 @@ class Prover:
         for g, assumed, *rest in cases:
             self._replay_draws = rest[0] if rest else []
             solver = z3.Solver()
-            solver.set("timeout", 5000)
+            solver.set("rlimit", RLIMIT)
             solver.add(*assumed, z3.Not(g))
             r = solver.check()
             if r == z3.unsat:
@@ -590,7 +593,7 @@ class Prover:
                 unknown = True
                 continue
             nice = z3.Solver()
-            nice.set("timeout", 5000)              # every search has a time limit (FZ finding 1)
+            nice.set("rlimit", RLIMIT)              # every search has a step limit (FZ finding 1, L1)
             nice.add(*assumed, z3.Not(g))
             nice.add(pre.now >= 0, pre.now <= 1000)
             for p, t in d.params:
@@ -612,7 +615,7 @@ class Prover:
         """If no input can succeed, every guarantee holds trivially. Say so, and say whose fault."""
         def unsat(cs):
             s = z3.Solver()
-            s.set("timeout", 5000)
+            s.set("rlimit", RLIMIT)
             s.add(*cs)
             return s.check() == z3.unsat
         if not all(unsat(p.pc) for p in paths):
@@ -636,7 +639,7 @@ class Prover:
             # Z3 can't optimise over quantified constraints: try a few other models instead, each
             # differing from the last in its parameters, until one replays
             small = z3.Solver()                    # real bugs nearly always show in a small world
-            small.set("timeout", 5000)
+            small.set("rlimit", RLIMIT)
             small.add(*nice.assertions())
             for p, t in d.params:
                 if t == "Int":
@@ -656,7 +659,7 @@ class Prover:
                     return cx2
             return cx
         opt = z3.Optimize()
-        opt.set("timeout", 5000)
+        opt.set("rlimit", RLIMIT)
         opt.add(*nice.assertions())
         for p, t in d.params:                      # a refusal is likeliest with little money; a broken
             if t == "Account":                     # guarantee with plenty (callee bodies rarely refuse)

@@ -350,13 +350,16 @@ HANDLER = re.compile(r"^handler ([a-z]\w*(?:\.[a-z]\w*)+)((?:\s+\w+:\w+)*)\s*(?:
 INVARIANT = re.compile(r"^invariant ([a-z]\w*):(Int|Account) (.+)$")
 
 
-def parse_module(text: str) -> dict:
+def parse_module(text: str, expand=True) -> dict:
+    """expand=False leaves `need as` / `emit as` unresolved (the package loader resolves them over all files)."""
     defs, cur, in_body = Module(), None, False
     for no, raw in enumerate(text.splitlines(), 1):
         if not raw.strip():
             continue
         line = raw.strip()
         if not raw[0].isspace():
+            if line.startswith("import "):
+                raise ParseError("`import` needs the package loader (python -m kern check FILE loads it)", no)
             if line.startswith("handler "):           # an observation with an assumed spec
                 m = HANDLER.match(line)
                 if not m:
@@ -438,8 +441,13 @@ def parse_module(text: str) -> dict:
         else:
             raise ParseError(f"unknown clause {word!r} (need/keep/ensure/emit/ok/eg, then body)", no)
     _finish(cur)
-    _expand_refs(defs)
+    if expand:
+        _expand_refs(defs)
     return defs
+
+
+def expand_refs(defs):
+    _expand_refs(defs)
 
 
 def _ref(src, no):

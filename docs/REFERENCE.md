@@ -59,6 +59,13 @@ body
 `NAME.get' k`) is the state the clause is about: after the call in `ensure`, at the start of
 each iteration in a loop `invariant`.
 
+## Packages and imports
+
+A directory with a `kern.pkg` file is a package; each `.k` file in it is a module named by its
+path (`money/ledger.k` is `money.ledger`). `import money.ledger` (column 0) lets a file use that
+module's definitions, state and handlers, unqualified. A file uses only what it declares or
+imports; names are unique across the package. Checking any file checks the whole package.
+
 ## Spec clauses
 
 | clause | meaning |

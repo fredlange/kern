@@ -4,6 +4,7 @@ than the checks established."""
 from __future__ import annotations
 
 import html
+import os
 
 from .infer import fails as inferred_fails
 from .infer import fmt_writes
@@ -92,7 +93,7 @@ def card(r, why):
     d = r["def"]
     cls, label = _status(r)
     lets = lets_of(d)
-    out = [f'<section class="card"><header><h2><code>{d.name}</code></h2>'
+    out = [f'<section class="card"><header><h2><code>{d.name}</code>' + (f'<span class="muted"> in {html.escape(d.module)}</span>' if getattr(d, 'module', None) else '') + f'</h2>'
            f'<span class="badge {cls}">{label}</span><span class="hash">build {r["hash"]}</span></header>']
 
     eff = ", ".join(EFFECTS.get(e, f"state <code>{e.rsplit('.', 1)[0]}</code> (read {'and write' if e.endswith('write') else 'only'})")
@@ -297,8 +298,13 @@ def terminal(reports, whys, orphans=None):
         out.append(f"ASSUMES {header[len('handler '):]}: {spec}   (spec {sat}; the host provides it and checks it on every call)")
     if out:
         out.append("")
+    last = None
     for n, r in reports.items():
         cls, label = _status(r)
+        mod = getattr(r["def"], "module", None)          # a package: say which file each block is from
+        if mod and mod != last:
+            out.append(f"== {mod}  ({os.path.relpath(r['def'].file)})")
+            last = mod
         out.append(f"{n} [{r['hash']}]  {label}")
         for g in r["guarantees"]:
             line = f"  {ICON[g['status']]} {g['kind']} {g['clause']}"

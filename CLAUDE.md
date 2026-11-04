@@ -128,6 +128,10 @@ examples/limits.k, .host  host demo: limits fetched from a risk service over `ne
 kern/host.py              host: SQLite state, outbox + channels, net endpoints, replay, `page`
 kern/mcp.py               MCP server (stdio): views, why, check, callers, structural edits that re-check callers
 kern/scorecard.py         `kern score FILE.k`: the per-size scorecard of docs/SCALE.md
+kern/package.py           packages + imports: a dir with kern.pkg; `import a.b`; one merged Module, per-file visibility
+examples/shop/, library/, lottery/   example packages (4 files each, imports, loops, an assumed handler)
+tests/test_package.py     loader errors, tools across files, MCP edits per file, the host serving packages
+tools/digest.py           the S2 results digest (10 modules, full mutation testing): the floor for prover changes
 kern/fuzz.py              soundness fuzzer: random loop/handler programs + template mutants, interpreter as oracle, injected faults
 tests/test_fuzz.py        small fuzz run is clean and deterministic; an injected prover fault is found
 docs/REFERENCE.md         the language reference (≤ 2,500 tokens; C2's language tax)
@@ -181,8 +185,10 @@ for token counts).
   *own* body needs (inherited ones measured at ~2x the spec-view tokens).
 - Counterexamples from modular proofs may not replay; those show as `?` unconfirmed,
   never ✗. Within one long-running process, Z3's witness choice can depend on earlier
-  solver calls, which can flip a mutant between refuted and unconfirmed (CLI runs are
-  reproducible).
+  solver calls, which can flip a mutant between refuted and unconfirmed. Across processes,
+  results repeat since 2026-11-04: solver limits are Z3 steps (`rlimit`), not wall-clock, and the
+  prover no longer iterates sets in hash order. Before that, CLI runs were *not* reliably
+  reproducible (FZ finding 6).
 - Mutation tests use 150 random runs per mutant; the `settle` audit mutant needed 500
   to be caught by random tests (the prover now catches it).
 - The obligation lint for `why` is a keyword heuristic.
@@ -200,6 +206,10 @@ for token counts).
   `emit console Line x`) are exact per channel, unordered across channels. Network requests are
   `net` events with endpoints in a `.host` file; replies arrive as new calls; no request timeout
   (a lost reply leaves the request pending). Delivery is at-least-once. docs/HOST.md has the scorecard.
+- Packages (a proposal, roadmap run P): `import a.b` brings a module's names in unqualified; names are unique
+  per package; imports reach within one package only (each example app copies its ledger). Missing for
+  ordinary programs (gap table in docs/ROADMAP_RUN.md, P): Accounts as state values, iteration over
+  accounts, variable × variable, named constants, effects that return values, records, text.
 - Application arguments must be atoms; nested calls need parentheses. An open
   design question is whether to parse by arity instead, using known interfaces.
 - The `.why` file is chosen with `--why`, defaulting to `<module>.why`.

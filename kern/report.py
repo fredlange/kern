@@ -12,7 +12,7 @@ import pickle
 
 from .check import mutation_score, proptest, run_examples
 from .infer import callees, fails, lifted, uses, writes
-from .prove import Prover
+from .prove import RLIMIT, Prover
 from .wf import check_module
 
 
@@ -46,7 +46,7 @@ def handler_sat(defs, h):
     needs = z3.And(*[z3.BoolVal(True)] + [pv.sev(n[1], env, None) for n in h.needs])
     ens = z3.And(*[z3.BoolVal(True)] + [pv.sev(c, dict(env, result=r), None, None) for c in h.ensures])
     s = z3.Solver()
-    s.set("timeout", 3000)
+    s.set("rlimit", RLIMIT)
     s.add(needs, z3.ForAll([r], z3.Not(ens)))          # some arguments with no possible result?
     got = s.check()
     if got == z3.unsat:
@@ -56,7 +56,7 @@ def handler_sat(defs, h):
         return "unsatisfiable for " + ", ".join(f"{p} = {m.eval(env[p], model_completion=True)}" for p, _ in h.params)
     for vals in [(v,) * len(h.params) for v in (0, 1, 2, 5, 100)]:
         s = z3.Solver()
-        s.set("timeout", 3000)                         # every solver has a time limit (FZ finding 4)
+        s.set("rlimit", RLIMIT)                         # every solver has a step limit (FZ finding 4, L1)
         s.add(*[env[p] == v for (p, _), v in zip(h.params, vals)], needs, z3.Not(z3.Exists([r], ens)))
         if s.check() == z3.sat:
             return "unsatisfiable"
@@ -172,8 +172,10 @@ def analyse(defs, mutation=True, baseline=None, cache=None):
                 # is only as good as the others; entry goals assume none of them
                 if g["kind"] != "loop" or "(kept by every iteration)" in g["clause"]:
                     out += [f"loop invariant {x['clause']}" for x in r["guarantees"]
-                            if x is not g and x["kind"] == "loop" and x["status"] not in ("proven", "assumed", "conditional")]
-                return out
+                            if x is not g and x["kind"] == "loop" and x["status"] not in ("proven", "assumed")]
+                # `!` siblings count too (FZ finding 7): an induction step that assumed an unproven invariant
+                # proves nothing, whether that invariant is refuted, unconfirmed or itself conditional
+                return list(dict.fromkeys(out))     # each blocker once, in order
             for g in r["guarantees"]:
                 weak = weak_for(g)
                 if g["status"] == "proven" and weak:

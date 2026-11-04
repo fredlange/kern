@@ -299,7 +299,8 @@ def callees(defs, d):
 
 def fmt_uses(eff):
     order = ["ledger.write", "ledger.read", "clock", "audit"]
-    return " ".join(sorted(eff, key=lambda x: order.index(x) if x in order else 99))
+    # ties by name: a set's order follows the hash seed, so views differed between runs (FZ finding 6)
+    return " ".join(sorted(eff, key=lambda x: (order.index(x) if x in order else 99, x)))
 
 
 def fmt_fails(fs):

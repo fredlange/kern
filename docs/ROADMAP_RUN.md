@@ -905,3 +905,298 @@ then seed 1 again. Each run took ~34 s on 14 workers.
 - **Loops' status is Fredrik's call** ("a proposal until the fuzzer has run clean"). The soundness
   and teeth conditions pass; two conditions about the fuzzer's own quality fail as written.
   Loops stay a proposal, and the host keeps its runtime checks on, until he says otherwise.
+
+## L: loops, round 2 (2026-11-04, asked by Fredrik: "lets work on those loops")
+
+Order:
+- **L1 determinism** and **L2 fuzzer coverage** first: they close FZ's two failed conditions.
+- Then packages and imports (**P**).
+- Then the loop language gaps the new example apps actually need (**L3**).
+
+Whether loops stop being a proposal stays Fredrik's call once these are reported.
+
+### L1: deterministic solver limits (pre-registered)
+
+**Why:** FZ condition 4 failed. One program's tiers differed between two runs of the same seed,
+because the prover's limits are wall-clock (5 s, 3 s): machine load decides close cases. Z3's
+`rlimit` counts solver steps instead, so the same query gets the same answer whatever the load.
+
+**Change:** every `set("timeout", …)` in prove.py and report.py becomes `set("rlimit", N)`, with
+N calibrated by measurement. Z3's `rlimit count` statistic is recorded for every check on the
+10 example modules and the probes. N is set well above the largest count of any check that
+finishes, and the rlimit that the current 5 s timeout corresponds to on this machine is
+reported.
+
+**Pass conditions (frozen before the code):**
+1. no tier changes on the 10 example modules: the S2 digest `3cb0e5efa3b63fb8` holds (if it moves,
+   a dated note says which goals and why; the digest test isn't silently updated);
+2. C6 `--quick` re-measured against its frozen thresholds (P1 ≤ 1 s per definition at d=6, k=4, e=6;
+   P2 ≤ 60 s for n=200 at d=3, k=2, e=3; `--quick` was 0.36 s and 6.8 s after S2), and reported;
+3. FZ condition 4 re-run: two seed-1 fuzzer runs give identical summaries;
+4. the full test suite passes.
+
+### L2: fuzzer coverage, FZ2 (pre-registered)
+
+**Why:** FZ condition 3 failed (it stays failed as written). Only 8% of loop goals were ✗,
+against a bar of 15%. The cause is structural: one wrong invariant among two or three gives one
+goal ✗, and the others rest on it and become `!`.
+
+**Change:** `gen_loop` gets a mode per program, chosen at random:
+- **mixed:** as before;
+- **invariant-only:** a single body statement and its single correct invariant, with only the
+  invariant perturbed; the body and the ensure stay correct;
+- **ensure-only:** correct invariants, with only the ensure perturbed.
+
+The oracle, the handler generator and the template mutants are unchanged.
+
+**Pass conditions (frozen before the code), all at seed 1, the same sizes as FZ:**
+1. 0 contradictions and 0 crashes;
+2. each of the faults a, b and c gives at least one contradiction;
+3. ≥ 80% of random programs well-formed; among loop goals, ✔ ≥ 15% and ✗ ≥ 15%; ≥ 30% of runs ok;
+4. two seed-1 runs give identical summaries (after L1);
+5. the trace shows no stack dump.
+
+## P: packages and imports (2026-11-04, asked by Fredrik). A proposal
+
+**Why:** Fredrik asked for "example applications with some package structure, imports and other
+normal stuff used in a program". Kern has had one file per module and no imports.
+
+**Proposed design, with token costs measured (`kern.views.tokens`):**
+
+| form | chosen | tokens | alternatives (tokens) |
+|---|---|---|---|
+| import a module | `import billing.invoice` (column 0, before the definitions) | 4 | `use billing.invoice` 4 (reads like the inferred `uses`), `with …` 4, `from … import a b` 7+ |
+| bring in names | every definition of the imported file, unqualified | 0 | `import X: a b` +3 per line; qualified `X.a` +2 per call, and it collides with `ledger.debit` / `hold.get` / `rand.below` |
+
+- **A package** is a directory with a `kern.pkg` file (it may be empty). Loading any file in it
+  loads every `.k` file under it, so callers in other files are always known (`kern_callers`,
+  re-checks after an edit).
+- **A module** is one file. Its name is its dotted path from the package root:
+  `billing/invoice.k` is `billing.invoice`.
+- **Outside a package,** a file loads itself plus whatever it imports, resolved from its own
+  directory. Every existing single-file example is unchanged.
+- **Import controls visibility, not naming.** A file may call (in body or spec) only
+  definitions it declares or imports directly, and may use only state, handlers and channels
+  declared in a file it imports. Names stay unique across the package: a duplicate is an error
+  naming both files. The prover, interpreter and host still see one merged module; each
+  definition records the file it came from.
+- **Invariants** belong to the file that declares their state, and hold package-wide (they did
+  module-wide before).
+- **Cycles** are allowed: visibility is per file, and nothing is evaluated at load time.
+- **Isolation:** module names are identifiers joined by dots, so an import can't name `..` or an
+  absolute path. The MCP server's root check applies to every file it loads.
+- **Tools:**
+  - `check FILE` checks the whole package, and the page groups definitions by file.
+  - The MCP edit tools write to the file that holds the definition; `kern_add` takes the target
+    file.
+  - The host serves a package.
+  - The ratchet baseline and the `.why` store are per package (`<root>/kern.strength`,
+    `<root>/kern.why`), or per file outside a package, as before.
+
+**Pass conditions (frozen before the code):**
+1. **Loader:** a package of several files loads into one module, each definition knowing its
+   file. These are errors with file and line: an unknown module, a name used but not
+   imported, a duplicate name across files, and `import ../x`.
+2. **Tools:**
+   - `kern check` on any file of a package checks the package;
+   - `kern view NAME` works across files;
+   - the MCP tools list, view and check a package;
+   - `kern_replace` writes the right file, and re-checks callers in other files;
+   - the host serves a package (a test call through it).
+3. **Floors:** every existing example and test is unchanged (S2 digest), and single-file
+   behaviour is identical.
+4. **Docs:** REFERENCE.md stays within 2,500 tokens (measured; if the budget binds, Fredrik
+   decides); GUIDE.md covers packages; test_docs passes.
+5. **Example apps:** three packages of 3–5 files each, with imports, using loops and/or assumed
+   handlers. Each is clean, has examples, and is run through the host. Every place where "normal
+   program stuff" was missing (records, strings, constants, collections, …) goes in a gap
+   table: what was needed, the workaround, and its token cost. Nothing beyond imports is
+   added without Fredrik's say.
+
+**Correction (2026-11-04):** after FZ finding 3 I reported "the S2 digest test passed". There is
+no such test. The digest was a one-off script in the overnight run, and only the suite had
+passed. The script is now saved, recovered verbatim from the session transcript, as
+`tools/digest.py`. It was re-run after L1, on every change of the day (the FZ fixes, the vacuity
+rule, the replay budget, rlimit), and gives **`3cb0e5efa3b63fb8`, unchanged**. So the claim
+holds, but it hadn't been checked when I made it.
+
+### L1 results
+
+**Calibration:**
+- 5,265 solver checks over the 14 example modules, the 8 probes and C6's P1/P2 (`analyse`,
+  no mutation testing).
+- Every check that finishes uses ≤ 85,675 Z3 steps (p50 194, p99 12,294), all under 15 ms.
+- One check hit the old 5 s timeout (fz1's counterexample search). It used 15.5M steps in those
+  5 s, about 3.1M steps per second on this machine.
+- **`RLIMIT = 10,000,000`:** 116× the largest finishing check, about 3 s here.
+- Z3's per-solver `rlimit` turned out to be relative, not global: fz1 run three times in one
+  process took 2.8–4.3 s each, with identical tiers.
+
+| # | condition | result |
+|---|---|---|
+| 1 | no tier changes, S2 digest | **pass:** `tools/digest.py` gives `3cb0e5efa3b63fb8` |
+| 2 | C6 `--quick` against its thresholds | **pass:** P1 0.354 s per definition (≤ 1 s), P2 6.58 s (≤ 60 s); 10/10 and 200/200 clean |
+| 3 | FZ condition 4: two seed-1 runs identical | **pass:** identical summaries (0 contradictions). The two runs used 12 and 6 workers, the digest ran alongside, and they took 31.5 s and 58 s. No stack dumps |
+| 4 | full suite | **pass:** 315 passed, 2 xfailed |
+
+### FZ findings 6 and 7 (found by FZ2's determinism condition, after L1)
+
+FZ2 condition 4 failed even with step limits: one ensure was unknown in one seed-1 run and ✗ in
+the other.
+
+**Finding 6: results depended on Python's hash seed.**
+- Every fresh process gets a random string-hash seed. The prover iterated sets (the stores a loop
+  writes, its channels) in hash order and created Z3 arrays with fresh names in that order, so the
+  same program produced a differently-ordered query.
+- Run with fixed seeds, every program repeats exactly (seed 1 twice: 0 of 677 differ). Seeds 1 and
+  2 differ on 3 programs.
+- **So CLAUDE.md's "CLI runs are reproducible" was wrong:** two `kern check` runs of the same file
+  could differ on close cases.
+- **Fix:** those iterations are sorted (`prove.py`, `_havoc` and `exec_loop`). After it, the 3
+  programs are identical under hash seeds 1–4.
+
+**Finding 7: a ✔ resting on an unproven sibling invariant.** This one is the real bug that finding
+6 exposed. In `loop#249`, under one seed, the `aux` invariant's "kept" goal has a counterexample
+that doesn't replay, so it's `?`; propagation then turns it into `!`. A "kept" goal assumes *all*
+the loop's invariants at the head, but `weak_for` doesn't count a sibling that's `!` as a blocker.
+Once the `?` became `!`, the module invariant's "kept" goals were left ✔, although their induction
+step assumed the unproven `aux` invariant. The oracle couldn't see it, because that invariant
+happens to be true. It's an unjustified ✔, not a false one.
+- **Fix (pre-registered):** a loop-derived goal is blocked by every sibling loop goal not ✔ or ⊙,
+  `!` included. A circle of `!` goals is fine: it has a root, the refuted, unconfirmed or unknown
+  goal that started it.
+- **Pass:**
+  1. `loop#249` shows no ✔ "kept" goal under any of hash seeds 1–4 while its `aux` "kept" goal
+     isn't ✔ (a test, `tests/probes/fz2.k`);
+  2. the full suite passes; `tools/digest.py` holds or is explained;
+  3. per-program tiers are identical under hash seeds 1 and 2 for all 677 programs;
+  4. the FZ2 sequence is re-run and reported.
+
+### FZ2, first run (before findings 6 and 7), as it came out
+
+- **Conditions 1, 2 and 5 pass:** 0 contradictions, 0 crashes and no stack dump in 677 programs.
+  The faults: (a) 9,024 contradictions in 63 programs, (b) 15,053 in 92, (c) 2,986 in 24.
+- **Condition 3 fails again:** ✗ is still **8.1%** of loop goals (✔ 55.7%, well-formed
+  488/500, ok runs 64%). The new modes didn't move it. A program with one wrong invariant gives
+  one ✗ "kept" goal out of about four loop goals: its "holds when the loop starts" goal is
+  usually ✔, and the module invariant's goals rest on the ✗ one. And the ensure-only programs
+  have only ✔ loop goals. So the share is capped by structure. More templates would chase the
+  metric, not the fuzzer's ability to find bugs, which condition 2 measures directly.
+- **Condition 4 fails:** see findings 6 and 7 above.
+
+**Generator fixes found along the way** (they change which programs are well-formed, not the
+oracle):
+- the constant perturbation could hit a map key (`tally.get' 0` → `tally.get' -1`, which
+  doesn't parse);
+- one handler ensure template read the after-state in a `when` condition, which is rejected.
+  It was already there in FZ.
+
+### FZ2 results (final code: findings 6 and 7 fixed, generator fixes)
+
+Finding 6 needed one more fix: `_loop_effects` iterated a callee's `writes` set. After it, **0 of
+676 programs differ between hash seeds 1 and 2** (per-program tiers).
+
+| # | condition | result |
+|---|---|---|
+| 1 | 0 contradictions, 0 crashes | **pass:** 677 programs, all well-formed, 228,300 runs, 0 contradictions, 0 crashes, 0 unmapped |
+| 2 | each fault found | **pass:** (a) 9,428 contradictions in 66 programs, (b) 15,048 in 92, (c) 3,248 in 26 |
+| 3 | coverage | **fail as written:** well-formed 100% and ok runs 64% pass; loop goals ✔ 53.6%, but ✗ **8.2%** (bar 15%). It's structural, as explained under FZ2's first run |
+| 4 | two seed-1 runs identical | **pass** (and identical per program under different hash seeds) |
+| 5 | no stack dump | **pass** |
+
+Also: the full suite (317 passed, 2 xfailed); `tools/digest.py` gives `3cb0e5efa3b63fb8`.
+
+**Where loops stand, for Fredrik:**
+- Soundness, teeth and determinism all pass now.
+- The ✗-share bar fails twice, for a structural reason, not a weak fuzzer: the faults are found
+  in 24–92 programs each.
+- Since the first run, the fuzzer has found 7 bugs:
+  - 2 hangs, 1 crash, 1 false "never succeeds";
+  - the non-reproducible hang (from replay);
+  - hash-order results;
+  - and finding 7, a ✔ resting on an unproven sibling invariant.
+- None was a ✔ on a guarantee the interpreter could break, but finding 7 was a ✔ the proof didn't
+  justify.
+- Still missing from loops:
+  - a stated frame (the `lo − 1` / `hi + 1` mutants survive);
+  - sum;
+  - events in loops;
+  - nesting.
+
+### P results
+
+| app | files | definitions | tokens | loops | handlers | clean | `check --quick` |
+|---|---|---|---|---|---|---|---|
+| `examples/shop/` (money, inventory/catalog + promotions, orders) | 4 | 7 | 969 | 2 | 0 | 7/7 | 1.9 s |
+| `examples/library/` (money, catalog/books, loans, fines) | 4 | 6 | 1,054 | 1 | 0 | 6/6 | 1.0 s |
+| `examples/lottery/` (money, chance, tickets, draw) | 4 | 4 | 780 | 1 | 1 | 4/4 | 0.8 s |
+
+| # | condition | result |
+|---|---|---|
+| 1 | loader and its errors | **pass** (`tests/test_package.py`): one module per package, each definition with its `.module`, `.file` and line. Errors name file and line: an unknown module, a name used but not imported (with the import to add), state from a file not imported, a duplicate across files, and `import ../x` / `/etc/passwd` / `Money`, which can't name anything |
+| 2 | tools | **pass:** `check` on any file or the directory checks the package, with a `== module (file)` line per file; `view` works across files; MCP list, view and check; `kern_replace` writes the defining file, refuses the wrong file (naming the right one) and re-checks callers in other files; an edit that breaks an import is refused with the file unchanged; the MCP root covers every file of the package; the host serves all three packages, and the lottery draw replays exactly |
+| 3 | floors | **pass:** single files load exactly as before (same build hashes, no package attribute); the full suite passes (342 passed, 2 xfailed); `tools/digest.py` gives `3cb0e5efa3b63fb8` |
+| 4 | docs | **pass:** REFERENCE.md 2,126 → **2,230** tokens (≤ 2,500); GUIDE.md "Packages: several files", the API row and the files list; test_docs passes |
+| 5 | example apps | **pass:** three packages, all clean, with loops and an assumed handler, all served by the host (tests). The gap table follows |
+
+**Found while building them:**
+- **The library's first `borrow` was wrong,** and the prover said so. `due = clock.now + 14` breaks
+  `due ≥ 0` when the clock is negative, which Kern doesn't rule out (counterexample `now:-15`).
+  The fix is an explicit `need clock.now >= 0`. Until then `assess` was `!`: it relies on the `due`
+  invariant, which only holds if every writer is proven. That's sound, and it's how one file's bug
+  shows up in another's page.
+- **The `!` lists repeated blockers after finding 7;** they're now deduplicated.
+- **The `uses` line still followed the hash seed:** effects outside the fixed order kept the set's
+  order. It's now sorted by name.
+
+**Gaps: "normal program stuff" these apps needed and Kern doesn't have** (nothing added; for
+Fredrik):
+
+| needed | where | workaround now | cost |
+|---|---|---|---|
+| an **Account stored in state** (values are Int) | a loan's member; a ticket's owner | `pay_fine` takes the member as an argument and can't check it's the borrower; `draw` picks among 3 fixed accounts | a guarantee that can't be stated ("only the borrower pays") |
+| **iteration over accounts / collections** | weighted draw over all ticket holders; payroll over employees | none: loops range over Int keys | the feature can't be written |
+| **multiplying two variables** (`price × qty`) | buying several units | `buy` sells exactly one unit | the operation has to be called n times |
+| **named constants** | ticket price 10 (3 times in `buy_ticket`), loan period 14 (2), fine 5 (4 in `assess`) | literals repeated in spec and body | a changed constant has to be changed in each place; a missed one is caught by the prover only where a spec states it |
+| **an effect that returns a value** (only pure functions return) | a new loan id or ticket id | the caller supplies the id; `borrow` refuses `LoanExists` | the caller must find a free id |
+| **a write at a computed key** keeps invariants provable | returning a loan's book (`copies` at `lent.get loan`) | `give_back` takes the book as well and checks `lent.get loan = book` | one redundant parameter and one need |
+| **a stated range for `clock.now`** | due dates | `need clock.now >= 0 else BadClock` | one need per definition that writes a time |
+| **records** | a loan is `due`, `lent`, `fine`: three parallel maps keyed by loan id | parallel `state` maps | no "a loan" type, and its fields can't be kept consistent by type |
+| **text** | book titles, member names | none | — |
+| **code shared between packages** | each app has its own copy of `money/ledger.k` (169 tokens) | copy the file | imports reach within one package only |
+
+**Correction to FZ2's condition 3 explanation (measured after writing it).** I called the 8% "capped by
+structure" without measuring. Per mode, on the 300 random loop programs at seed 1:
+
+| mode | programs | loop goals | ✔ | ✗ | `!` |
+|---|---|---|---|---|---|
+| mixed | 89 | 430 | 69.5% | 7.7% | 22.8% |
+| invariant-only | 110 | 288 | 61.5% | **20.5%** | 18.1% |
+| ensure-only | 101 | 503 | 73.2% | 2.2% | 24.7% |
+
+- **The invariant-only mode works:** 20.5% clears the 15% bar on its own, though it's below my ~25%
+  prediction.
+- **The aggregate stays at 8% by dilution,** not because of a cap:
+  - the ensure-only mode keeps its invariants correct by design, so its loop goals are mostly ✔;
+  - the 200 handler programs and 177 template mutants add 1,022 more loop goals, with few direct
+    refutations.
+- **The 2.2% ✗ in the ensure-only mode** shows that some of the generator's "correct" invariants
+  aren't: two statements writing the same state in one loop each get the invariant for themselves.
+  That's a generator imperfection. Those programs are still wrong programs, and the oracle treats
+  them like any other.
+- **The condition was a single aggregate bar, and it fails as written.** Measured per mode, the
+  directly refuting mode reaches the bar.
+
+**What the S2 digest does and doesn't cover.** Its ten modules (escrow s1–s3, ledger v3–v7,
+ledger_large, one C6 configuration) have **no loops, no handlers and no vacuity**. So "digest
+unchanged" after FZ findings 3 and 7, L1 and P shows only that those changes left non-loop code
+alone. The loop and handler paths they changed were checked by the probe and fuzzer tests alone.
+From now on, a second digest covers them: `tools/digest.py --loops` over batch.k, raffle.k, p1–p7,
+fz1, fz2 and the three packages (statuses, confirmation and clean flags, no mutation testing).
+Its baseline, recorded after findings 1–7 and P, is **`64051b1d363a6553`**, the same under hash
+seeds 1 and 2. The S2 value stays a frozen reference.
+
+**Also fixed:** the host looked for `<file>.host` next to the file passed. In a package it now
+reads `<root>/kern.host`. And the result cache is per directory (`.kern-cache` next to the file
+passed), so a package can end up with a cache per subdirectory. That's conservative, since the
+key covers everything, but it's duplicated work.

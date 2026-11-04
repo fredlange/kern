@@ -36,9 +36,11 @@ TEMPLATES = ["examples/batch.k", "examples/raffle.k"] + [f"tests/probes/p{i}.k" 
 def _perturb(rnd, text, kind):
     """One small, usually wrong, change to a clause or statement."""
     options = []
-    for c in ("0", "1", "2", "3", "5", "7"):
-        if f" {c}" in text:
-            options.append(lambda t, c=c: t.replace(f" {c}", f" {int(c) + rnd.choice([-1, 1])}", 1))
+    import re
+    for c in ("0", "1", "2", "3", "5", "7"):            # a constant, never a map key (`hold.get' 0`)
+        pat = re.compile(rf"(?<!get)(?<!get') {c}\b")
+        if pat.search(text):
+            options.append(lambda t, pat=pat, c=c: pat.sub(f" {max(0, int(c) + rnd.choice([-1, 1]))}", t, count=1))
     if kind == "inv":
         options += [lambda t: t.replace(" to k", " to (k + 1)"), lambda t: t.replace(" from lo", " from (lo + 1)"),
                     lambda t: t.replace(" from lo", " from 0"), lambda t: t.replace("' j = ", "' j >= ", 1)]
@@ -56,11 +58,16 @@ def _perturb(rnd, text, kind):
 
 
 def gen_loop(rnd):
-    """A module with one loop definition: correct invariants and ensures for its body, then perturbed."""
+    """A module with one loop definition: correct invariants and ensures for its body, then perturbed.
+    Modes (FZ2): "mixed" perturbs anything; "inv" has one statement and one invariant and perturbs only
+    that invariant; "ens" keeps the invariants correct and perturbs only one ensure. One wrong invariant
+    among several makes one goal ✗ and the rest `!`; the single-invariant modes refute directly."""
+    mode = rnd.choice(["mixed", "inv", "ens"])
     L = rnd.choice(["lo", "lo", "lo", "0"])
     H = rnd.choice(["hi", "hi", "hi", "(hi - 1)"])
     c, c2 = rnd.choice([0, 1, 2, 3]), rnd.choice([1, 5, 7])
-    kinds = rnd.sample(["const", "add", "cond", "acc", "copy", "need"], rnd.choice([1, 1, 2]))
+    kinds = rnd.sample(["const", "add", "cond", "acc", "copy", "need"], rnd.choice([1, 1, 2])) if mode != "inv" \
+        else [rnd.choice(["const", "add", "acc", "copy"])]
     stmts, invs = [], []
     for kind in kinds:
         if kind == "const":
@@ -81,7 +88,7 @@ def gen_loop(rnd):
             invs.append(f"aux.get' j = hold.get j for j from {L} to k")
         elif kind == "need":
             stmts.append([f"need hold.get k >= {c} else Low"])
-    if not invs or rnd.random() < 0.3:
+    if not invs or (mode != "inv" and rnd.random() < 0.3):
         invs.append("ledger.total' = ledger.total")
     ens = []
     for i in invs:
@@ -99,13 +106,19 @@ def gen_loop(rnd):
         if rnd.random() < 0.7:
             needs.append(f"need other < {L} or other >= {H} else InRange")
         ens.append("hold.get' other = hold.get other")
-    # perturb: each item with probability 0.3 (half the programs keep their correct invariants)
-    p = 0.3 if rnd.random() < 0.5 else 0.0
-    invs = [_perturb(rnd, x, "inv") if rnd.random() < p else x for x in invs]
-    ens = [_perturb(rnd, x, "ens") if rnd.random() < p else x for x in ens]
-    stmts = [[_perturb(rnd, s[0], "stmt") if rnd.random() < p else s[0]] + s[1:] for s in stmts]
-    if rnd.random() < 0.3:
-        invs = rnd.sample(invs, max(1, len(invs) - 1))             # a missing invariant
+    if mode == "inv":                         # only the invariant is wrong (body and ensure correct)
+        invs = [_perturb(rnd, invs[0], "inv")] + invs[1:]
+    elif mode == "ens":                       # only one ensure is wrong (invariants correct)
+        i = rnd.randrange(len(ens))
+        ens = ens[:i] + [_perturb(rnd, ens[i], "ens")] + ens[i + 1:]
+    else:
+        # perturb: each item with probability 0.3 (half the programs keep their correct invariants)
+        p = 0.3 if rnd.random() < 0.5 else 0.0
+        invs = [_perturb(rnd, x, "inv") if rnd.random() < p else x for x in invs]
+        ens = [_perturb(rnd, x, "ens") if rnd.random() < p else x for x in ens]
+        stmts = [[_perturb(rnd, s[0], "stmt") if rnd.random() < p else s[0]] + s[1:] for s in stmts]
+        if rnd.random() < 0.3:
+            invs = rnd.sample(invs, max(1, len(invs) - 1))             # a missing invariant
     lines = ["state hold Int", "state tally Int", "state aux Int"]
     if rnd.random() < 0.6:
         lines.append("invariant o:Int hold.get o >= 0")
@@ -116,7 +129,7 @@ def gen_loop(rnd):
         lines.append("  ok otherwise")
     lines += [f"  ensure {e}" for e in ens]
     lines.append("body")
-    if rnd.random() < 0.15:
+    if mode == "mixed" and rnd.random() < 0.15:
         lines.append(f"  hold.set {L} {c2}")
     lines.append(f"  for k from {L} to {H}")
     lines += [f"    invariant {i}" for i in invs]
@@ -153,7 +166,7 @@ def gen_handler(rnd):
     if two:
         pool += ["hold.get' 1 < n", "hold.get' 1 = hold.get' 0", "hold.get' 1 >= 0"]
     if "aux.set" in "\n".join(body):
-        pool += ["aux.get' 0 = 1 when hold.get' 0 > 0", "aux.get' 0 = 1"]
+        pool += ["aux.get' 0 = 1 when hold.get 0 >= 0", "aux.get' 0 = 1"]   # `when` reads the before-state
     ens = rnd.sample(pool, rnd.choice([1, 2, 3]))
     lines += ["", "pick n:Int x:Int"]
     if rnd.random() < 0.6:
