@@ -31,7 +31,7 @@ fn terms_print_like_z3py() {
     let a = array("bal");
     let c = gt(&x, &y);
     let terms: Vec<String> = vec![
-        forall(&[&j], &implies(&and(&[le(&lo, &j), lt(&j, &hi)]), &ge(&select(&a, &j), &val(0)))).to_string(),
+        forall(&[&j], &implies(&and(&[le(&lo, &j), lt(&j, &hi)]), &ge_n(&select(&a, &j), 0))).to_string(),
         ne_int(&x, &y).to_string(),
         add(&select(&a, &x), &mul(&val(-1), &y)).to_string(),
         add(&val(1 << 80), &x).to_string(),
@@ -43,8 +43,8 @@ fn terms_print_like_z3py() {
         distinct(&[x.clone(), y.clone(), lo.clone()]).to_string(),
         sub(&div(&x, &val(3)), &mul(&y, &val(2))).to_string(),
         eq_array(&store(&a, &x, &add(&select(&a, &x), &mul(&val(1), &y))), &a).to_string(),
-        exists(&[&j], &eq_int(&select(&a, &j), &val(3))).to_string(),
-        or(&[not(&c), le(&x, &val(-5))]).to_string(),
+        exists(&[&j], &eq_n(&select(&a, &j), 3)).to_string(),
+        or(&[not(&c), le_n(&x, -5)]).to_string(),
     ];
     let want: Vec<&str> = GOLDEN.trim().lines().collect();
     assert_eq!(terms.len(), want.len());
@@ -68,9 +68,25 @@ fn numerals_and_models() {
 fn the_crates_own_forall_differs_from_z3pys() {
     // Why zz::forall exists: z3::ast::forall_const uses weight 0, which Z3 prints (and searches) differently.
     let (j, a) = (int("j_3"), array("bal"));
-    let body = eq_int(&select(&a, &j), &val(3));
+    let body = eq_n(&select(&a, &j), 3);
     let ours = forall(&[&j], &body).to_string();
     let crates = z3::ast::forall_const(&[&j], &[], &body).to_string();
     assert_eq!(one_line(ours), "(forall ((j_3 Int)) (= (select bal j_3) 3))");
     assert_ne!(one_line(crates.clone()), one_line(forall(&[&j], &body).to_string()), "{crates}");
+}
+
+#[test]
+fn comparisons_swap_like_python_operators() {
+    // Golden from z3py 5.3.3 with a = Int('a'), n = IntVal(5), m = IntVal(7): Python calls the right operand's
+    // reflected method first when it is an IntNumRef (a subclass of ArithRef); arithmetic doesn't swap.
+    let (a, n, m) = (int("a"), val(5), val(7));
+    let got = [
+        gt(&a, &n).to_string(), ge(&a, &n).to_string(), lt(&a, &n).to_string(), le(&a, &n).to_string(),
+        eq_int(&a, &n).to_string(), ne_int(&a, &n).to_string(), add(&a, &n).to_string(), sub(&a, &n).to_string(),
+        mul(&a, &n).to_string(), div(&a, &n).to_string(), gt(&n, &a).to_string(), eq_int(&n, &m).to_string(),
+        ge_n(&a, 0).to_string(),
+    ];
+    let want = ["(< 5 a)", "(<= 5 a)", "(> 5 a)", "(>= 5 a)", "(= 5 a)", "(distinct 5 a)", "(+ a 5)", "(- a 5)",
+                "(* a 5)", "(div a 5)", "(> 5 a)", "(= 5 7)", "(>= a 0)"];
+    assert_eq!(got.to_vec(), want.map(String::from).to_vec());
 }

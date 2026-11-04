@@ -69,8 +69,20 @@ pub fn div(a: &ZInt, b: &ZInt) -> ZInt {
     a.div(b)
 }
 
+/// Is this term a numeral? In z3py it is then an `IntNumRef`, a subclass of `ArithRef`, and Python's operator
+/// rule (the right operand's reflected method goes first when its type is a subclass of the left's) makes
+/// `x > IntVal(0)` build `(< 0 x)`. Comparisons and `==`/`!=` follow that rule below; `+ - * /` don't swap.
+pub fn is_num(x: &ZInt) -> bool {
+    unsafe { z3_sys::Z3_is_numeral_ast(ctx().get_z3_context(), x.get_z3_ast()) }
+}
+
+fn swapped(a: &ZInt, b: &ZInt) -> bool {
+    is_num(b) && !is_num(a)
+}
+
+/// z3py `a == b` for two Int terms.
 pub fn eq_int(a: &ZInt, b: &ZInt) -> Bool {
-    a.eq(b)
+    if swapped(a, b) { b.eq(a) } else { a.eq(b) }
 }
 
 pub fn eq_bool(a: &Bool, b: &Bool) -> Bool {
@@ -81,29 +93,44 @@ pub fn eq_array(a: &Array, b: &Array) -> Bool {
     a.eq(b)
 }
 
-/// z3py `a != b`: Z3_mk_distinct(2, [a, b]).
+/// z3py `a != b`: Z3_mk_distinct(2, [a, b]) (operands swapped as for `==`).
 pub fn ne_int(a: &ZInt, b: &ZInt) -> Bool {
-    ZInt::distinct(&[a, b])
+    if swapped(a, b) { ZInt::distinct(&[b, a]) } else { ZInt::distinct(&[a, b]) }
 }
 
 pub fn ne_bool(a: &Bool, b: &Bool) -> Bool {
     Bool::distinct(&[a, b])
 }
 
+/// z3py `a >= b` for two Int terms: with a numeral on the right only, `b <= a`.
 pub fn ge(a: &ZInt, b: &ZInt) -> Bool {
-    a.ge(b)
+    if swapped(a, b) { b.le(a) } else { a.ge(b) }
 }
 
 pub fn le(a: &ZInt, b: &ZInt) -> Bool {
-    a.le(b)
+    if swapped(a, b) { b.ge(a) } else { a.le(b) }
 }
 
 pub fn gt(a: &ZInt, b: &ZInt) -> Bool {
-    a.gt(b)
+    if swapped(a, b) { b.lt(a) } else { a.gt(b) }
 }
 
 pub fn lt(a: &ZInt, b: &ZInt) -> Bool {
-    a.lt(b)
+    if swapped(a, b) { b.gt(a) } else { a.lt(b) }
+}
+
+/// z3py `a >= n` with a Python int n: never swapped (an int is no ArithRef subclass).
+pub fn ge_n(a: &ZInt, n: i128) -> Bool {
+    a.ge(&val(n))
+}
+
+pub fn le_n(a: &ZInt, n: i128) -> Bool {
+    a.le(&val(n))
+}
+
+/// z3py `a == n` with a Python int n: never swapped.
+pub fn eq_n(a: &ZInt, n: i128) -> Bool {
+    a.eq(&val(n))
 }
 
 /// z3.And(*xs): Z3_mk_and with every argument, none dropped (z3py doesn't simplify).
@@ -229,6 +256,9 @@ pub enum Check {
 }
 
 pub fn check(s: &Solver) -> Check {
+    if std::env::var_os("KERN_Z3_TRACE").is_some() {
+        eprintln!("=== check\n{s}");
+    }
     match s.check() {
         SatResult::Sat => Check::Sat,
         SatResult::Unsat => Check::Unsat,
@@ -237,6 +267,9 @@ pub fn check(s: &Solver) -> Check {
 }
 
 pub fn check_opt(o: &Optimize) -> Check {
+    if std::env::var_os("KERN_Z3_TRACE").is_some() {
+        eprintln!("=== check\n{o}");
+    }
     match o.check(&[]) {
         SatResult::Sat => Check::Sat,
         SatResult::Unsat => Check::Unsat,
