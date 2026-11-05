@@ -166,3 +166,82 @@ fn chain_def(c: usize, j: usize, k: usize, e: usize, state: bool) -> Vec<String>
     lines.extend((cond..e).map(|i| format!("  audit.emit (F{i} a clock.now)")));
     lines
 }
+
+/// Named constants (S5) as a text transform: every integer literal outside `eg` and `const` lines becomes a
+/// `const kc_<tag>_<value> <value>`, declared after the last definition (declaration order is free, so no line
+/// number moves). `tag` keeps the names unique across a package's files. Returns the text and how many literals
+/// were hoisted.
+pub fn hoist_literals(src: &str, tag: &str) -> (String, usize) {
+    let int = regex::Regex::new(r"\b\d+\b").unwrap();
+    let mut values = std::collections::BTreeSet::new();
+    let mut n = 0;
+    let mut out = String::new();
+    for line in src.lines() {
+        let t = line.trim_start();
+        if t.starts_with("eg ") || t.starts_with("const ") {
+            out.push_str(line);
+        } else {
+            out.push_str(&int.replace_all(line, |c: &regex::Captures| {
+                n += 1;
+                values.insert(c[0].to_string());
+                format!("kc_{tag}_{}", &c[0])
+            }));
+        }
+        out.push('\n');
+    }
+    out.push('\n');
+    for v in &values {
+        out.push_str(&format!("const kc_{tag}_{v} {v}\n"));
+    }
+    (out, n)
+}
+
+/// The inverse: drop the `const NAME N` lines and write each N where NAME is used (outside `eg` lines).
+pub fn inline_consts(src: &str) -> String {
+    let decl = regex::Regex::new(r"^const ([a-z]\w*) (\d+)\s*$").unwrap();
+    let consts: Vec<(regex::Regex, String)> = src
+        .lines()
+        .filter_map(|l| decl.captures(l))
+        .map(|c| (regex::Regex::new(&format!(r"\b{}\b", &c[1])).unwrap(), c[2].to_string()))
+        .collect();
+    let mut out = String::new();
+    for line in src.lines() {
+        if decl.is_match(line) {
+            out.push('\n'); // keep line numbers
+            continue;
+        }
+        let mut l = line.to_string();
+        if !line.trim_start().starts_with("eg ") {
+            for (re, v) in &consts {
+                l = re.replace_all(&l, v.as_str()).into_owned();
+            }
+        }
+        out.push_str(&l);
+        out.push('\n');
+    }
+    out
+}
+
+/// Everything a definition means (spec, body, examples, expansion origins), not how its source was spelt.
+pub fn meaning(d: &kern::syntax::Def) -> String {
+    format!(
+        "{} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {}",
+        d.content_hash(), d.params, d.ret, d.needs, d.keeps, d.ensures, d.emits, d.examples, d.body, d.complete,
+        d.ref_origin, d.emit_channel, d.assumed
+    )
+}
+
+/// Two modules mean the same: same definitions, handlers, states, invariants and channels, each meaning the same.
+pub fn assert_same_meaning(a: &kern::syntax::Module, b: &kern::syntax::Module, what: &str) {
+    assert_eq!(a.defs.keys().collect::<Vec<_>>(), b.defs.keys().collect::<Vec<_>>(), "{what}: definitions");
+    for (n, d) in &a.defs {
+        assert_eq!(meaning(d), meaning(&b.defs[n]), "{what}: {n}");
+    }
+    assert_eq!(a.handlers.keys().collect::<Vec<_>>(), b.handlers.keys().collect::<Vec<_>>(), "{what}: handlers");
+    for (n, d) in &a.handlers {
+        assert_eq!(meaning(d), meaning(&b.handlers[n]), "{what}: handler {n}");
+    }
+    assert_eq!(a.states, b.states, "{what}: states");
+    assert_eq!(format!("{:?}", a.invariants), format!("{:?}", b.invariants), "{what}: invariants");
+    assert_eq!(a.channels, b.channels, "{what}: channels");
+}

@@ -132,3 +132,66 @@ fn fz_a_conditional_sibling_still_blocks_a_kept_goal() {
     let kept: Vec<_> = reports["f"].guarantees.iter().filter(|g| g.kind == "loop" && g.clause.contains("kept") && !g.clause.starts_with("aux")).collect();
     assert!(!kept.is_empty() && kept.iter().all(|g| g.status == Status::Conditional), "{:?}", kept.iter().map(|g| (&g.clause[..30.min(g.clause.len())], g.status)).collect::<Vec<_>>());
 }
+
+/// Named constants (S5): every integer literal outside `eg` lines written as a `const` declared after the last
+/// definition (no line moves). Plain char scan: a run of digits not inside a name.
+fn hoist_literals(src: &str) -> (String, usize) {
+    let (mut out, mut values, mut n) = (String::new(), std::collections::BTreeSet::new(), 0);
+    for line in src.lines() {
+        if line.trim_start().starts_with("eg ") {
+            out.push_str(line);
+        } else {
+            let cs: Vec<char> = line.chars().collect();
+            let mut i = 0;
+            while i < cs.len() {
+                let in_name = i > 0 && (cs[i - 1].is_alphanumeric() || cs[i - 1] == '_');
+                if cs[i].is_ascii_digit() && !in_name {
+                    let j = (i..cs.len()).find(|&j| !cs[j].is_ascii_digit()).unwrap_or(cs.len());
+                    let v: String = cs[i..j].iter().collect();
+                    out.push_str(&format!("kc_{v}"));
+                    values.insert(v);
+                    n += 1;
+                    i = j;
+                } else {
+                    out.push(cs[i]);
+                    i += 1;
+                }
+            }
+        }
+        out.push('\n');
+    }
+    out.push('\n');
+    for v in &values {
+        out.push_str(&format!("const kc_{v} {v}\n"));
+    }
+    (out, n)
+}
+
+#[test]
+fn every_generated_program_means_the_same_with_its_literals_as_constants() {
+    // the full seed-1 generator set (300 loop + 200 handler programs): hoisting literals to constants must give
+    // the same definitions (hash, spec, body, examples), so the fuzzer's verdicts carry over to programs with
+    // constants without rerunning the oracle
+    let (mut hoisted, mut compared) = (0, 0);
+    for job in jobs(&root(), 1, 300, 200, 1, false) {
+        let src = job.src.unwrap();
+        let Ok(plain) = parse_module(&src, true) else { continue };
+        if check_module(&plain).is_err() {
+            continue;
+        }
+        let (text, n) = hoist_literals(&src);
+        hoisted += n;
+        let consts = parse_module(&text, true).unwrap_or_else(|e| panic!("{}: {}\n{text}", job.label, e.0));
+        check_module(&consts).unwrap_or_else(|e| panic!("{}: {}\n{text}", job.label, e.message()));
+        assert_eq!(plain.defs.keys().collect::<Vec<_>>(), consts.defs.keys().collect::<Vec<_>>(), "{}", job.label);
+        for (name, d) in &plain.defs {
+            let e = &consts.defs[name];
+            assert_eq!(d.content_hash(), e.content_hash(), "{} {name}\n{text}", job.label);
+            assert_eq!(format!("{:?}", (&d.needs, &d.ensures, &d.emits, &d.examples, &d.body)),
+                       format!("{:?}", (&e.needs, &e.ensures, &e.emits, &e.examples, &e.body)), "{} {name}", job.label);
+        }
+        assert_eq!(format!("{:?}", plain.invariants), format!("{:?}", consts.invariants), "{}", job.label);
+        compared += 1;
+    }
+    assert!(compared == 500 && hoisted > 4000, "compared {compared}, hoisted {hoisted}");
+}

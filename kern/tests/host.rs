@@ -748,3 +748,23 @@ fn a_provider_with_no_value_fails_the_call_atomically() {
     let w = h.load().unwrap();
     assert_eq!(w.maps.get("hold").and_then(|m| m.get(&Key::Int(0))).copied().unwrap_or(0), 0); // nothing written
 }
+
+#[test]
+fn s5_a_constant_runs_as_its_value_in_the_host_and_replays() {
+    // the host sees the substituted literal: same answers as the program with the values written in
+    let src = std::fs::read_to_string(format!("{ROOT}/tests/probes/consts.k")).unwrap();
+    let mut outs = vec![];
+    for text in [src.clone(), common::inline_consts(&src)] {
+        let defs = module(&text);
+        let mut h = host(&defs, "A:500@u1", opts());
+        let mut out = vec![];
+        let lines = ["charge A 1 10", "charge A 1 3", "charge A 2 95", "charge A 1 120", "relay A 1 6", "bump 0", "state"];
+        kern::host::repl(&mut h, lines.iter().map(|l| l.to_string()), &mut |l| out.push(l)).unwrap();
+        assert!(h.replay().unwrap().is_empty());
+        outs.push(out);
+    }
+    assert_eq!(outs[0], outs[1]);
+    let o = &outs[0];
+    assert_eq!(&o[..2], ["ok".to_string(), "refused TooSmall 5".to_string()], "{o:?}");
+    assert!(o.contains(&"refused Over 95".to_string()), "{o:?}"); // lim - hold.1 = 100 - 5
+}

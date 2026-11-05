@@ -366,3 +366,50 @@ fn the_stdio_server_keeps_one_session() {
     assert!(second["text"].as_str().unwrap().contains(STUB));
     assert!(second["tokens"].is_null() || second["tokens"].as_u64() < first["tokens"].as_u64());
 }
+
+fn consts_module(name: &str) -> String {
+    let p = tmp(name).join("consts.k");
+    std::fs::copy(format!("{ROOT}/tests/probes/consts.k"), &p).unwrap();
+    p.to_string_lossy().into_owned()
+}
+
+#[test]
+fn s5_views_name_the_constants_they_show_and_match_the_cli() {
+    // F1/F2: a view shows source text, so it must say what a constant is worth; the iface shows none
+    let m = consts_module("mcp-consts-view");
+    for (name, as_, want, not) in [
+        ("charge", "spec", vec!["const fee 5", "const lim 100", "need amount > fee"], vec!["const cap", "const two"]),
+        ("bump", "spec", vec!["const cap 3", "const lim 100"], vec!["const fee"]),
+        ("charge", "iface", vec![], vec!["const "]),
+        ("scaled", "editor", vec!["const fee 5", "result = fee * x"], vec!["const unused"]),
+    ] {
+        let (_, cli, _) = common::kern(&["view", &m, name, "--as", as_], ROOT);
+        let v = tool("kern_view", json!({"file": m, "name": name, "as": as_})).unwrap();
+        let text = v["text"].as_str().unwrap();
+        assert_eq!(format!("{text}\n"), cli, "{name} {as_}");
+        for w in want {
+            assert!(text.contains(w), "{name} {as_}: no {w:?} in\n{text}");
+        }
+        for w in not {
+            assert!(!text.contains(w), "{name} {as_}: {w:?} in\n{text}");
+        }
+    }
+}
+
+#[test]
+fn s5_structural_edits_keep_the_file_constants() {
+    let m = consts_module("mcp-consts-edit");
+    let new = "fine a:Account k:Int\n  need ledger.balance a >= fee else Insufficient fee\n  ok otherwise\n  ensure ledger.balance' a = ledger.balance a - fee\nbody\n  ledger.debit a fee\n";
+    let r = tool("kern_add", json!({"file": m, "source": new})).unwrap();
+    assert_eq!(r["ok"], true, "{r}");
+    let replaced = std::fs::read_to_string(format!("{ROOT}/tests/probes/consts.k")).unwrap();
+    let half = replaced.split("\n\n").find(|b| b.starts_with("half ")).unwrap().replace("n / two", "(n / two) + 0");
+    let r = tool("kern_replace", json!({"file": m, "name": "half", "source": format!("{half}\n")})).unwrap();
+    assert_eq!(r["ok"], true, "{r}");
+    let text = std::fs::read_to_string(&m).unwrap();
+    assert!(text.starts_with("const fee 5\nconst cap 3\nconst lim 100\nconst two 2\nconst unused 7\n"), "{text}");
+    let c = tool("kern_check", json!({"file": m})).unwrap();
+    assert_eq!(c["status"]["fine"], "All guarantees proven", "{c}");
+    // a constant is a declaration, not a definition: kern_add refuses it rather than mis-filing it
+    assert!(tool("kern_add", json!({"file": m, "source": "const extra 3\n"})).is_err());
+}

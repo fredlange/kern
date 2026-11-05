@@ -663,3 +663,132 @@ fn s2_quick_never_shows_an_unmeasured_strength() {
     let src = escrow1().replace("  eg A:500@u1 B:0@u2 | transfer A B 0 -> BadAmount\n", "");
     assert!(term(&src, false).split("\n\n").next().unwrap().contains("not measured")); // changed: not shown
 }
+
+// ===================================================================================== S5. Named constants (F4, F7)
+// `const NAME N` (DECISIONS.md 2026-11-05, lang) is substituted at load time, so a constant must mean exactly its
+// literal everywhere: same AST, same hash, so run, infer, prove, mutants, host and emitter cannot disagree.
+
+/// Every single-file example, package and probe (examples/apps/ is app's work in progress, not a fixture).
+fn corpus() -> Vec<(String, Vec<String>)> {
+    let mut out = vec![];
+    let mut ks = |dir: &std::path::Path| -> Vec<String> {
+        let mut v: Vec<String> = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "k")).map(|p| p.to_string_lossy().into_owned()).collect();
+        v.sort();
+        v
+    };
+    let mut dirs: Vec<_> = std::fs::read_dir(format!("{ROOT}/examples")).unwrap().flatten().map(|e| e.path())
+        .filter(|p| p.is_dir() && !p.ends_with("apps")).collect();
+    dirs.sort();
+    for d in dirs {
+        if d.join("kern.pkg").exists() {
+            let mut files = vec![];
+            fn walk(d: &std::path::Path, files: &mut Vec<String>) {
+                for e in std::fs::read_dir(d).unwrap().flatten() {
+                    let p = e.path();
+                    if p.is_dir() && !p.ends_with("proof-pages") {
+                        walk(&p, files);
+                    } else if p.extension().is_some_and(|x| x == "k") {
+                        files.push(p.to_string_lossy().into_owned());
+                    }
+                }
+            }
+            walk(&d, &mut files);
+            files.sort();
+            out.push((d.to_string_lossy().into_owned(), files));
+        } else {
+            out.extend(ks(&d).into_iter().map(|f| (f.clone(), vec![f])));
+        }
+    }
+    out.extend(ks(std::path::Path::new(&format!("{ROOT}/tests/probes"))).into_iter().map(|f| (f.clone(), vec![f])));
+    out
+}
+
+#[test]
+fn s5_every_literal_hoisted_to_a_constant_means_the_same_program() {
+    // F4/F7: across the whole corpus, writing a literal as a named constant changes nothing the checker sees
+    let mut hoisted = 0;
+    let corpus = corpus();
+    assert!(corpus.len() >= 20, "{}", corpus.len());
+    for (path, files) in &corpus {
+        let plain = kern::package::load(path, &IndexMap::new()).unwrap_or_else(|e| panic!("{path}: {}", e.0));
+        let mut over = IndexMap::new();
+        for (i, f) in files.iter().enumerate() {
+            let (text, n) = common::hoist_literals(&std::fs::read_to_string(f).unwrap(), &i.to_string());
+            hoisted += n;
+            over.insert(f.clone(), text);
+        }
+        let consts = kern::package::load(path, &over).unwrap_or_else(|e| panic!("{path} hoisted: {}", e.0));
+        common::assert_same_meaning(&plain, &consts, path);
+    }
+    assert!(hoisted > 300, "only {hoisted} literals hoisted");
+}
+
+#[test]
+fn s5_a_constant_means_its_value_in_every_position() {
+    // the probe uses constants in needs, failure payloads, ensures, emits, `need as`/`emit as`, loop bounds and
+    // invariants, `if`, `let`, `*` and `/`; with each written as its value it is the same program
+    let src = read("tests/probes/consts.k");
+    let lit = common::inline_consts(&src);
+    assert!(!lit.contains("fee") && lit.contains("TooSmall 5"));
+    let (a, b) = (parse(&src), parse(&lit));
+    kern::wf::check_module(&a).unwrap();
+    common::assert_same_meaning(&a, &b, "consts.k");
+    let (ra, rb) = (analyse(&a, false, None, None).unwrap(), analyse(&b, false, None, None).unwrap());
+    let show = |defs: &Module, r: &IndexMap<String, Report>| kern::render::terminal(r, defs, &no_whys(defs), &IndexMap::new());
+    assert_eq!(show(&a, &ra), show(&b, &rb));
+    assert!(ra.values().all(|r| r.clean), "{}", show(&a, &ra));
+}
+
+#[test]
+fn s5_changing_a_constant_stales_exactly_the_definitions_that_use_it() {
+    // F6 (design rule 4): a why entry must not silently describe the old value
+    let src = read("tests/probes/consts.k");
+    let base = parse(&src);
+    let anchors = |m: &Module| -> IndexMap<String, String> {
+        m.defs.iter().map(|(n, d)| (n.clone(), why::anchor_hash(m, d))).collect()
+    };
+    let before = anchors(&base);
+    for (from, to, users) in [
+        ("const fee 5", "const fee 6", vec!["charge", "relay", "scaled"]),
+        ("const lim 100", "const lim 101", vec!["charge", "relay", "bump"]),
+        ("const cap 3", "const cap 4", vec!["bump"]),
+        ("const two 2", "const two 3", vec!["half"]),
+        ("const unused 7", "const unused 8", vec![]),
+    ] {
+        let after = anchors(&parse(&src.replace(from, to)));
+        let changed: Vec<&str> = before.keys().filter(|n| before[*n] != after[*n]).map(|s| s.as_str()).collect();
+        assert_eq!(changed, users, "{from} -> {to}");
+    }
+}
+
+#[test]
+fn s5_constant_errors_are_reported_not_shadowed() {
+    // DECISIONS.md 2026-11-05 (lang), "Errors, not shadowing"; each must be an error before anything runs
+    let head = "const fee 5\nstate hold Int\n\n";
+    let cases: &[(&str, &str)] = &[
+        ("f fee:Int\n  ok otherwise\nbody\n  hold.set 1 fee\n", "parameter fee has the name of a constant"),
+        ("f k:Int\n  ok otherwise\nbody\n  fee = 3\n  hold.set k fee\n", "`let` fee has the name of a constant"),
+        ("f lo:Int hi:Int\n  ok otherwise\nbody\n  for fee from lo to hi\n    hold.set fee 1\n", "loop variable fee"),
+        ("f lo:Int hi:Int\n  ok otherwise\n  ensure hold.get' fee = 0 for fee from lo to hi\nbody\n  hold.set lo 0\n",
+         "range variable fee"),
+        ("invariant fee:Int hold.get fee >= 0\n", "variable fee has the name of a constant"),
+        ("f k:Int\n  ok otherwise\n  ensure hold.get' k = fee'\nbody\n  hold.set k fee\n", "a constant has no after-state"),
+        ("f k:Int\n  ok otherwise\nbody\n  hold.set k (fee k)\n", "constant fee takes no arguments"),
+        ("fee k:Int\n  ok otherwise\nbody\n  hold.set k 1\n", "constant fee has the name of a definition"),
+        ("const fee 6\n", "constant fee is declared twice"),
+        ("f x:Int -> Int\n  ensure result = x\nbody\n  result = x / zero\nconst zero 0\n", "needs a positive number"),
+    ];
+    for (body, want) in cases {
+        let e = wf_error(&format!("{head}{body}"));
+        assert!(e.contains(want), "{body:?}: want {want:?}, got {e:?}");
+    }
+    for bad in ["const fee -5", "const fee 2 + 3", "const fee other", "const Fee 5", "const fee", "const fee 5 6",
+                "const need 5", "const result 5"] {
+        assert!(!wf_error(&format!("{bad}\nstate hold Int\n")).is_empty(), "{bad} was accepted");
+    }
+    let e = wf_error("const hold 5\nstate hold Int\n");
+    assert!(e.contains("name of a state"), "{e}");
+    let e = wf_error("const console 5\nchannel console\n");
+    assert!(e.contains("name of a channel"), "{e}");
+}
