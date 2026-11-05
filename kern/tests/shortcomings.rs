@@ -400,6 +400,12 @@ body
     // a measure that doesn't decrease is ✗, its counterexample recursing past the depth limit in the replay
     let g = reps["spin"].guarantees.iter().find(|g| g.kind == "measure").unwrap();
     assert_eq!(g.status, Status::Refuted, "{:?}", g);
+    // and what a self-call proved rests on that measure (tester: partial correctness must not read as ✔)
+    let src2 = "loop_self n:Int -> Int\n  decreases n\n  ensure result = 0\nbody\n  result = loop_self n\n";
+    let r2 = reports(&parse(src2));
+    let ens = r2["loop_self"].guarantees.iter().find(|g| g.kind == "ensure").unwrap();
+    assert_eq!(ens.status, Status::Conditional, "{ens:?}");
+    assert!(ens.blocked_by.as_ref().unwrap()[0].starts_with("termination measure"), "{ens:?}");
     // without a measure recursion is still rejected, saying what to add; a measure may not read state
     let e = analyse(&parse("f n:Int\n  ensure 1 = 1\nbody\n  f n\n"), false, None, None).unwrap_err().message();
     assert!(e.contains("recursive (f -> f); f needs `decreases E`"), "{e}");

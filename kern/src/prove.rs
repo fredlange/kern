@@ -315,6 +315,8 @@ pub struct Prover<'m> {
     /// scoring a mutant: how many more solver calls may come back unknown before the proof stops (each one spends
     /// the whole step limit and can't kill the mutant); None outside mutation testing
     unknowns_left: Option<u32>,
+    /// the body called itself (directly): its proofs used its own spec, licensed only by its measure
+    self_called: bool,
 }
 
 /// Unknown solver answers a mutant's proof may spend before it stops (a deterministic bound: steps, not time).
@@ -459,6 +461,7 @@ impl<'m> Prover<'m> {
             text_params: IndexMap::new(),
             measuring: None,
             unknowns_left: None,
+            self_called: false,
         }
     }
 
@@ -937,6 +940,7 @@ impl<'m> Prover<'m> {
     /// licenses that, and its own status already says whether it holds.
     fn rely_on(&mut self, name: &str) {
         if self.measuring.as_ref().is_some_and(|(me, _)| me == name) {
+            self.self_called = true;
             return;
         }
         self.relied_on.insert(name.to_string());
@@ -1435,7 +1439,28 @@ impl<'m> Prover<'m> {
     }
 
     fn prove_here(&mut self, d: &Def, first_kill: bool) -> (Vec<Guarantee>, Vec<String>) {
+        let (mut out, relied) = self.prove_goals(d, first_kill);
+        // a self-call is proven from the definition's own spec (induction), which holds only if the recursion ends:
+        // with its measure not proven, what was proven rests on the measure (F5: partial correctness says so)
+        if std::mem::take(&mut self.self_called) {
+            let open: Vec<String> = out
+                .iter()
+                .filter(|g| g.kind == "measure" && g.status != Status::Proven)
+                .map(|g| format!("termination measure ({})", g.clause))
+                .collect();
+            if !open.is_empty() {
+                for g in out.iter_mut().filter(|g| g.kind != "measure" && matches!(g.status, Status::Proven | Status::Assumed)) {
+                    g.status = Status::Conditional;
+                    g.blocked_by = Some(open.clone());
+                }
+            }
+        }
+        (out, relied)
+    }
+
+    fn prove_goals(&mut self, d: &Def, first_kill: bool) -> (Vec<Guarantee>, Vec<String>) {
         self.relied_on = BTreeSet::new();
+        self.self_called = false;
         self.sums = IndexMap::new();
         let (bal, own, total) = (zz::array("bal"), zz::array("own"), zz::int("total"));
         let maps: IndexMap<String, Array> = self
