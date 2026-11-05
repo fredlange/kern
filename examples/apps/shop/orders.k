@@ -1,4 +1,5 @@
 import catalog.stock
+import shipping
 
 const placed 1
 const paid 2
@@ -68,3 +69,10 @@ body
   restock (item_of.get order) (qty_of.get order)
   phase.set order cancelled
   audit.emit (Cancelled order)
+
+quote item:Int qty:Int -> Int
+  ensure result = price.get item * qty + shipping qty
+  ensure result >= 0 when qty >= 0
+  eg price.3:100 | quote 3 7 -> ok
+body
+  result = price.get item * qty + shipping qty
