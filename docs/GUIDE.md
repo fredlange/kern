@@ -275,7 +275,7 @@ same command with `--mcp-config`.
 | `kern_why` | the rationale entries, with staleness |
 | `kern_check` | a summary (status per definition plus what's broken); `name` gives full detail; `quick` (default) skips mutation testing |
 | `kern_run` | one call in the interpreter |
-| `kern_edit` | several `add` / `replace` / `remove` operations, checked once; if the result is ill-formed, nothing is written. The result re-checks every caller, including (`users`) those in the packages next to this one that `use` it |
+| `kern_edit` | several `add` / `replace` / `remove` operations, checked once; if the result is ill-formed, nothing is written. The result re-checks every caller, including (`users`) those in the packages that `use` this one, found next to it or under the server's root (`KERN_MCP_ROOT`, else its working directory; `users_searched` names it) |
 | `kern_add`, `kern_replace`, `kern_remove` | one structural edit. `expect_hash` refuses if the definition changed underneath. `kern_add` also takes one declaration line (`const`, `record`, `state`, `channel`, `invariant`) |
 
 What an edit does and reports:

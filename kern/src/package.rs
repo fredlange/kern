@@ -420,20 +420,45 @@ pub fn load(path: &str, overrides: &IndexMap<String, String>) -> Result<Module, 
     Ok(merged)
 }
 
-/// The package roots, next to `path`'s own package, that use it (directly or through another): the sibling
-/// directories of its root with a kern.pkg whose dependencies include it. Empty outside a package.
-pub fn users_of(path: &str) -> Vec<String> {
+/// The package roots that use `path`'s own package (directly or through another): every directory with a kern.pkg
+/// under `within` (searched down to 12 levels; .git, target, node_modules, build and .kern-cache are skipped) or
+/// next to the package's root, whose dependencies include it. A user elsewhere on disk isn't found. Empty outside a
+/// package.
+pub fn users_of(path: &str, within: &str) -> Vec<String> {
     let Some(root) = root_of(path) else { return vec![] };
-    let parent = dirname(&root);
-    let Ok(rd) = std::fs::read_dir(&parent) else { return vec![] };
-    let mut out: Vec<String> = rd
-        .flatten()
-        .map(|e| e.path().to_string_lossy().into_owned())
-        .filter(|d| *d != root && Path::new(&join(d, MARKER)).exists())
+    let mut found: Vec<String> = vec![];
+    package_dirs(&abspath(within), 12, &mut found);
+    if let Ok(rd) = std::fs::read_dir(dirname(&root)) {
+        found.extend(rd.flatten().map(|e| e.path().to_string_lossy().into_owned()).filter(|d| Path::new(&join(d, MARKER)).exists()));
+    }
+    let mut out: Vec<String> = found
+        .into_iter()
+        .map(|d| abspath(&d))
+        .filter(|d| *d != root)
         .filter(|d| dependencies(d).is_ok_and(|ds| ds.iter().any(|(_, r)| *r == root)))
         .collect();
     out.sort();
+    out.dedup();
     out
+}
+
+fn package_dirs(dir: &str, depth: u32, out: &mut Vec<String>) {
+    if Path::new(&join(dir, MARKER)).exists() {
+        out.push(dir.to_string());
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    if depth == 0 {
+        return;
+    }
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if ["target", "node_modules", "build", ".git", ".kern-cache"].contains(&name.as_str()) {
+            continue;
+        }
+        if e.file_type().is_ok_and(|t| t.is_dir()) {
+            package_dirs(&join(dir, &name), depth - 1, out);
+        }
+    }
 }
 
 /// The packages `root` uses, transitively: (name, directory). kern.pkg holds `use PATH` lines (relative to the

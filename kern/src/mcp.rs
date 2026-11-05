@@ -357,7 +357,8 @@ pub fn kern_edit(file: &str, ops: &[Value]) -> T<Value> {
     // body because its callers are checked against the new spec)
     let mut users = Map::new();
     let mut broken = broken;
-    for user in package::users_of(file) {
+    let within = std::env::var("KERN_MCP_ROOT").ok().filter(|r| !r.is_empty()).unwrap_or_else(|| ".".to_string());
+    for user in package::users_of(file, &within) {
         let udefs = package::load(&user, &IndexMap::new())
             .map_err(|e| ToolError("ToolError", format!("{} (a package that uses this one): {}", user, e.0)))?;
         let mut hit: BTreeSet<String> = BTreeSet::new();
@@ -373,7 +374,8 @@ pub fn kern_edit(file: &str, ops: &[Value]) -> T<Value> {
         users.insert(user.clone(), Value::Object(st));
     }
     Ok(json!({"ok": broken.is_empty(), "affected": report, "broken": broken, "rechecked": rechecked,
-              "details": details, "why_now_stale": now_stale, "why_orphaned": orphaned, "users": users}))
+              "details": details, "why_now_stale": now_stale, "why_orphaned": orphaned, "users": users,
+              "users_searched": package::abspath(&within)}))
 }
 
 // --- tools -----------------------------------------------------------------------------------

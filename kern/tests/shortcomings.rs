@@ -738,6 +738,28 @@ fn an_mcp_edit_in_a_used_package_rechecks_the_packages_that_use_it() {
     assert!(kern::package::load(&root.join("shop").to_string_lossy(), &IndexMap::new()).is_ok());
 }
 
+#[test]
+fn a_package_that_uses_another_from_further_away_is_found_as_a_user() {
+    // tester on #XSQ3IHPQBR: far/away/shop with `use ../../../money` (or an absolute path) wasn't a user, so an edit
+    // in money said nothing about it. Users are searched under the MCP root (else the working directory) and next to
+    // the package; the edit result names the directory searched (`users_searched`)
+    let root = tmp("users-far");
+    write_tree(&root.join("money"), &[("ledger.k", &read("examples/money/ledger.k"))], true);
+    let buy = "import money.ledger\n\nbuy a:Account b:Account\n  ok otherwise\n  need as transfer a b 5\nbody\n  transfer a b 5\n";
+    write_tree(&root.join("near"), &[("kern.pkg", "use ../money\n"), ("buy.k", buy)], false);
+    write_tree(&root.join("far/away/shop"), &[("kern.pkg", "use ../../../money\n"), ("buy.k", buy)], false);
+    write_tree(&root.join("abs"), &[("kern.pkg", &format!("use {}\n", root.join("money").to_string_lossy())), ("buy.k", buy)], false);
+    write_tree(&root.join("other"), &[("kern.pkg", ""), ("buy.k", "x n:Int\n  ok otherwise\nbody\n  ledger.debit n 0\n")], false);
+    let ledger = root.join("money").join("ledger.k").to_string_lossy().into_owned();
+    let users = kern::package::users_of(&ledger, &root.to_string_lossy());
+    let names: Vec<String> = users.iter().map(|u| u.strip_prefix(&kern::package::abspath(&root.to_string_lossy())).unwrap_or(u).to_string()).collect();
+    assert_eq!(names, ["/abs", "/far/away/shop", "/near"], "{users:?}");
+    // searched from elsewhere, only the siblings are found
+    let elsewhere = tmp("users-far-elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    assert_eq!(kern::package::users_of(&ledger, &elsewhere.to_string_lossy()).len(), 2);
+}
+
 // =====================================================================================
 // S6. Loops: the frame can't be stated, and there is no sum
 // =====================================================================================
