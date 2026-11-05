@@ -34,6 +34,45 @@ thread_local! {
     static DRAWS: RefCell<IndexMap<String, Vec<Int>>> = RefCell::new(IndexMap::new());
 }
 
+/// Whether each proof gets a fresh Z3 context (KERN_Z3_FRESH): `off` (one context per thread, Python's
+/// behaviour), `ctx` (a fresh context per prove call) or `all` (that, and the fresh-name counter restarts too, so
+/// a proof's result can't depend on anything proved before it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fresh {
+    Off,
+    Ctx,
+    All,
+}
+
+pub fn fresh_mode() -> Fresh {
+    match std::env::var("KERN_Z3_FRESH").as_deref() {
+        Ok("ctx") => Fresh::Ctx,
+        Ok("all") => Fresh::All,
+        _ => Fresh::Off,
+    }
+}
+
+/// Run f with a brand-new Z3 context as the thread's context, then put the old one back. The z3 crate only offers
+/// this for Send + Sync closures; f runs synchronously on this thread, so asserting it is sound here.
+fn in_fresh_context<R>(f: impl FnOnce() -> R) -> R {
+    struct Unchecked<T>(T);
+    unsafe impl<T> Send for Unchecked<T> {}
+    unsafe impl<T> Sync for Unchecked<T> {}
+    let ctx = unsafe {
+        let cfg = z3_sys::Z3_mk_config().expect("Z3 config");
+        let raw = z3_sys::Z3_mk_context_rc(cfg).expect("Z3 context");
+        z3_sys::Z3_del_config(cfg);
+        z3_sys::Z3_set_error_handler(raw, None);
+        z3::Context::from_raw(raw)
+    };
+    let f = Unchecked(f);
+    let out = z3::with_z3_context(&ctx, move || {
+        let f = f;
+        Unchecked((f.0)())
+    });
+    out.0
+}
+
 /// The handler draws behind a witness eg line rendered on this thread, if any.
 pub fn witness_draws(eg: &str) -> Option<Vec<Int>> {
     DRAWS.with(|d| d.borrow().get(eg).cloned())
@@ -988,6 +1027,18 @@ impl<'m> Prover<'m> {
     /// Prove every guarantee of d. With first_kill (mutation testing), stop at the first confirmed refutation.
     /// Returns (guarantees, relied_on sorted).
     pub fn prove(&mut self, d: &Def, first_kill: bool) -> (Vec<Guarantee>, Vec<String>) {
+        match fresh_mode() {
+            Fresh::Off => self.prove_here(d, first_kill),
+            mode => {
+                if mode == Fresh::All {
+                    FRESH.with(|c| c.set(0));
+                }
+                in_fresh_context(|| self.prove_here(d, first_kill))
+            }
+        }
+    }
+
+    fn prove_here(&mut self, d: &Def, first_kill: bool) -> (Vec<Guarantee>, Vec<String>) {
         self.relied_on = BTreeSet::new();
         let (bal, own, total) = (zz::array("bal"), zz::array("own"), zz::int("total"));
         let maps: IndexMap<String, Array> = self.defs.states.keys().map(|x| (x.clone(), zz::array(&format!("map_{x}")))).collect();
