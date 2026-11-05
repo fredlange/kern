@@ -57,7 +57,7 @@ fn every_handler_and_language_form_is_documented() {
         assert!(reference.contains(&format!("`{name}")), "handler {name} is not in REFERENCE.md");
     }
     for form in ["need", "ok otherwise", "keep", "ensure", "emit", "when", "need as", "emit as", "eg", "state",
-                 "invariant", "channel", "-> Int", "result", "distinct", "if", "else", "const", "record", "sum"] {
+                 "invariant", "channel", "-> Int", "result", "distinct", "if", "else", "const", "record", "sum", "Text", "length"] {
         assert!(reference.contains(&format!("`{form}")), "form {form} is not in REFERENCE.md");
     }
 }

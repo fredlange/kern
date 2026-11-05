@@ -419,6 +419,91 @@ pub fn variant_mismatches(results: &[Outcome1]) -> Vec<String> {
         .collect()
 }
 
+// ---------------------------------------------------------------- random Text programs (135dfca)
+
+/// A Text program: set, join with a literal, guard on length/emptiness, append to a stored Text, or compare and
+/// record the result in an Int map. Claims are written correct; half the time one is perturbed (a number, or the
+/// order of a join, which isn't commutative). Own stream (`text_jobs`).
+pub fn gen_text(rnd: &mut Random) -> String {
+    // (Kern literal, its length)
+    let lits: [(&str, i64); 6] = [("\"abc\"", 3), ("\"\"", 0), ("\"\\\\\"", 1), ("\"\\\"\"", 1), ("\"é\"", 1), ("\"\\\\x41\"", 4)];
+    let (lit, n) = *rnd.choice(&lits);
+    let kind = choice_str(rnd, &["set", "join", "guard", "append", "eq", "lits"]);
+    let (mut needs, mut ens, body): (Vec<String>, Vec<String>, Vec<String>);
+    let header = "f k:Int t:Text";
+    needs = vec![];
+    match kind {
+        "set" => {
+            ens = vec!["title.get' k = t".into(), "length (title.get' k) = length t".into(), "title.get' (k + 1) = title.get (k + 1)".into()];
+            body = vec!["title.set k t".into()];
+        }
+        "join" => {
+            ens = vec![format!("title.get' k = t + {lit}"), format!("length (title.get' k) = length t + {n}")];
+            body = vec![format!("title.set k (t + {lit})")];
+        }
+        "guard" => {
+            let m = *rnd.choice(&[0i64, 1, 2, 3]);
+            needs = vec![format!("need length t > {m} else Short"), "need t != \"hello world\" else Taken".into()];
+            ens = vec![format!("length (title.get' k) >= {}", m + 1), "title.get' k != \"hello world\"".into()];
+            body = vec![format!("need length t > {m} else Short"), "need t != \"hello world\" else Taken".into(), "title.set k t".into()];
+        }
+        "lits" => {
+            // a join of two literals against the joined literal: an encoding that joins in the wrong order or
+            // miscounts can't agree with both (a consistent relabelling of `+` passes every other shape)
+            let pairs = [("ab", "c"), ("x", "yz"), ("é", "a"), ("1", "23")];
+            let (a, b) = *rnd.choice(&pairs);
+            let right = if rnd.random() < 0.5 { format!("{a}{b}") } else { format!("{b}{a}") };
+            let len = a.chars().count() + b.chars().count();
+            // sometimes a length one off: false, but true for an encoding that miscounts by one
+            let claimed = match rnd.randbelow(4) { 0 => len + 1, 1 => len.saturating_sub(1), _ => len };
+            ens = vec![format!("title.get' k = \"{right}\""), format!("length (title.get' k) = {claimed}")];
+            body = vec![format!("title.set k (\"{a}\" + \"{b}\")")];
+        }
+        "append" => {
+            ens = vec!["length (title.get' k) = length (title.get k) + length t".into(), "title.get' k = title.get k + t".into()];
+            body = vec!["title.set k (title.get k + t)".into()];
+        }
+        _ => {
+            ens = vec!["mark.get' k = 1 when t = title.get k".into(), "mark.get' k = 0 when t != title.get k".into(), "title.get' k = title.get k".into()];
+            body = vec!["if t = title.get k".into(), "  mark.set k 1".into(), "else".into(), "  mark.set k 0".into()];
+        }
+    }
+    if rnd.random() < 0.5 && !ens.is_empty() {
+        let i = rnd.randbelow(ens.len() as u128) as usize;
+        let e = ens[i].clone();
+        ens[i] = if e.contains(" + ") && rnd.random() < 0.5 {
+            // swap a join: t + s -> s + t
+            let (lhs, rhs) = e.split_once(" = ").unwrap();
+            match rhs.split_once(" + ") {
+                Some((a, b)) if !lhs.starts_with("length") && !rhs.contains('(') => format!("{lhs} = {b} + {a}"),
+                _ => perturb(rnd, &e, "ens"),
+            }
+        } else {
+            perturb(rnd, &e, "ens")
+        };
+    }
+    let mut lines: Vec<String> = vec!["state title Int -> Text".into(), "state mark Int".into(), String::new(), header.into()];
+    lines.extend(needs.iter().map(|x| format!("  {x}")));
+    if rnd.random() < 0.3 {
+        lines.push("  ok otherwise".into());
+    }
+    lines.extend(ens.iter().map(|x| format!("  ensure {x}")));
+    lines.push("body".into());
+    lines.extend(body.iter().map(|x| format!("  {x}")));
+    lines.join("\n") + "\n"
+}
+
+/// `n` Text programs (gen_text) from their own stream, labelled `text#i`.
+pub fn text_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 135);
+    (0..n)
+        .map(|i| {
+            let src = gen_text(&mut rnd);
+            Job { label: format!("text#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -585,6 +670,10 @@ pub fn provider<'m>(defs: &'m Module, rnd: Rnd) -> kern::run::Provider<'m> {
     })
 }
 
+/// Text values the oracle draws: empty, ASCII, a space, the two escaped characters, non-ASCII (2- and 4-byte UTF-8),
+/// and a literal `\x41` (Z3 must not read it as an escape).
+const TEXTS: [&str; 10] = ["", "", "a", "ab", "hello world", "\\", "\"", "é", "😀", "\\x41"];
+
 fn world(defs: &Module, d: &kern::syntax::Def, rnd: &mut Random) -> (World, Vec<Value>) {
     let accts = ["A", "B", "C", "D"];
     let mut bal = IndexMap::new();
@@ -596,6 +685,13 @@ fn world(defs: &Module, d: &kern::syntax::Def, rnd: &mut Random) -> (World, Vec<
     let mut w = World::new(bal, own, rnd.randint(0, 20) as kern::Int);
     let neg = defs.invariants.is_empty() && rnd.random() < 0.3;
     for (x, key_type) in relevant_states(defs, d) {
+        if defs.text_states.contains(&x) {
+            // Text maps (135dfca): drawn only for modules that have them, so other streams are unchanged
+            let keys: Vec<Key> = if key_type == "Account" { accts.iter().map(|a| Key::Str(a.to_string())).collect() } else { (-3..11).map(Key::Int).collect() };
+            let m: IndexMap<Key, String> = keys.into_iter().map(|k| (k, rnd.choice(&TEXTS).to_string())).collect();
+            w.texts.insert(x, m);
+            continue;
+        }
         let keys: Vec<Key> = if key_type == "Account" {
             accts.iter().map(|a| Key::Str(a.to_string())).collect()
         } else {
@@ -618,6 +714,8 @@ fn world(defs: &Module, d: &kern::syntax::Def, rnd: &mut Random) -> (World, Vec<
         .map(|(_, t)| {
             if t == "Account" {
                 Value::Str(rnd.choice(&accts).to_string())
+            } else if t == "Text" {
+                Value::Str(rnd.choice(&TEXTS).to_string())
             } else {
                 let big = rnd.randint(-3, 12) as kern::Int;
                 let mut opts: Vec<kern::Int> = (-2..9).collect();
@@ -932,7 +1030,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "contradictions": results.iter().map(|r| r.found.len()).sum::<usize>(),
         "programs_with_contradictions": results.iter().filter(|r| !r.found.is_empty()).map(|r| &r.label).collect::<Vec<_>>(),
         "tiers": tiers, "runs": runs, "ok_runs": ok, "skipped": skipped, "unmapped": unmapped, "unmapped_kinds": unmapped_kinds,
-        "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"),
+        "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"), "text_well_formed": fam("text#"),
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"),
         "variant_mismatches": variant_mismatches(results),
     })
@@ -946,12 +1044,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -980,6 +1078,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(sum_jobs(num("seed", 1) as i128, num("sums", 150) as usize, num("runs", 300)));
     let n_var = (num("variants", 50) as usize).min(num("sums", 150) as usize);
     js.extend(variant_jobs(num("seed", 1) as i128, n_var, num("runs", 300)));
+    js.extend(text_jobs(num("seed", 1) as i128, num("texts", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));

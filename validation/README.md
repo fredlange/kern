@@ -45,6 +45,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 |---|---|
 | `--seed N` | the generator seed (default 1); a run is deterministic per seed |
 | `--loops N` / `--handlers N` / `--sums N` | how many random programs of each kind (default 300 / 200 / 150). Sum programs (`gen_sum`, since 2026-11-05) come from their own stream, so the loop and handler programs for a seed are unchanged |
+| `--texts N` | how many Text programs (`gen_text`, default 100; own stream): set, join with a literal, guard on length, append, compare, and literal joins against the joined literal. The oracle draws Text from a pool with `""`, a backslash, a quote, `é`, `😀` and a literal `\x41` |
 | `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`) and a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (reported, not fatal) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
@@ -74,4 +75,9 @@ runs, 0 contradictions, 0 crashes, 50/50 const and 50/50 record variants well-fo
 mismatch per seed (sumr#48 / #22 / #37): the record program's counterexample lacks the entry at a key computed from
 a field (`s.lo - 1`), so it doesn't replay and shows `?` where the base shows ✗. Teeth: flattening a record's fields
 in reverse order (planted in syntax.rs, not committed) gives 0 contradictions but 9 mismatches in 60.
+
+**2026-11-05, Text programs** (`--texts`, default 100, 135dfca). Teeth, planted in `zz.rs` (not committed): joins
+in reverse order give 2,400 contradictions in 8 programs (only the literal-join shape sees it: a consistent
+relabelling of `+` passes every claim built with `+`); a length one too long gives 900 in 3. Clean: 0. Found: a
+counterexample world leaves Text map entries out, so a refuted Text claim can show `?` (2 per 100 programs).
 

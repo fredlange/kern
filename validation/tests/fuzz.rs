@@ -222,3 +222,20 @@ fn a_small_sum_fuzz_run_is_clean_decided_and_deterministic() {
     }
     assert_eq!(run(), s);
 }
+
+#[test]
+fn a_small_text_fuzz_run_is_clean_and_deterministic() {
+    // gen_text (135dfca's Text): set, join, guard, append, compare, literal joins against the joined literal.
+    // Teeth, planted in zz.rs (2026-11-05): joins in reverse order -> 2,400 contradictions; length off by one -> 900.
+    let run = || {
+        let results: Vec<_> = kern_validation::fuzz::text_jobs(5, 30, 60).iter().map(check_program).collect();
+        summarise(&results)
+    };
+    let s = run();
+    assert_eq!(s["text_well_formed"], "30/30");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    let e = &s["tiers"]["ensure"];
+    assert!(e["proven"].as_u64().unwrap_or(0) > 30 && e["refuted"].as_u64().unwrap_or(0) > 0, "{e}");
+    assert_eq!(run(), s);
+}
