@@ -460,6 +460,72 @@ fn s17_lifting_stops_after_a_callee_that_does_not_pin_what_it_writes() {
 }
 
 // =====================================================================================
+// S18 (closed). The page's refusal rows for body needs after a write
+// =====================================================================================
+
+/// The "Refuses when" rows of `def`'s card, as text: `condition → failure`.
+fn s18_rows(src: &str, def: &str) -> Vec<String> {
+    let defs = parse(src);
+    let reps = reports(&defs);
+    let whys: IndexMap<String, why::Status> = defs.defs.keys().map(|k| (k.clone(), why::Status::default())).collect();
+    let page = kern::render::page(&reps, &defs, &whys, "s18", &kern::render::Orphans::new(), None);
+    let card = &page[page.find(&format!("<h2><code>{def}</code></h2>")).unwrap_or_else(|| panic!("no card for {def}"))..];
+    let table = &card[card.find("<h3>Refuses when</h3>").unwrap()..];
+    let table = &table[..table.find("</table>").unwrap()];
+    let strip = |s: &str| {
+        let mut out = String::new();
+        let mut tag = false;
+        for c in s.chars() {
+            match c {
+                '<' => tag = true,
+                '>' => tag = false,
+                _ if !tag => out.push(c),
+                _ => {}
+            }
+        }
+        out.replace("&#x27;", "'").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    };
+    table.split("</tr>").map(|r| strip(&r.replace("</td><td", " </td><td"))).filter(|r| !r.trim().is_empty()).collect()
+}
+
+const S18_SRC: &str = "\
+cap from:Account to:Account amount:Int
+  need amount > 0 else BadAmount
+  keep ledger.total
+body
+  need from != to else SameAccount
+  ledger.debit from amount
+  ledger.credit to amount
+  need ledger.balance to < 1000 else TooRich
+
+alias from:Account to:Account amount:Int
+  need amount > 0 else BadAmount
+  keep ledger.total
+body
+  ledger.debit from amount
+  ledger.credit to amount
+  need ledger.balance to < 1000 else TooRich
+";
+
+#[test]
+fn s18_a_refusal_after_a_write_is_stated_in_the_pre_state_on_the_page() {
+    // `from != to` is passed first, so to's new balance is its old one plus amount: one case, shown as such
+    let rows = s18_rows(S18_SRC, "cap");
+    assert!(rows.iter().any(|r| r.contains("balance of to + amount ≥ 1000") && r.contains("TooRich")), "{rows:?}");
+    assert!(!rows.iter().any(|r| r.contains("earlier changes")), "{rows:?}");
+}
+
+#[test]
+fn s18_a_refusal_whose_pre_state_form_splits_on_aliasing_says_it_reads_the_changed_state() {
+    // to may be from: the pre-state form is a case split, so the row keeps the source text and says what it reads
+    let rows = s18_rows(S18_SRC, "alias");
+    let row = rows.iter().find(|r| r.contains("TooRich")).unwrap();
+    assert!(row.contains("balance of to ≥ 1000 (after this call's earlier changes)"), "{row}");
+    // a need before any write is already a pre-state condition: no note
+    assert!(rows.iter().any(|r| r.contains("BadAmount") && !r.contains("earlier changes")), "{rows:?}");
+}
+
+// =====================================================================================
 // S8. Mutants are body-only
 // =====================================================================================
 

@@ -333,6 +333,8 @@ pub struct Lifted {
     /// callees whose `ensure`/`keep` clauses the rewrite used (it read state after their writes), transitively: the
     /// condition is exact only if their specs hold, so whoever assumes it relies on them
     pub rests_on: Vec<String>,
+    /// for d's own body needs: the need's position among `views::guarded_needs(&d.body)`
+    pub at: Option<usize>,
 }
 
 /// Conditions the call needs in order to succeed, stated in the caller's pre-state.
@@ -378,6 +380,10 @@ struct Lifter<'a> {
     distinct: Vec<(Expr, Expr)>,
     /// callees whose pinned writes are in the log: a state-reading condition lifted from here rests on their specs
     rests: Vec<String>,
+    /// own body needs seen so far (their position in `views::guarded_needs` order)
+    own: usize,
+    /// per own body need: does it read state this call may already have changed? (`needs_after_writes`)
+    post: Vec<AfterWrites>,
 }
 
 fn bin(op: &'static str, l: Expr, r: Expr) -> Expr {
@@ -573,7 +579,25 @@ impl<'a> Lifter<'a> {
         }
     }
 
-    fn add(&mut self, cond: &Expr, ctor: &str, payload: &[Expr], origin: &str, guards: &[Option<Expr>], inherited: &[String]) {
+    #[allow(clippy::too_many_arguments)]
+    fn add(&mut self, cond: &Expr, ctor: &str, payload: &[Expr], origin: &str, guards: &[Option<Expr>], inherited: &[String], at: Option<usize>) {
+        if at.is_some() {
+            // a let that can't be stated in the pre-state counts as reading changed state
+            let reads_now = |e: &Expr| self.with_lets(e).is_none_or(|e| reads_state(&e));
+            let changed = self.log.as_ref().is_none_or(|w| !w.is_empty());
+            let post = if changed && (reads_now(cond) || payload.iter().any(reads_now)) {
+                // one case per read: no aliasing split (`to = from and … or to != from and …`)
+                let one = |e: &Expr| {
+                    self.with_lets(e).is_some_and(|e| {
+                        !reads_state(&e) || self.read_cases(&e).is_some_and(|rs| rs.iter().all(|(_, cs)| cs.len() == 1))
+                    })
+                };
+                AfterWrites::Yes { one_case: one(cond) && payload.iter().all(one) }
+            } else {
+                AfterWrites::No
+            };
+            self.post.push(post);
+        }
         let lifted = self.pre_cond(cond);
         // what the rewrite may have read through: the specs of the callees whose writes are logged
         let reads = |e: &Expr| self.with_lets(e).is_some_and(|e| reads_state(&e));
@@ -602,7 +626,7 @@ impl<'a> Lifter<'a> {
                     let p: Vec<Option<Expr>> = payload.iter().map(|a| self.pre_value(a)).collect();
                     let payload = if p.iter().any(|x| x.is_none()) { None } else { Some(p.into_iter().map(Option::unwrap).collect()) };
                     if self.out.iter().all(|o| !(o.cond == c && o.ctor == ctor)) {
-                        self.out.push(Lifted { cond: c, ctor: ctor.to_string(), payload, origin: origin.to_string(), rests_on });
+                        self.out.push(Lifted { cond: c, ctor: ctor.to_string(), payload, origin: origin.to_string(), rests_on, at });
                     }
                 }
             }
@@ -618,7 +642,10 @@ impl<'a> Lifter<'a> {
                     let usable = v.is_some();
                     self.lets.insert(x.clone(), (v.unwrap_or_else(|| e.clone()), usable));
                 }
-                Stmt::Need(c, ctor, args) => self.add(c, ctor, args, "", guards, &[]),
+                Stmt::Need(c, ctor, args) => {
+                    self.own += 1;
+                    self.add(c, ctor, args, "", guards, &[], Some(self.own - 1))
+                }
                 Stmt::Inv(_) => continue,
                 Stmt::For(_, _, _, _, body) => {
                     // a loop's refusals depend on earlier iterations: never lifted; any effect ends lifting
@@ -658,13 +685,13 @@ impl<'a> Lifter<'a> {
                         for n in &callee.needs {
                             if let Need::Need(c, ctor, a) = n {
                                 let a: Vec<Expr> = a.iter().map(|x| subst(x, &m)).collect();
-                                self.add(&subst(c, &m), ctor, &a, name, guards, &[]);
+                                self.add(&subst(c, &m), ctor, &a, name, guards, &[], None);
                             }
                         }
                         for l in lifted_seen(self.defs, callee, &self.seen) {
                             let a: Vec<Expr> = l.payload.map(|p| p.iter().map(|x| subst(x, &m)).collect()).unwrap_or_default();
                             let origin = if l.origin.is_empty() { name.clone() } else { l.origin };
-                            self.add(&subst(&l.cond, &m), &l.ctor, &a, &origin, guards, &l.rests_on);
+                            self.add(&subst(&l.cond, &m), &l.ctor, &a, &origin, guards, &l.rests_on, None);
                         }
                         if !writes(self.defs, callee).is_empty() {
                             match self.pinned_writes(callee, &m) {
@@ -771,7 +798,37 @@ impl<'a> Lifter<'a> {
 }
 
 fn lifted_seen(defs: &Module, d: &Def, seen: &BTreeSet<String>) -> Vec<Lifted> {
-    let mut l = Lifter { defs, seen: with_seen(seen, &d.name), out: vec![], lets: IndexMap::new(), log: Some(vec![]), distinct: vec![], rests: vec![] };
+    lifter(defs, d, seen).out
+}
+
+/// Does a body need read state its call may already have changed?
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AfterWrites {
+    /// no write before it on its path, or it reads no state: its source text is a pre-state condition
+    No,
+    /// it does; `one_case`: its pre-state form needs no aliasing split
+    Yes { one_case: bool },
+}
+
+/// Per own body need of d (in `views::guarded_needs` order): does it read state the call may already have
+/// changed (a write before it on its path)? Its source text then isn't a pre-state condition; the lifted form
+/// (`Lifted.at`), when there is one, is.
+pub fn needs_after_writes(defs: &Module, d: &Def) -> Vec<AfterWrites> {
+    lifter(defs, d, &BTreeSet::new()).post
+}
+
+fn lifter<'a>(defs: &'a Module, d: &Def, seen: &BTreeSet<String>) -> Lifter<'a> {
+    let mut l = Lifter {
+        defs,
+        seen: with_seen(seen, &d.name),
+        out: vec![],
+        lets: IndexMap::new(),
+        log: Some(vec![]),
+        distinct: vec![],
+        rests: vec![],
+        own: 0,
+        post: vec![],
+    };
     // spec needs are refusal points before the body
     for n in &d.needs {
         if let Need::Need(c, _, _) = n {
@@ -779,7 +836,7 @@ fn lifted_seen(defs: &Module, d: &Def, seen: &BTreeSet<String>) -> Vec<Lifted> {
         }
     }
     l.walk(&d.body, &[]);
-    l.out
+    l
 }
 
 fn emit_exprs(d: &Def) -> Vec<&Expr> {

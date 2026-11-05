@@ -215,7 +215,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   pre-state, with aliasing split into cases (at most 8); a callee whose ensures pin what it writes
   (`ensure R' = E`, `keep R`) counts as exact writes, and the condition then rests on that callee (relied_on;
   hidden from views unless it is clean); lifting stops at other writing callees, loops with effects and `if`s
-  whose branches wrote (SHORTCOMINGS.md S19). Agent views show only a definition's
+  whose branches wrote (SHORTCOMINGS.md S19). The page's "Refuses when" shows a body need after a write in that
+  pre-state form when it has one case, else its source text marked "(after this call's earlier changes)" (S18).
+  Agent views show only a definition's
   *own* body needs (inherited ones measured at ~2x the spec-view tokens).
 - Counterexamples from modular proofs may not replay; those show as `?` unconfirmed,
   never ✗. Results repeat, within one process too: since 2026-11-05 every proof gets a fresh Z3

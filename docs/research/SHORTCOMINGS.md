@@ -185,19 +185,6 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   never answers). At-least-once delivery may be the contract to keep, with receivers
   deduplicating. That is a decision, not a test.
 
-### S13. At a leaf, Kern doesn't win
-- **Kind:** trade-off.
-- **Evidence:** transfer's editor view is 234 tokens; the TypeScript function alone is about 170.
-  Full Kern source for a definition and its callees costs more than TypeScript (purchase 1,258
-  against 963). The saving comes only from reading callees as specs
-  ([COMPARE.md](COMPARE.md#findings), findings 4–5).
-- **Measured, 2026-11-05:** dropping the inferred lines (`uses`, `writes`, `fails`) from a leaf's
-  editor view saves 24 of 262 tokens on ledger_v7's transfer (9%). What remains is the spec and the
-  examples, which is the content a caller relies on, so dropping the lines doesn't close the gap.
-- **Decision needed (Fredrik):** accept it as the price of a checked interface. That's the
-  recommendation: 9% isn't worth a view that differs by position in the call tree.
-  The alternative is to drop the inferred lines at leaves anyway.
-
 ### S14. `ok otherwise` makes callers restate every refusal
 - **Kind:** trade-off.
 - **Evidence:** payout's spec view grows from 97 to 163 tokens. Nothing is inherited, every refusing
@@ -263,18 +250,56 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Next:** none planned. Each needs a merge of after-states, which is the same machinery as S16's
   path merging.
 
-### S18. The page shows a body need's source text even when it reads post-write state
-- **Kind:** code gap (page wording; needs a decision).
-- **Evidence:** the proof page's own-refusal rows print a body need's *source* text. For a need after a
-  write, "refuses TooRich when balance of to ≥ 1000" means the balance *after* the debit, and the row
-  doesn't say so. The spec view, since S7, shows the pre-state form. Separately, with real aliasing
-  that form is a long case split (`to = from and ledger.balance to - amount < 1000 or …`), and it isn't
-  simplified (`ledger.balance a - 1 + 1`).
-- **Decision needed (Fredrik):** render those rows from the lifted pre-state form, or annotate
-  "(after the writes above)". A readable conditional form (`if C then A else B`) would be new syntax,
-  and so a proposal.
-
 ## Closed
+
+Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
+to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S18. The page showed a body need's source text even when it read post-write state
+- **Kind:** code gap (page wording). **Closed** 2026-11-05, under delegation.
+- **Was:** an own-refusal row printed the body need's *source* text. For a need after a write, "refuses
+  TooRich when balance of to ≥ 1000" meant the balance *after* the debit and credit, and the row didn't say
+  so. The reader never sees the body, so the row read as a pre-state condition and was wrong.
+- **Decided by** F3 (the reader judges guarantees without the body) and F5 (a template must not say more
+  than the checks established). A row is in the state before the call, or it says it isn't:
+  - a need that reads state this call already changed is shown in its lifted pre-state form, when that form
+    has one case per read;
+  - when the pre-state form splits on aliasing, or there is none (a payload read after the writes, lifting
+    stopped, or the form rests on a callee that isn't clean), the row keeps the source text and adds
+    "(after this call's earlier changes)";
+  - a need before any write, or one that reads no state, is unchanged.
+  - The case split loses to the note because it is unreadable as a row. On the probe below it reads
+    "(to ≠ from or balance of to − amount + amount ≥ 1000) and (to = from or balance of to + amount ≥ 1000)".
+    The page cancels `x − n + n` in the forms it shows (exact on Int).
+- **Before → after**, on `kern/tests/shortcomings.rs`'s `S18_SRC`:
+
+  | Definition | Before | After |
+  |---|---|---|
+  | `cap` (passes `from != to`, then moves `amount` to `to`) | balance of to ≥ 1000 → TooRich | balance of to + amount ≥ 1000 → TooRich |
+  | `alias` (the same, without `from != to`) | balance of to ≥ 1000 → TooRich | balance of to ≥ 1000 (after this call's earlier changes) → TooRich |
+
+- **Evidence:** `s18_a_refusal_after_a_write_is_stated_in_the_pre_state_on_the_page` and
+  `s18_a_refusal_whose_pre_state_form_splits_on_aliasing_says_it_reads_the_changed_state`. Views, the
+  prover and the `.why` anchors are untouched: the change is in `render.rs`, plus a position (`Lifted.at`)
+  and `infer::needs_after_writes` that only the page reads. No golden or example page changed, since none
+  has an own need after a write. Both digests are unchanged and the suite passes (284).
+- **What remains:**
+  - A readable case form (`if C then A else B`) would be new syntax, and so a proposal.
+  - Lifted lines that rest on an unclean callee are still hidden from views rather than marked. On the page
+    they now fall back to the note, which is honest.
+
+### S13. At a leaf, Kern doesn't win
+- **Kind:** trade-off. **Accepted** 2026-11-05, under delegation.
+- **Evidence:** transfer's editor view is 234 tokens; the TypeScript function alone is about 170.
+  Full Kern source for a definition and its callees costs more than TypeScript (purchase 1,258
+  against 963). The saving comes only from reading callees as specs
+  ([COMPARE.md](COMPARE.md#findings), findings 4–5). Dropping the inferred lines (`uses`, `writes`, `fails`)
+  from a leaf's editor view saves 24 of 262 tokens on ledger_v7's transfer (9%, measured 2026-11-05). What
+  remains is the spec and the examples, the content a caller relies on.
+- **Decided by** F2 and F4: the inferred lines are the checked interface a caller reads instead of the body,
+  and a view that drops them by position in the call tree would differ from what callers see. F9 says what
+  gets loaded matters more than density; 9% at a leaf doesn't change that.
+- **The number stays:** the README's "At a leaf, Kern doesn't win" keeps saying so.
 
 ### S17. Lifting stopped after a callee that writes
 - **Kind:** code gap. **Closed** 2026-11-05 (by kern-44).
@@ -298,7 +323,7 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Why entries:** payout's interface changed, so its why went stale in 5 files. Fredrik confirmed the
   entry still holds on 2026-11-05, and it was re-anchored.
 - **What remains:** S19. A marker form for lines that rest on an unproven callee, instead of hiding
-  them, is part of S18.
+  them, is still open (S18's remainder).
 
 ### S7. Refusal conditions were lifted only up to the first ledger write
 - **Kind:** code gap. **Closed** 2026-11-05 (the commit that adds `validation/tests/lifted.rs`; by kern-44).
@@ -317,7 +342,7 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
     against the old infer.rs, 0 are proven.
   - The fuzzer at seeds 1–3 has 0 contradictions, and both digests are unchanged. One golden moved:
     tests/probes/runtime.k `late` gains its lifted need.
-- **What remains:** S17, S18.
+- **What remains:** S17 and S18, both closed since.
 
 ### S2. A cold full `check` was too slow for deep call trees (C6)
 - **Kind:** missed target. **Closed** by the rerun in `d959c0f` (2026-11-05).

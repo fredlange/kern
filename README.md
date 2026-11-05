@@ -92,7 +92,9 @@ Read a card from top to bottom:
   mentions, an orange line says so. On the same page, payout's card says "No guarantee says what
   the new balance of `to`, `house` is."
 - **Refuses when** lists every way the call can fail, with the failure it returns. Refusals that
-  come from a callee are marked "(from transfer)". A refusal rolls back the whole call.
+  come from a callee are marked "(from transfer)". A refusal rolls back the whole call. Conditions
+  are about the state before the call: one checked after the call's own changes is restated that way,
+  or marked "(after this call's earlier changes)".
 - **Guarantees** are the claims. Each one is in plain English from a fixed template, with how it
   was established and the spec line it came from.
   - ✔ is proven for all inputs.
@@ -193,7 +195,7 @@ Kern is one Rust binary, `kern` (about 12,500 lines), with Z3 as the prover. It 
   and deterministic replay.
 
 [examples/](examples/) has ten standalone projects, from the ledger tour to a small web app.
-`cargo test --workspace --release` runs 271 tests: an adversarial test suite per design
+`cargo test --workspace --release` runs 284 tests: an adversarial test suite per design
 fundamental, golden outputs, the toolchain's own checks, and a gap test for each known shortcoming.
 
 What's next: records, `match`, and the central experiment: the same tasks done in editor view

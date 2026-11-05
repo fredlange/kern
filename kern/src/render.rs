@@ -238,20 +238,43 @@ pub fn card(r: &Report, defs: &Module, why: &Status) -> String {
     }
 
     let mut rows: Vec<(String, String)> = vec![];
-    let mut needs: Vec<(&crate::syntax::Expr, &str, &[crate::syntax::Expr], Vec<crate::views::Guard>, Option<&String>)> =
-        vec![];
+    // (cond, ctor, payload, guards, `need as` origin, after): `after` marks a body need that reads state the call
+    // already changed. Its source text is then about the state after those changes, which the reader can't see:
+    // the row shows the lifted pre-state form instead (its guards folded in), or says so when there is none (S18).
+    type NeedRow<'a> = (crate::syntax::Expr, &'a str, Vec<crate::syntax::Expr>, Vec<crate::views::Guard>, Option<&'a String>, Option<bool>);
+    let mut needs: Vec<NeedRow> = vec![];
     for (i, n) in d.needs.iter().enumerate() {
         if let Need::Need(c, k, a) = n {
-            needs.push((c, k, a, vec![], d.ref_origin.get(&("need".to_string(), i))));
+            needs.push((c.clone(), k, a.clone(), vec![], d.ref_origin.get(&("need".to_string(), i)), None));
         }
     }
-    for (s, guards) in guarded_needs(&d.body) {
+    use crate::infer::AfterWrites;
+    let post = crate::infer::needs_after_writes(defs, d);
+    for (i, (s, guards)) in guarded_needs(&d.body).into_iter().enumerate() {
         if let Stmt::Need(c, k, a) = s {
-            needs.push((c, k, a, guards, None));
+            if let Some(AfterWrites::Yes { one_case }) = post.get(i).copied() {
+                // a pre-state form with an aliasing split (`to = from and … or …`) reads worse than the source
+                // text with a note, so only a one-case form replaces it
+                let l = r.lifted.iter().find(|l| l.origin.is_empty() && l.at == Some(i)).filter(|_| one_case);
+                let payload = l.and_then(|l| l.payload.clone().or_else(|| a.is_empty().then(Vec::new)));
+                if let (Some(l), Some(p)) = (l, payload) {
+                    needs.push((simplify(&l.cond), &l.ctor, p.iter().map(simplify).collect(), vec![], None, Some(true)));
+                    continue;
+                }
+                needs.push((c.clone(), k, a.clone(), guards, None, Some(false)));
+                continue;
+            }
+            needs.push((c.clone(), k, a.clone(), guards, None, None));
         }
     }
-    for (c, ctor, args, guards, origin) in needs {
-        let (mut cond, _) = en_refusal(c, ctor, args, &lets);
+    let no_lets = Lets::new();
+    for (c, ctor, args, guards, origin, after) in &needs {
+        let lets = if *after == Some(true) { &no_lets } else { &lets };
+        let (mut cond, _) = en_refusal(c, ctor, args, lets);
+        if *after == Some(false) {
+            // not lifted: the condition is checked on the state after the call's earlier changes
+            cond.push_str(" <span class='muted'>(after this call's earlier changes)</span>");
+        }
         if let Some(o) = origin {
             // written as `need as X ...`: X's spec, these arguments
             cond.push_str(&format!(" <span class='muted'>(as {})</span>", escape(o)));
@@ -784,4 +807,25 @@ pub fn terminal(reports: &IndexMap<String, Report>, defs: &Module, whys: &IndexM
         ));
     }
     out.join("\n")
+}
+
+/// `e - x + x` and `e + x - x` as `e`: exact on Int, so the page may show the shorter form of a lifted condition
+/// (a debit and a credit of the same amount on one key).
+fn simplify(e: &crate::syntax::Expr) -> crate::syntax::Expr {
+    use crate::syntax::Expr;
+    match e {
+        Expr::Bin(op, l, r) => {
+            let (l, r) = (simplify(l), simplify(r));
+            if let Expr::Bin(op2, ll, lr) = &l {
+                if (*op, *op2) == ("+", "-") || (*op, *op2) == ("-", "+") {
+                    if **lr == r {
+                        return (**ll).clone();
+                    }
+                }
+            }
+            Expr::Bin(op, Box::new(l), Box::new(r))
+        }
+        Expr::App(n, p, args) => Expr::App(n.clone(), *p, args.iter().map(simplify).collect()),
+        _ => e.clone(),
+    }
 }
