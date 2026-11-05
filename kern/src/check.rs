@@ -93,6 +93,27 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
         ok = ok
             && ex.after_maps.iter().all(|(x, kv)| kv.iter().all(|(k, v)| w.maps.get(x).and_then(|m| m.get(k)).copied().unwrap_or(0) == *v))
             && ex.after_texts.iter().all(|(x, kv)| kv.iter().all(|(k, v)| w.text_get(x, k) == *v));
+        // the events section: the exact sequence on audit, and on each channel it names
+        if ok {
+            if let Some(evs) = &ex.events {
+                let mut chans: Vec<&str> = vec!["audit"];
+                chans.extend(evs.iter().map(|(c, _, _)| c.as_str()).filter(|c| *c != "audit"));
+                chans.dedup();
+                let events_ok = chans.iter().all(|ch| {
+                    let want: Vec<&(String, String, Vec<Key>)> = evs.iter().filter(|(c, _, _)| c == ch).collect();
+                    let got = w.events(ch);
+                    got.len() == want.len() && got.iter().zip(&want).all(|(v, (_, ctor, keys))| event_is(v, ctor, keys))
+                });
+                if !events_ok {
+                    let shown: Vec<String> = chans
+                        .iter()
+                        .flat_map(|ch| w.events(ch).iter().map(move |v| eg_event(ch, v)))
+                        .collect();
+                    out.push(ExampleResult { src: ex.src.clone(), pass: false, got: format!("ok, appending {}", if shown.is_empty() { "nothing".to_string() } else { shown.join(", ") }) });
+                    continue;
+                }
+            }
+        }
         let mut got = outcome.text();
         if same && !ok {
             // the outcome matched and the after-state didn't: say what the listed items were
@@ -113,6 +134,34 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
         out.push(ExampleResult { src: ex.src.clone(), pass: ok, got });
     }
     Ok(out)
+}
+
+/// Whether an appended event is `ctor keys` (an `eg` event: integers, account names and Text).
+fn event_is(v: &Value, ctor: &str, keys: &[Key]) -> bool {
+    let Value::Ctor(c, args) = v else { return false };
+    c == ctor
+        && args.len() == keys.len()
+        && args.iter().zip(keys).all(|(a, k)| match (a, k) {
+            (Value::Int(n), Key::Int(m)) => n == m,
+            (Value::Bool(b), Key::Int(m)) => (*b as Int) == *m,
+            (Value::Str(s), Key::Str(t)) => s == t,
+            _ => false,
+        })
+}
+
+/// An appended event as an `eg` events item (a Text that isn't an account name is quoted).
+fn eg_event(channel: &str, v: &Value) -> String {
+    let Value::Ctor(c, args) = v else { return v.str() };
+    let mut parts: Vec<String> = if channel == "audit" { vec![] } else { vec![channel.to_string()] };
+    parts.push(c.clone());
+    parts.extend(args.iter().map(|a| match a {
+        Value::Str(s) if !(s.starts_with(|ch: char| ch.is_ascii_uppercase()) && s.chars().all(|ch| ch.is_alphanumeric() || ch == '_')) => {
+            crate::syntax::quote(s)
+        }
+        Value::Bool(b) => (*b as Int).to_string(),
+        a => a.str(),
+    }));
+    parts.join(" ")
 }
 
 /// Python `list(outcome[1]) == ex.outcome[1]`: the refusal payload equals the eg's ints.

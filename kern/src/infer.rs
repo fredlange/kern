@@ -402,6 +402,18 @@ struct Lifter<'a> {
     own: usize,
     /// per own body need: does it read state this call may already have changed? (`needs_after_writes`)
     post: Vec<AfterWrites>,
+    /// a `clock.tick` (or a callee that may tick) came before: `clock.now` is no longer the call's start time
+    ticked: bool,
+}
+
+/// Whether running `stmts` may advance the clock (`clock.tick`, directly or in a callee).
+fn may_tick(defs: &Module, stmts: &[Stmt]) -> bool {
+    flat(stmts).iter().any(|s| match s {
+        Stmt::Do(Expr::App(n, _, _)) | Stmt::Do(Expr::Name(n, _)) => {
+            n == "clock.tick" || defs.defs.get(n).is_some_and(|c| uses(defs, c).contains("clock.tick"))
+        }
+        _ => false,
+    })
 }
 
 fn bin(op: &'static str, l: Expr, r: Expr) -> Expr {
@@ -547,6 +559,9 @@ impl<'a> Lifter<'a> {
     /// A value in pre-state terms, only when it has exactly one (no case split).
     fn pre_value(&self, e: &Expr) -> Option<Expr> {
         let e2 = self.with_lets(e)?;
+        if self.ticked && names(&e2).contains("clock.now") {
+            return None; // the time has moved on since the call started
+        }
         if !reads_state(&e2) {
             return Some(e2);
         }
@@ -564,6 +579,9 @@ impl<'a> Lifter<'a> {
     /// A condition in pre-state terms: one disjunct per aliasing case, at most MAX_CASES.
     fn pre_cond(&self, e: &Expr) -> Option<Expr> {
         let e2 = self.with_lets(e)?;
+        if self.ticked && names(&e2).contains("clock.now") {
+            return None; // the time has moved on since the call started
+        }
         if !reads_state(&e2) {
             return Some(e2);
         }
@@ -613,8 +631,10 @@ impl<'a> Lifter<'a> {
     fn add(&mut self, cond: &Expr, ctor: &str, payload: &[Expr], origin: &str, guards: &[Option<Expr>], inherited: &[String], at: Option<usize>) {
         if at.is_some() {
             // a let that can't be stated in the pre-state counts as reading changed state
-            let reads_now = |e: &Expr| self.with_lets(e).is_none_or(|e| reads_state(&e));
-            let changed = self.log.as_ref().is_none_or(|w| !w.is_empty());
+            let reads_now = |e: &Expr| {
+                self.with_lets(e).is_none_or(|e| reads_state(&e) || (self.ticked && names(&e).contains("clock.now")))
+            };
+            let changed = self.log.as_ref().is_none_or(|w| !w.is_empty()) || self.ticked;
             let post = if changed && (reads_now(cond) || payload.iter().any(reads_now)) {
                 // one case per read: no aliasing split (`to = from and … or to != from and …`)
                 let one = |e: &Expr| {
@@ -682,6 +702,7 @@ impl<'a> Lifter<'a> {
                     if flat(body).iter().any(|x| matches!(x, Stmt::Do(_))) {
                         self.log = None;
                     }
+                    self.ticked |= may_tick(self.defs, body);
                 }
                 Stmt::If(c, t, o) => {
                     let g = self.pre_cond(c);
@@ -705,6 +726,7 @@ impl<'a> Lifter<'a> {
                         self.rests = rests0; // the log is gone anyway: nothing more reads through these writes
                     }
                 }
+                Stmt::Do(Expr::Name(name, _)) if name == "clock.tick" => self.ticked = true,
                 Stmt::Do(Expr::App(name, _, args)) => {
                     if let Some(callee) = self.defs.defs.get(name) {
                         if self.seen.contains(name) {
@@ -722,6 +744,9 @@ impl<'a> Lifter<'a> {
                             let a: Vec<Expr> = l.payload.map(|p| p.iter().map(|x| subst(x, &m)).collect()).unwrap_or_default();
                             let origin = if l.origin.is_empty() { name.clone() } else { l.origin };
                             self.add(&subst(&l.cond, &m), &l.ctor, &a, &origin, guards, &l.rests_on, None);
+                        }
+                        if uses(self.defs, callee).contains("clock.tick") {
+                            self.ticked = true;
                         }
                         if !writes(self.defs, callee).is_empty() {
                             match self.pinned_writes(callee, &m) {
@@ -858,6 +883,7 @@ fn lifter<'a>(defs: &'a Module, d: &Def, seen: &BTreeSet<String>) -> Lifter<'a> 
         rests: vec![],
         own: 0,
         post: vec![],
+        ticked: false,
     };
     // spec needs are refusal points before the body
     for n in &d.needs {

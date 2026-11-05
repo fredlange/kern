@@ -1,0 +1,196 @@
+$ kern check tests/probes/texts.k   (exit 0)
+rename [07c5ea24]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure title.get' k = t
+  ✔ ensure size.get' k = length t
+  ✔ emit Renamed k t
+  writes size.k title.k
+  examples 2/2   random tests 332/500 reached success, 0 violations
+  spec strength: guarantees 5/8 (prover 5, random tests 5); examples 3/8; together 5/8
+      survived: drop `need length t > 0 else Empty`
+      survived: `>` → `>=` in `need length t > 0 else Empty`
+      survived: drop `need t != "admin" else Reserved`
+  spec refusals: 4/4 changes caught (examples 1, guarantees 3)
+
+append [b813b931]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure title.get' k = title.get k + t
+  ✔ ensure size.get' k = length (title.get k) + length t
+  writes size.k title.k
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 0/2; together 2/2
+
+compare [747ab833]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure same.get' j = 1 when title.get j = title.get k
+  ✔ ensure same.get' j = 0 when title.get j != title.get k
+  writes same.j
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 11/11 (prover 11, random tests 11); examples 0/11; together 11/11
+
+tag [c958f4ad]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure nick.get' a = t + "!"
+  writes nick.a
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 1/1 (prover 1, random tests 1); examples 0/1; together 1/1
+
+add [e875249b]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure title.get' k = i.name + " x"
+  writes size.k title.k   (no guarantee about the new value of size.k)
+  examples 0/0   random tests 403/500 reached success, 0 violations
+  spec strength: guarantees 2/6 (prover 2, random tests 2); examples 0/6; together 2/6
+      survived: drop `size.set k (length i.name + i.qty)`
+      survived: `k` → `i.qty` in `size.set k (length i.name + i.qty)`
+      survived: `+` → `-` in `size.set k (length i.name + i.qty)`
+      survived: `i.qty` → `k` in `size.set k (length i.name + i.qty)`
+  spec refusals: 0/2 changes caught (examples 0, guarantees 0)
+      unpinned: need i.qty > 0 else Bad (dropped, `>` → `>=`)
+
+
+$ kern view tests/probes/texts.k rename --as iface   (exit 0)
+rename k:Int t:Text
+  uses audit size.write title.write
+  writes size.k title.k
+  fails Empty Reserved
+
+$ kern view tests/probes/texts.k rename --as spec   (exit 0)
+rename k:Int t:Text
+  uses audit size.write title.write
+  writes size.k title.k
+  fails Empty Reserved
+  need length t > 0 else Empty
+  need t != "admin" else Reserved
+  ok otherwise
+  ensure title.get' k = t
+  ensure size.get' k = length t
+  emit Renamed k t
+  body need length t > 0 else Empty
+  body need t != "admin" else Reserved
+  proof ok
+
+$ kern view tests/probes/texts.k rename --as editor   (exit 0)
+rename k:Int t:Text
+  uses audit size.write title.write
+  writes size.k title.k
+  fails Empty Reserved
+  need length t > 0 else Empty
+  need t != "admin" else Reserved
+  ok otherwise
+  ensure title.get' k = t
+  ensure size.get' k = length t
+  emit Renamed k t
+  eg title.1:"old" | rename 1 "new name" -> ok | title.1:"new name" size.1:8
+  eg | rename 1 "" -> Empty
+body
+  need length t > 0 else Empty
+  need t != "admin" else Reserved
+  title.set k t
+  size.set k (length t)
+  audit.emit (Renamed k t)
+
+$ kern view tests/probes/texts.k append --as iface   (exit 0)
+append k:Int t:Text
+  uses size.write title.write
+  writes size.k title.k
+
+$ kern view tests/probes/texts.k append --as spec   (exit 0)
+append k:Int t:Text
+  uses size.write title.write
+  writes size.k title.k
+  ok otherwise
+  ensure title.get' k = title.get k + t
+  ensure size.get' k = length (title.get k) + length t
+  proof ok
+
+$ kern view tests/probes/texts.k append --as editor   (exit 0)
+append k:Int t:Text
+  uses size.write title.write
+  writes size.k title.k
+  ok otherwise
+  ensure title.get' k = title.get k + t
+  ensure size.get' k = length (title.get k) + length t
+body
+  title.set k (title.get k + t)
+  size.set k (length (title.get k))
+
+$ kern view tests/probes/texts.k compare --as iface   (exit 0)
+compare j:Int k:Int
+  uses same.write title.read
+  writes same.j
+
+$ kern view tests/probes/texts.k compare --as spec   (exit 0)
+compare j:Int k:Int
+  uses same.write title.read
+  writes same.j
+  ok otherwise
+  ensure same.get' j = 1 when title.get j = title.get k
+  ensure same.get' j = 0 when title.get j != title.get k
+  proof ok
+
+$ kern view tests/probes/texts.k compare --as editor   (exit 0)
+compare j:Int k:Int
+  uses same.write title.read
+  writes same.j
+  ok otherwise
+  ensure same.get' j = 1 when title.get j = title.get k
+  ensure same.get' j = 0 when title.get j != title.get k
+body
+  if title.get j = title.get k
+    same.set j 1
+  else
+    same.set j 0
+
+$ kern view tests/probes/texts.k tag --as iface   (exit 0)
+tag a:Account t:Text
+  uses nick.write
+  writes nick.a
+
+$ kern view tests/probes/texts.k tag --as spec   (exit 0)
+tag a:Account t:Text
+  uses nick.write
+  writes nick.a
+  ok otherwise
+  ensure nick.get' a = t + "!"
+  proof ok
+
+$ kern view tests/probes/texts.k tag --as editor   (exit 0)
+tag a:Account t:Text
+  uses nick.write
+  writes nick.a
+  ok otherwise
+  ensure nick.get' a = t + "!"
+body
+  nick.set a (t + "!")
+
+$ kern view tests/probes/texts.k add --as iface   (exit 0)
+add i:Item k:Int
+  record Item name:Text qty:Int
+  uses size.write title.write
+  writes size.k title.k
+  fails Bad
+
+$ kern view tests/probes/texts.k add --as spec   (exit 0)
+add i:Item k:Int
+  record Item name:Text qty:Int
+  uses size.write title.write
+  writes size.k title.k
+  fails Bad
+  need i.qty > 0 else Bad
+  ok otherwise
+  ensure title.get' k = i.name + " x"
+  proof ok
+
+$ kern view tests/probes/texts.k add --as editor   (exit 0)
+add i:Item k:Int
+  record Item name:Text qty:Int
+  uses size.write title.write
+  writes size.k title.k
+  fails Bad
+  need i.qty > 0 else Bad
+  ok otherwise
+  ensure title.get' k = i.name + " x"
+body
+  title.set k (i.name + " x")
+  size.set k (length i.name + i.qty)

@@ -175,6 +175,7 @@ pub fn effect_text(e: &str) -> Option<&'static str> {
         "ledger.write" => "the ledger (read and write)",
         "ledger.read" => "the ledger (read only)",
         "clock" => "the clock",
+        "clock.tick" => "the clock (moves it on)",
         "audit" => "the audit log",
         _ => return None,
     })

@@ -100,6 +100,11 @@ body
 | `spec` | + need, keep, ensure, emit, own `body need` lines, proof status | 77 tokens |
 | `editor` | own full definition + the `spec` view of each callee (never callee bodies) | 251 tokens |
 
+An `eg` line may end with a fourth section, the events: `| A:400 B:100 | Moved A B 100 0` (exact on `audit`, and on
+any channel it names, `console Line "hi"`; an empty section means nothing on `audit`). A failing one prints what
+was appended: `failing: eg …   (got ok, appending Moved A B 100 7)`. `clock.tick` is a statement: one call can then
+see two instants (`clock.now` reads the current one; specs read the start).
+
 Text (`t:Text`, `state title Int -> Text`, `"…"`, `length`, `+`) is proven with Z3's strings. In `eg` lines,
 counterexamples and `kern run` a Text is quoted (`name_it 1 "a b"`, `title.1:"a b"`), so a literal may hold
 spaces and `|`. Random tests draw Text from a small pool (`""`, `"a"`, `"ab"`, `"hello world"`, `"Ω"`).

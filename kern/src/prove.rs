@@ -586,7 +586,7 @@ impl<'m> Prover<'m> {
     }
 
     fn mutates(&self, name: &str) -> bool {
-        matches!(name, "ledger.debit" | "ledger.credit" | "audit.emit")
+        matches!(name, "ledger.debit" | "ledger.credit" | "audit.emit" | "clock.tick")
             || channel_op(self.defs, name).is_some()
             || matches!(state_op(self.defs, name), Some((_, "set", _)))
             || (self.defs.defs.get(name).is_some_and(|d| d.ret.is_none()) && assumed_op(self.defs, name).is_none())
@@ -633,6 +633,11 @@ impl<'m> Prover<'m> {
             let moved = zz::add(&zz::select(&s.bal, a[0].i()), &zz::mul(&sign, a[1].i()));
             s.bal = zz::store(&s.bal, a[0].i(), &moved);
             s.total = zz::add(&s.total, &zz::mul(&sign, a[1].i()));
+            return SV::Unit;
+        }
+        if name == "clock.tick" {
+            // exactly one later instant, as the interpreter does
+            s.now = zz::add(&s.now, &zz::val(1));
             return SV::Unit;
         }
         if name == "audit.emit" {
@@ -764,6 +769,12 @@ impl<'m> Prover<'m> {
                 };
                 s.maps.insert(x.clone(), m);
             }
+        }
+        if uses(self.defs, callee).contains("clock.tick") {
+            // it may tick any number of times: the time afterwards is later or the same
+            let later = fresh_int("now");
+            self.pc.borrow_mut().push(zz::ge(&later, &s.now));
+            s.now = later;
         }
         for c in &callee.ensures {
             let v = self.sev(c, &env, &pre, Some(s)).b().clone();
@@ -1061,6 +1072,16 @@ impl<'m> Prover<'m> {
 
     // ---- loops ---------------------------------------------------------------------------------------------
 
+    /// Whether a loop body may advance the clock (`clock.tick`, directly or in a callee).
+    fn may_tick(&self, body: &[Stmt]) -> bool {
+        flat(body).iter().any(|s| match s {
+            Stmt::Do(Expr::App(n, _, _)) | Stmt::Do(Expr::Name(n, _)) => {
+                n == "clock.tick" || self.defs.defs.get(n).is_some_and(|c| uses(self.defs, c).contains("clock.tick"))
+            }
+            _ => false,
+        })
+    }
+
     fn loop_effects(&self, body: &[Stmt]) -> Effects {
         let (mut acc, mut ranged, mut full, mut chans) = (vec![], vec![], BTreeSet::new(), BTreeSet::new());
         for s in flat(body) {
@@ -1184,6 +1205,7 @@ impl<'m> Prover<'m> {
         let hi = self.sev(hi_e, &p.env, &p.s, None).i().clone();
         self.loop_var = var.clone();
         let eff = self.loop_effects(body);
+        let ticks = self.may_tick(body);
         let texts: Vec<String> = invs.iter().map(code).collect();
         let mut stores: BTreeSet<String> = eff.1.keys().cloned().collect();
         stores.extend(eff.2.iter().cloned());
@@ -1206,7 +1228,11 @@ impl<'m> Prover<'m> {
         }
         // an arbitrary iteration
         let k = zz::int(&format!("{}_{}", var, fresh()));
-        let (h, ax) = self.havoc(&p.s, &eff, &env, &lo, &k, None);
+        let (mut h, mut ax) = self.havoc(&p.s, &eff, &env, &lo, &k, None);
+        if ticks {
+            h.now = fresh_int("now_loop");
+            ax.push(zz::ge(&h.now, &p.s.now));
+        }
         let mut head = self.inv(invs, var, &k, &env, &h);
         head.extend(self.module_invs_over(&stores, &h).into_iter().map(|(_, g)| g));
         let mut pc = p.pc.borrow().clone();
@@ -1247,7 +1273,13 @@ impl<'m> Prover<'m> {
         // after the loop
         let kk = if fault("c") { hi.clone() } else { zz::ite(&zz::ge(&hi, &lo), &hi, &lo) };
         let empty = zz::le(&hi, &lo);
-        let (mut a, ax) = self.havoc(&p.s, &eff, &env, &lo, &kk, Some(empty));
+        let (mut a, mut ax) = self.havoc(&p.s, &eff, &env, &lo, &kk, Some(empty.clone()));
+        if ticks {
+            // later or the same, and the same when the loop doesn't run
+            a.now = fresh_int("now_loop");
+            ax.push(zz::ge(&a.now, &p.s.now));
+            ax.push(zz::implies(&empty, &zz::eq_int(&a.now, &p.s.now)));
+        }
         let invk = self.inv(invs, var, &kk, &env, &a);
         let mods: Vec<Bool> = self.module_invs_over(&stores, &a).into_iter().map(|(_, g)| g).collect();
         {

@@ -83,6 +83,9 @@ pub struct Example {
     /// Text state entries (`title.1:"hi"`), before and after
     pub texts: Texts,
     pub after_texts: Texts,
+    /// the fourth section, when written: (channel, constructor, args) in order; `audit` is always compared then,
+    /// other channels only if named
+    pub events: Option<Vec<(String, String, Vec<Key>)>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -933,14 +936,14 @@ fn bad_world(item: &str, line: Option<usize>) -> ParseError {
 }
 
 pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
-    let usage = || ParseError::at("eg WORLD | call args -> outcome [| AFTER]", line);
+    let usage = || ParseError::at("eg WORLD | call args -> outcome [| AFTER [| EVENTS]]", line);
     // literals out first (a no-op for a line parse_module already lifted), so `|`, `->` and spaces inside one
     // don't split it; `src` keeps the source text
     let mark = LIFTED.with(|l| l.borrow().len());
     let lifted_src = lift_texts(src, line)?;
     let src_text = restore(&lifted_src);
     let parts: Vec<&str> = lifted_src.split('|').map(str::trim).collect();
-    if !(parts.len() == 2 || parts.len() == 3) || !parts[1].contains("->") {
+    if !(2..=4).contains(&parts.len()) || !parts[1].contains("->") {
         return Err(usage());
     }
     // split_now / split_maps are line-free (the host parses worlds too): put the eg's line on their errors
@@ -988,8 +991,9 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
         }
         Outcome::Fail(ctor.to_string(), vals.map_err(|_| usage())?)
     };
-    let (after_src, after_texts) = if parts.len() == 3 { split_texts(parts[2], line)? } else { (String::new(), Texts::new()) };
-    let (after_src, after_maps) = if parts.len() == 3 { split_maps(&after_src).map_err(at)? } else { (String::new(), Maps::new()) };
+    let (after_src, after_texts) = if parts.len() >= 3 { split_texts(parts[2], line)? } else { (String::new(), Texts::new()) };
+    let (after_src, after_maps) = if parts.len() >= 3 { split_maps(&after_src).map_err(at)? } else { (String::new(), Maps::new()) };
+    let events = if parts.len() == 4 { Some(parse_eg_events(parts[3], line)?) } else { None };
     let after = parse_balances(&after_src, line)?;
     // what this call lifted is copied out by now (a module's own lines stay lifted for its body parse)
     LIFTED.with(|l| l.borrow_mut().truncate(mark));
@@ -1004,7 +1008,42 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
         after_maps,
         texts,
         after_texts,
+        events,
     })
+}
+
+/// An `eg` line's events section: `Ev args, [channel] Ev args, …` (empty: nothing on audit).
+fn parse_eg_events(src: &str, line: Option<usize>) -> PResult<Vec<(String, String, Vec<Key>)>> {
+    let mut out = vec![];
+    for ev in src.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+        let mut words: Vec<&str> = ev.split_whitespace().collect();
+        let channel = if words.first().is_some_and(|w| w.starts_with(|c: char| c.is_ascii_lowercase())) {
+            words.remove(0).to_string()
+        } else {
+            "audit".to_string()
+        };
+        let Some((ctor, args)) = words.split_first() else {
+            return Err(ParseError::at("an `eg` event is `[channel] Ctor args`", line));
+        };
+        if !starts_upper(ctor) {
+            return Err(ParseError::at(format!("an `eg` event names a constructor, got {}", repr_str(ctor)), line));
+        }
+        let mut keys = vec![];
+        for a in args {
+            if let Some(t) = lifted(a) {
+                keys.push(Key::Str(t));
+            } else if let Ok(n) = a.parse::<Int>() {
+                if !in_range(n) {
+                    return Err(ParseError::at(out_of_range(a), line));
+                }
+                keys.push(Key::Int(n));
+            } else {
+                keys.push(Key::Str(a.to_string()));
+            }
+        }
+        out.push((channel, ctor.to_string(), keys));
+    }
+    Ok(out)
 }
 
 /// A call and a world written as an `eg` line would have them (`kern run`, MCP `kern_run`), for input with Text in

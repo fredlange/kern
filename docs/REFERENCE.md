@@ -51,7 +51,8 @@ body
 |---|---|---|
 | `ledger.balance a`, `ledger.owner a`, `ledger.total` | Int / Owner / Int | yes (reads) |
 | `ledger.debit a n`, `ledger.credit a n` | change a balance | no |
-| `clock.now` | the call's time: one value per call | yes, with no after-state |
+| `clock.now` | the call's time | yes: in a spec, the time the call started (no after-state) |
+| `clock.tick` | moves the call's time on by exactly 1 (a later instant in the same call) | no |
 | `audit.emit (Ev …)` | append to the audit log | no; describe it with `emit` |
 
 **Module declarations** (column 0):
@@ -87,7 +88,7 @@ imports; names are unique across the package. Checking any file checks the whole
 | `ensure COND [when C] [for j from A to B]` | must hold after success; `when C` (about the before-state) makes it conditional, and `for j …` makes it hold for every j in [A, B). Bounds are atoms |
 | `emit [CHANNEL] Ctor ARGS [when C]` | the exact sequence the call appends to the channel (default `audit`). `_` matches any value. A channel with no `emit` clause is unconstrained |
 | `need as F ARGS`, `emit as F ARGS [when C]` | F's spec needs or emits, with F's parameters replaced by ARGS. Only right when F runs first |
-| `eg WORLD \| NAME ARGS -> OUTCOME [\| AFTER]` | an executed example |
+| `eg WORLD \| NAME ARGS -> OUTCOME [\| AFTER [\| EVENTS]]` | an executed example |
 
 A refusal undoes the whole call, so guarantees only have to hold on success. Effects
 (`uses`), failures (`fails`) and written balances (`writes`) are inferred: never write them.
@@ -99,6 +100,8 @@ A refusal undoes the whole call, so guarantees only have to hold on success. Eff
 - **ARGS:** integers, account names and Text literals.
 - **OUTCOME:** `ok`, or `Ctor ints` (for example `Insufficient 50`).
 - **AFTER:** only the items listed are compared, such as `A:400 hold.7:0`.
+- **EVENTS:** `Ev args, [channel] Ev args`: the exact events appended to `audit` (an empty section: none) and
+  to each channel named, such as `| | Moved A B 100 0`.
 
 ## What `check` prints
 

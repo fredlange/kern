@@ -213,12 +213,12 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   body or callee need contradicts the spec needs outright, the claim shows ∅ "never succeeds"
   rather than ✗ (both red, different wording). A ∅ that rests on something unproven (a refuted loop
   invariant, a callee with a broken spec) shows `!` instead, since the code does succeed (FZ finding 3).
-- Time: `clock.now` is one value per top-level call (it ticks after each call, refused
-  ones included; a bad call doesn't tick). Specs may read it; it has no after-state.
-  There is no operation for distinct instants inside one call (add `clock.tick` if
-  needed). Example worlds take `now:N`.
-- Audit spec (`emit`) is exact-sequence only; no way to say "emits nothing"; `eg`
-  can't assert audit events.
+- Time: `clock.now` is the call's time (it ticks after each call, refused ones included; a bad call doesn't
+  tick). `clock.tick` moves it on by exactly 1 inside a call (S10); a callee or loop that may tick leaves it later
+  or equal. Specs read the start time; it has no after-state. A body need reading `clock.now` after a tick isn't
+  lifted. Example worlds take `now:N`.
+- Audit spec (`emit`) is exact-sequence only ("emits nothing" is `emit Never when 1 = 0`); an `eg` line's fourth
+  section asserts the exact events (S10).
 - Lifted refusal conditions (`body need`): direct writes (debit/credit, `x.set`) are rewritten into the
   pre-state, with aliasing split into cases (at most 8); a callee whose ensures pin what it writes
   (`ensure R' = E`, `keep R`) counts as exact writes, and the condition then rests on that callee (relied_on;

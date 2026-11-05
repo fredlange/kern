@@ -1204,10 +1204,9 @@ fn s10_emits_nothing_is_expressible_today_as_a_false_conditional_emit() {
 }
 
 #[test]
-#[should_panic(expected = "gap S10 eg events:")]
 fn s10_eg_can_assert_events() {
-    // gap (S10): an `eg` line can't say which events the call emits. An example expecting the wrong event must
-    // fail. placeholder: a fourth `|` section listing the events
+    // closed (S10): a fourth `|` section lists the events (DECISIONS.md, 2026-11-05, S10); the placeholder was the
+    // chosen syntax. An example expecting the wrong event fails
     let gap = "gap S10 eg events";
     let src = "transfer from:Account to:Account amount:Int
   need amount > 0 else BadAmount
@@ -1228,9 +1227,8 @@ body
 }
 
 #[test]
-#[should_panic(expected = "gap S10 instants:")]
 fn s10_one_call_can_see_two_instants() {
-    // gap (S10): `clock.now` is one value per top-level call. placeholder: `clock.tick`
+    // closed (S10): `clock.tick` moves the call's time on by exactly 1; the placeholder was the chosen syntax
     must_check(
         "gap S10 instants",
         "state seen Int
@@ -1243,6 +1241,73 @@ body
   seen.set k clock.now
 ",
     );
+}
+
+#[test]
+fn s10_eg_events_are_exact_per_channel_and_say_what_was_appended() {
+    let src = "channel console
+
+greet a:Account n:Int
+  ok otherwise
+  emit Hi a n
+  emit console Line \"hi\"
+  eg A:1@u1 | greet A 3 -> ok | | Hi A 3, console Line \"hi\"
+  eg A:1@u1 | greet A 3 -> ok | | Hi A 3
+  eg A:1@u1 | greet A 3 -> ok | | console Line \"hi\"
+  eg A:1@u1 | greet A 3 -> ok | | Hi A 4
+  eg A:1@u1 | greet A 3 -> ok | |
+body
+  audit.emit (Hi a n)
+  console.emit (Line \"hi\")
+";
+    let defs = parse(src);
+    let ex = kern::check::run_examples(&defs, &defs.defs["greet"]).unwrap();
+    let pass: Vec<bool> = ex.iter().map(|e| e.pass).collect();
+    // both channels named; audit only (console unconstrained); console only (audit then must be empty: fails);
+    // a wrong argument; an empty section (nothing on audit: fails)
+    assert_eq!(pass, [true, true, false, false, false], "{ex:?}");
+    assert_eq!(ex[3].got, "ok, appending Hi A 3");
+}
+
+#[test]
+fn s10_a_tick_is_one_instant_later_and_a_need_after_it_is_not_stated_at_the_start() {
+    let src = "state seen Int
+
+stamp k:Int
+  ok otherwise
+  ensure seen.get' k = clock.now + 1
+  eg now:5 | stamp 1 -> ok | seen.1:6
+body
+  clock.tick
+  seen.set k clock.now
+
+twice k:Int
+  ok otherwise
+  ensure seen.get' k >= clock.now + 1
+body
+  stamp k
+
+late d:Int
+  emit Stamped clock.now
+body
+  audit.emit (Stamped clock.now)
+  clock.tick
+  need clock.now <= d else TooLate
+";
+    let defs = parse(src);
+    let reps = reports(&defs);
+    assert!(reps["stamp"].clean && reps["twice"].clean, "{:?} {:?}", reps["stamp"].guarantees, reps["twice"].guarantees);
+    // `need clock.now <= d` after a tick is not `clock.now <= d` at the call's start: no lifted row says so
+    assert!(!reps["late"].lifted.iter().any(|l| l.ctor == "TooLate"), "{:?}", reps["late"].lifted);
+    assert!(views::iface(&reps["late"], &why::Status::default()).contains("uses clock audit clock.tick"));
+    // a refused call's tick is undone with it, and a function may not tick
+    let mut w = kern::run::World::from_example(&IndexMap::new(), 7, &IndexMap::new());
+    let out = kern::run::Interp::new(&defs).run("late", &[Value::Int(0)], &mut w).unwrap();
+    // (after every call the clock moves on once, refused calls included: 7 -> 8, not 9)
+    assert!(matches!(out, kern::run::Outcome::Fail(ref c, _) if c == "TooLate"), "{out:?}");
+    assert_eq!((w.clock, w.audit.len()), (8, 0));
+    let e = analyse(&parse("f k:Int -> Int\n  ensure result = 0\nbody\n  clock.tick\n  result = 0\n"), false, None, None).unwrap_err();
+    assert!(e.message().contains("may read state but not change it"), "{}", e.message());
 }
 
 // =====================================================================================

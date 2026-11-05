@@ -25,6 +25,7 @@ pub fn sig(name: &str) -> Option<(&'static [&'static str], &'static str)> {
         "ledger.debit" => (&["Account", "Int"], "Unit"),
         "ledger.credit" => (&["Account", "Int"], "Unit"),
         "clock.now" => (&[], "Int"),
+        "clock.tick" => (&[], "Unit"),
         "audit.emit" => (&["Event"], "Unit"),
         _ => return None,
     })

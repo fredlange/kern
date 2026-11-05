@@ -362,13 +362,14 @@ impl World {
 // ---------------------------------------------------------------- handlers
 
 /// op -> (arity, effect label)
-pub const HANDLERS: [(&str, usize, &str); 7] = [
+pub const HANDLERS: [(&str, usize, &str); 8] = [
     ("ledger.balance", 1, "ledger.read"),
     ("ledger.owner", 1, "ledger.read"),
     ("ledger.total", 0, "ledger.read"),
     ("ledger.debit", 2, "ledger.write"),
     ("ledger.credit", 2, "ledger.write"),
     ("clock.now", 0, "clock"),
+    ("clock.tick", 0, "clock.tick"),
     ("audit.emit", 1, "audit"),
 ];
 
@@ -635,6 +636,11 @@ impl<'m, 'p> Interp<'m, 'p> {
                     Value::None
                 }
                 "clock.now" => Value::Int(world.clock),
+                "clock.tick" => {
+                    // a later instant inside the call (S10): exactly one more, undone with the call on a refusal
+                    world.clock = checked(world.clock.checked_add(1))?;
+                    Value::None
+                }
                 "audit.emit" => {
                     world.push_event("audit", args[0].clone());
                     Value::None
