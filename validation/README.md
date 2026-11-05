@@ -17,7 +17,7 @@ Run everything from the repository root.
 | Tool | Checks | Run |
 |---|---|---|
 | `fuzz` | the prover against the interpreter on random loop and handler programs (below): the same programs, worlds and statistics as the Python original made for the same seed | `cargo run -p kern-validation --release --bin fuzz -- [options]` |
-| `digest` | one hash over every result on a fixed set of modules, the floor for prover changes: S2 (10 modules, full mutation testing, `3cb0e5efa3b63fb8`, unchanged from Python) and `--loops` (loops, handlers, packages, `5633e03d4adf29df` since 7d011af; see below and validation/tests/digest.rs). `validation/tests/digest.rs` asserts both | `cargo run -p kern-validation --release --bin digest -- [--loops] [--dump FILE.json]` |
+| `digest` | one hash over every result on a fixed set of modules, the floor for prover changes: S2 (10 modules, full mutation testing, `3cb0e5efa3b63fb8`, unchanged from Python) and `--loops` (loops, handlers, packages, `51c881e8e3cd2e9b` since 4b44b2f; see below and validation/tests/digest.rs). `validation/tests/digest.rs` asserts both | `cargo run -p kern-validation --release --bin digest -- [--loops] [--dump FILE.json]` |
 | `difftest` | the compiled Rust program against the interpreter (plus, for the module invariants `kern build` checks, the host's check at the keys a call wrote: a break is a fault): every `eg` line, plus random worlds and calls; A generated crate that doesn't build counts as a failure (`FAILED`, exit 1); only what the emitter doesn't support is skipped (`UNSUPPORTED`) | `cargo run -p kern-validation --release --bin difftest -- [--per-def N] [--seed S] [MODULE.k ...]` |
 | `fuzzdiff` | the same comparison on every program `fuzz` generates, template mutants included, all in one crate, each compiled as `kern build` does (module-invariant checks included). Full size, 2026-11-05: 677 programs, 79,898 calls, 0 divergences (150 s); with the checks (f53e1a0): 188 definitions checked, 1,088 calls faulted by a broken invariant, 0 divergences | `cargo run -p kern-validation --release --bin fuzzdiff -- [--seed 1] [--loops 300] [--handlers 200] [--sums 150] [--texts 100] [--no-mutants] [--per-def 100]` (`--texts N` also sets the number of nest and match programs) |
 | `sensitivity` | that `difftest` notices a wrong runtime: plants 18 known bugs in `runtime/` and the emitter (3 in the compiled module-invariant check, 1 in compiled sums, 1 in Text), one at a time, and expects each to fail. The plants go into a copy of the workspace (`--dir`, default `$TMPDIR/kern-sensitivity`, own target and build directories), never into the checkout, because each emitter plant means rebuilding the tool | `cargo run -p kern-validation --release --bin sensitivity -- [--per-def N] [--dir DIR]` |
@@ -49,6 +49,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 | `--nests N` / `--matches N` | nested-loop and variable × variable programs (`gen_nest`: a nested count with `(r - lo) * n` invariants, grid writes at `r * W + c` with frame claims, nonlinear identities) and `match` programs (`gen_match`: Int, constant, negative and Text patterns, with or without `_`); default 100 each, own streams |
 | `--ticks N` | `clock.tick` programs (`gen_tick`, default 100, own stream): n ticks then a store and an event with an `eg` that pins it, a ticking callee, ticks in a loop |
 | `--frames N` | stated loop frames (`gen_frame`, default 100, own stream): a loop writing `hold` at `k + OFF`, with `keep hold except A to B` right or one key too narrow, and `keep other` |
+| `--ckeys N` | computed-key writes under module invariants (`gen_ckey`, default 100, own stream): `k * C + D` or a key read from a map, a value that is non-negative, guarded, copied or possibly negative, one invariant or two across maps |
 | `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`), a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`) and a package variant (`agg` in a package `lib` the program's package `use`s). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (fatal since 7d011af fixed the record counterexamples) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
@@ -96,4 +97,8 @@ moving the time gives 6,000 in 20 (only claims that hold without a tick see it).
 
 **2026-11-05, stated loop frames** (48dd716; `--frames`). Teeth: the frame's `j >= B` planted as `j > B` (prove.rs,
 not committed) gives 3,103 contradictions in 24 of 100 frame programs. Clean: 90 frames proven, 62 refuted.
+
+**2026-11-05, computed-key invariants** (4b44b2f; `--ckeys`). Teeth: the goal's after-state side evaluated on the
+pre-state (prove.rs, not committed) gives 5,688 contradictions in 35 of 100. Clean: 74 proven, 27 refuted, 43 `?`
+(a false invariant whose counterexample doesn't replay; random tests often break it too, so ✗ would be earned).
 

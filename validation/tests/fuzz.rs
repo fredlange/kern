@@ -291,3 +291,16 @@ fn a_small_frame_fuzz_run_is_clean() {
     let k = &s["tiers"]["keep"];
     assert!(k["proven"].as_u64().unwrap_or(0) > 5 && k["refuted"].as_u64().unwrap_or(0) > 5, "{k}");
 }
+
+#[test]
+fn a_small_computed_key_fuzz_run_is_clean() {
+    // gen_ckey (4b44b2f: invariants over a computed key proven at every key). Teeth (2026-11-05): the after-state
+    // side of that goal evaluated on the pre-state -> 5,688 contradictions in 35 of 100.
+    let results: Vec<_> = kern_validation::fuzz::ckey_jobs(5, 30, 60).iter().map(check_program).collect();
+    let s = summarise(&results);
+    assert_eq!(s["ckey_well_formed"], "30/30");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    let i = &s["tiers"]["invariant"];
+    assert!(i["proven"].as_u64().unwrap_or(0) > 5 && i["refuted"].as_u64().unwrap_or(0) > 0, "{i}");
+}

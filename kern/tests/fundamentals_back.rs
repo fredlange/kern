@@ -628,7 +628,8 @@ const ALL_STATUSES: [Status; 9] = [
 fn f5_runtime_only_tier_exists() {
     // closed by S11 (f160617): tier ○, a module invariant the host (and a kern build program) checks at run time
     assert!(ALL_STATUSES.iter().any(|s| render::icon(*s) == "○"));
-    let (_, reps) = analysed("state hold Int\ninvariant o:Int hold.get o >= 0\n\nf id:Int\nbody\n  hold.set (id + 1) 5\n", false);
+    // since 4b44b2f a computed key is proven at every key, so ○ needs an undecidable value: a³ + b³ - c³ != 0
+    let (_, reps) = analysed("state hold Int\ninvariant o:Int hold.get o != 0\n\nf k:Int a:Int b:Int c:Int\n  need a > 0 and b > 0 and c > 0 else Bad\n  ok otherwise\nbody\n  hold.set (k + 1) (a * a * a + b * b * b - c * c * c)\n", false);
     let g = reps["f"].guarantees.iter().find(|g| g.kind == "invariant").unwrap();
     assert_eq!(render::icon(g.status), "○");
     assert!(!reps["f"].clean, "○ is not proven, so not clean");

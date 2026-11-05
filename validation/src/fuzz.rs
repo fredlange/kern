@@ -793,6 +793,52 @@ pub fn frame_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         .collect()
 }
 
+// ---------------------------------------------------------------- computed-key invariants (4b44b2f)
+
+/// A write at a computed key (`k * C + D`, or a key read from another map) under module invariants (`hold >= 0`,
+/// sometimes `hold <= cap + 100` across two maps): the value is non-negative (with or without a guard), copied,
+/// or possibly negative. Own stream (`ckey_jobs`).
+pub fn gen_ckey(rnd: &mut Random) -> String {
+    let c = *rnd.choice(&[1i64, 2, 7]);
+    let d = *rnd.choice(&[0i64, 1, 3]);
+    let key = choice_str(rnd, &["kv", "kv", "map"]);
+    let key = if key == "map" { "(slot.get k)".to_string() } else { format!("(k * {c} + {d})") };
+    let cross = rnd.random() < 0.4;
+    let (guard, value) = *rnd.choice(&[
+        ("", "5"),
+        ("need v >= 0 else Neg", "v"),
+        ("", "v"),
+        ("need v >= 5 else Small", "(v - 5)"),
+        ("", "(v - 5)"),
+        ("", "(hold.get (k + 1))"),
+        ("", "(hold.get (k + 1) + 200)"),
+    ]);
+    let mut lines: Vec<String> = vec!["state hold Int".into(), "state cap Int".into(), "state slot Int".into(), "invariant o:Int hold.get o >= 0".into()];
+    if cross {
+        lines.push("invariant o:Int hold.get o <= cap.get o + 100".into());
+    }
+    lines.push(String::new());
+    lines.push("f k:Int v:Int".into());
+    if !guard.is_empty() {
+        lines.push(format!("  {guard}"));
+    }
+    lines.push("  ok otherwise".into());
+    lines.push("body".into());
+    lines.push(format!("  hold.set {key} {value}"));
+    lines.join("\n") + "\n"
+}
+
+/// `n` computed-key programs from their own stream, labelled `ckey#i`.
+pub fn ckey_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 44);
+    (0..n)
+        .map(|i| {
+            let src = gen_ckey(&mut rnd);
+            Job { label: format!("ckey#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -1321,7 +1367,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "tiers": tiers, "runs": runs, "ok_runs": ok, "skipped": skipped, "unmapped": unmapped, "unmapped_kinds": unmapped_kinds,
         "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"), "text_well_formed": fam("text#"), "nest_well_formed": fam("nest#"), "match_well_formed": fam("match#"),
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
-        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"),
+        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"),
         "variant_mismatches": variant_mismatches(results),
     })
 }
@@ -1334,12 +1380,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -1373,6 +1419,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(match_jobs(num("seed", 1) as i128, num("matches", 100) as usize, num("runs", 300)));
     js.extend(tick_jobs(num("seed", 1) as i128, num("ticks", 100) as usize, num("runs", 300)));
     js.extend(frame_jobs(num("seed", 1) as i128, num("frames", 100) as usize, num("runs", 300)));
+    js.extend(ckey_jobs(num("seed", 1) as i128, num("ckeys", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));

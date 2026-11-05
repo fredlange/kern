@@ -50,7 +50,8 @@ fn compiled_invariant_checks_are_exercised_and_a_binary_without_them_is_caught()
     let checks = kern::emit_rust::unproven_invariants(&defs).unwrap();
     let mut names: Vec<&str> = checks.keys().map(|s| s.as_str()).collect();
     names.sort();
-    assert_eq!(names, ["late", "mark", "pay", "put", "relay", "restore", "sweep"]);
+    // restore (writes the value back) is proven since 4b44b2f, so it gets no check
+    assert_eq!(names, ["late", "mark", "pay", "put", "relay", "sweep"]);
     let (with, _) = build_case(&defs, &checks, &mut Random::from_int(1), 2000, 1, None).unwrap();
     let (without, _) = build_case(&defs, &IndexMap::new(), &mut Random::from_int(1), 2000, 1, None).unwrap();
     assert_eq!(with.script, without.script);
@@ -61,7 +62,7 @@ fn compiled_invariant_checks_are_exercised_and_a_binary_without_them_is_caught()
         .collect();
     assert!(first.len() > 50, "only {} calls became faults", first.len());
     // each kind of write the probe has must produce at least one fault
-    for name in ["put", "restore", "relay", "sweep", "mark", "pay"] {
+    for name in ["put", "relay", "sweep", "mark", "pay"] {
         assert!(first.iter().any(|&i| with.place[i].contains(&format!("| {name} "))), "no fault from {name}");
     }
     assert!(!first.iter().any(|&i| with.place[i].contains("| late ")), "late refuses: nothing to check");

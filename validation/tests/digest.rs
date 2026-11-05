@@ -12,6 +12,8 @@
 //!       `keep`, proven) and the goals after it shifted by one.
 //!       2026-11-05, counterexamples carry Text and field-key entries (7d011af): 5633e03d4adf29df. The dump diff
 //!       is fz2.k f goal 2 only: its counterexample now replays, so conditional -> refuted.
+//!       2026-11-05, computed-key invariants proven at every key (4b44b2f): 51c881e8e3cd2e9b. Dump diff: fz2.k f
+//!       and p2.k shifted, their invariant goal runtime -> conditional (it now rests on unproven goals).
 use std::path::Path;
 
 use kern_validation::digest::{digest, digest_loops};
@@ -27,5 +29,5 @@ fn the_s2_digest_is_unchanged() {
 
 #[test]
 fn the_loop_digest_is_unchanged() {
-    assert_eq!(digest_loops(&root()).0, "5633e03d4adf29df");
+    assert_eq!(digest_loops(&root()).0, "51c881e8e3cd2e9b");
 }
