@@ -6,27 +6,29 @@ for any agent working here.
 
 ## Read first
 
-1. [docs/REFERENCE.md](docs/REFERENCE.md): the language (about 1,900 tokens).
-2. [docs/GUIDE.md](docs/GUIDE.md): the tools, file formats and Python API, and how to read
+1. [docs/REFERENCE.md](docs/REFERENCE.md): the language (about 2,200 tokens).
+2. [docs/GUIDE.md](docs/GUIDE.md): the tools, file formats and Rust library API, and how to read
    `check` output.
 3. [CLAUDE.md](CLAUDE.md): the design decisions, measurements and known limitations. Skim it.
    `docs/HOST.md` is the host's design; `docs/research/` is history and evidence (AUDIT, FIXES,
    SCALE, COMPARE, CHALLENGE, ROADMAP_RUN, the plans).
 
-Commands: `.venv/bin/pytest` for the whole suite (strict xfails are known gaps), and
-`.venv/bin/python -m kern check FILE.k` for a module.
+Commands: `cargo test --workspace --release` for the whole suite (known gaps are `#[should_panic]`
+tests marked `// gap`, formerly pytest's strict xfails), and `kern check FILE.k` for a module (or
+`cargo run --release -p kern -- check FILE.k` without installing).
 
 ## Where files go
 
-- **`kern/`** ships: the toolchain, and nothing else. No experiments, harnesses or one-off
-  scripts. It imports only from itself (plus z3 and the standard library).
+- **`kern/`** ships: the toolchain (the `kern` crate: library and binary), and nothing else. No
+  experiments, harnesses or one-off scripts. It depends on no other crate of this repository; its
+  tests are in `kern/tests/`.
 - **`runtime/`** ships: the `kern-rt` crate.
 - **`examples/`**: Kern programs people can read and run. Tests and frozen experiments read some
   of them by path, so don't rename them.
-- **`tests/`**: the pytest suite, fast enough for every change. Small modules for tests go in
-  `tests/probes/`.
-- **`validation/`**: slower tools that check the toolchain itself (fuzzer, digests, Rust vs
-  interpreter). Document their CLIs in `validation/README.md`.
+- **`tests/probes/`**: small modules the tests and validation tools use. The tests themselves are
+  cargo tests in `kern/tests/` and `validation/tests/`, fast enough for every change.
+- **`validation/`**: slower tools that check the toolchain itself (the `kern-validation` crate: fuzzer,
+  digests, compiled program vs interpreter). Document their CLIs in `validation/README.md`.
 - **`experiments/`**: measurements, each with its report in `docs/research/`. Nothing outside
   `experiments/` imports from it.
 - **`build/`**: generated output (Rust crates, cargo target, ad hoc proof pages). Never commit it.
@@ -39,7 +41,7 @@ Commands: `.venv/bin/pytest` for the whole suite (strict xfails are known gaps),
 - a handler or declaration;
 - `check` output or proof-page wording;
 - a CLI command or option;
-- a public Python function.
+- a public function of the `kern` crate that GUIDE.md lists.
 
 Which file to update:
 - **docs/REFERENCE.md:** the language. Keep it within 2,500 tokens; it's the measured
@@ -47,7 +49,7 @@ Which file to update:
 - **docs/GUIDE.md:** tools, files, API, errors.
 - **CLAUDE.md's "Known limitations":** when a limit changes.
 
-`tests/test_docs.py` enforces the mechanical part:
+`kern/tests/docs.rs` enforces the mechanical part:
 - every `kern` block must parse and check, and `kern clean` blocks must prove;
 - every handler and language form must appear in REFERENCE.md;
 - every CLI command and option must appear in GUIDE.md (the fuzzer's in validation/README.md);
@@ -70,9 +72,10 @@ Mark code blocks `kern` (must parse and check), `kern clean` (must also prove) o
 - **Don't change semantics to make a test pass.** If the host and the interpreter disagree,
   the host is wrong until shown otherwise. If a guarantee breaks, the code or the spec is
   wrong. Never hide the change.
-- **Regression floors:** `check` output for examples/ledger_v3–v7 and ledger_large, and every
-  existing build hash, stay identical unless the change is meant to alter them. When it is,
-  say which and why.
+- **Regression floors:** `check` output, views and proof pages for every example and probe
+  (`kern/tests/golden/`), the two results digests (`validation/tests/digest.rs`) and every existing
+  build hash stay identical unless the change is meant to alter them. When it is, re-record
+  (`KERN_BLESS=1 cargo test -p kern --release --test golden`) and say which and why in the commit.
 - **Nothing correctness-critical lives in prose.** If something must be obeyed, it's a
   `need`, `keep`, `ensure` or `emit`; `.why` files are rationale only.
 

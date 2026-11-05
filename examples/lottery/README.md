@@ -17,12 +17,12 @@ lottery/
 
 ## Run it
 
-With Kern installed (`pip install -e <kern repo>`), from this directory:
+With Kern installed (`cargo install --path <kern repo>/kern`), from this directory:
 
 ```text
 kern check .
-python -m kern.host repl . --world "B:25@u1 P:0@u0 A:0@u2 C:0@u3 D:0@u4"
-python -m kern.host repl . --db lottery.db --world "…"     # then: python -m kern.host replay . --db lottery.db
+kern host repl . --world "B:25@u1 P:0@u0 A:0@u2 C:0@u3 D:0@u4"
+kern host repl . --db lottery.db --world "…"     # then: kern host replay . --db lottery.db
 kern build .
 ```
 

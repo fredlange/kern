@@ -12,12 +12,12 @@ ledger-large/
 
 ## Run it
 
-With Kern installed (`pip install -e <kern repo>`), from this directory:
+With Kern installed (`cargo install --path <kern repo>/kern`), from this directory:
 
 ```text
 kern check ledger_large.k
 kern view ledger_large.k month_end --as editor     # the definition plus its callees' specs
-python -m kern.host repl ledger_large.k --world "A:500@u1 B:0@u1 C:0@u2 H:0@u1"
+kern host repl ledger_large.k --world "A:500@u1 B:0@u1 C:0@u2 H:0@u1"
 ```
 
 A session:

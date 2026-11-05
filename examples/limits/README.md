@@ -21,12 +21,12 @@ Point it at a real service by changing the URL. The service returns JSON with an
 
 ## Run it
 
-With Kern installed (`pip install -e <kern repo>`), from this directory:
+With Kern installed (`cargo install --path <kern repo>/kern`), from this directory:
 
 ```text
 kern check limits.k
-python -m kern.host manifest limits.k      # every effect and endpoint this program can reach
-python -m kern.host repl limits.k --world "A:500@u1 K:0@u9"
+kern host manifest limits.k      # every effect and endpoint this program can reach
+kern host repl limits.k --world "A:500@u1 K:0@u9"
 ```
 
 In the console you can play the service yourself and type the reply call:

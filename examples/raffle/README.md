@@ -18,11 +18,11 @@ handler rand.below n:Int -> Int
 
 ## Run it
 
-With Kern installed (`pip install -e <kern repo>`), from this directory:
+With Kern installed (`cargo install --path <kern repo>/kern`), from this directory:
 
 ```text
 kern check raffle.k
-python -m kern.host repl raffle.k --world "P:100@u0 A:0@u1 B:0@u2 C:0@u3"
+kern host repl raffle.k --world "P:100@u0 A:0@u1 B:0@u2 C:0@u3"
 ```
 
 A session (the winner and the pick are random):

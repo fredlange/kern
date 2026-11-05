@@ -12,12 +12,12 @@ batch/
 
 ## Run it
 
-With Kern installed (`pip install -e <kern repo>`), from this directory:
+With Kern installed (`cargo install --path <kern repo>/kern`), from this directory:
 
 ```text
 kern check batch.k
 kern view batch.k sweep_expired --as spec
-python -m kern.host repl batch.k --world "A:100@u1 B:0@u2"
+kern host repl batch.k --world "A:100@u1 B:0@u2"
 ```
 
 A session:

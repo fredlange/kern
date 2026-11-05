@@ -13,11 +13,11 @@ Latest audit against them (status per fundamental, ranked gaps):
 [docs/research/AUDIT.md](docs/research/AUDIT.md). Fix pass with before/after evidence per step:
 [docs/research/FIXES.md](docs/research/FIXES.md). Scaling an app in three sizes, with a pre-registered scorecard:
 [docs/research/SCALE.md](docs/research/SCALE.md). How Kern reaches the OS (SQLite state, outbox, recorded clock,
-HTTP/console, replay; `kern/host.py`): [docs/HOST.md](docs/HOST.md); next PoC plan with a
+HTTP/console, replay; `kern host`): [docs/HOST.md](docs/HOST.md); next PoC plan with a
 pre-registered scorecard: [docs/research/HOST_PLAN.md](docs/research/HOST_PLAN.md). Kern vs behaviour-identical TS and Go,
 tokens to write and read: [docs/research/COMPARE.md](docs/research/COMPARE.md) (`experiments/compare/`). Pre-registered challenges
 per bet (seeded bugs, cold author, spec gaming, blind proof pages, second domain, prover stress):
-[docs/research/CHALLENGE.md](docs/research/CHALLENGE.md). Tests: `.venv/bin/pytest` (strict xfails = known gaps).
+[docs/research/CHALLENGE.md](docs/research/CHALLENGE.md). Tests: `cargo test --workspace --release` (`#[should_panic]` tests marked `// gap` = known gaps).
 
 ## Goal (as stated by Fredrik)
 
@@ -102,79 +102,83 @@ page are the same mechanism. The prover follows the same rule: calls are verifie
   not comments. This analysis led to design rules 3 and 4.
 - Comments are 12–33% of tokens in real Go code.
 
-## Current prototype (Python + Z3 toolchain, about 5,500 lines; Rust runtime, about 800)
+## Current prototype (Rust + Z3 toolchain, about 12,500 lines; Rust runtime, about 800)
 
-Layout (README.md has the table): **ships** = `kern/` + `runtime/` (declared in `pyproject.toml`);
-**not shipped** = `examples/`, `tests/`, `validation/` (tools that check the toolchain),
-`experiments/` (measurements; frozen challenge material), `docs/research/` (plans and results).
-`build/` is generated and ignored. Nothing in `kern/`, `runtime/` or `tests/` imports from `experiments/`,
-and `kern/` imports nothing outside itself; tests may import `validation/` (fuzzer, difftest).
+The toolchain was Python until 2026-11-05. It was ported to Rust module by module, each module checked
+against the Python one on recorded runs, and then the Python was deleted (docs/research/RUST_PORT_PLAN.md:
+pass conditions, decisions, results). Since Fredrik's decision of 2026-11-05, Python's behaviour is not a
+compatibility target: what binds is the fundamentals, the fuzzer, the tests and the golden outputs.
+
+Layout (README.md has the table): **ships** = `kern/` (crate and binary `kern`) + `runtime/` (Cargo workspace
+at the root; `Dockerfile` for the container); **not shipped** = `examples/`, `tests/probes/`, `validation/`
+(crate `kern-validation`: tools that check the toolchain), `experiments/` (measurements; frozen challenge
+material, still Python), `docs/research/` (plans and results). `build/` is generated and ignored. Nothing in
+`kern/` or `runtime/` depends on `validation/` or `experiments/`.
 
 ```
-kern/syntax.py    lexer and parser; AST is plain tuples; code() prints it back
-kern/run.py       interpreter; HANDLERS table (ledger/clock/audit); atomic run(); the reference semantics
-kern/wf.py        well-formedness + type check; runs before anything is proven or run
-kern/infer.py     uses / fails / writes / lifted (body-level refusal conditions) inference
-kern/prove.py     symbolic execution to Z3; modular calls (callee spec, then
-                  havoc the state, then assume its ensures); counterexample -> eg line,
-                  replayed in the interpreter
-kern/check.py     examples, random property tests, mutation testing
-kern/report.py    runs all checks; trust propagation (callers downgraded to
-                  "conditional" if a callee is not clean)
-kern/views.py     iface / spec / editor views + token counts; English templates
-kern/render.py    proof page HTML + terminal output
-kern/why.py       .why store, interface-anchored hash, staleness, orphans, obligation lint
-kern/baseline.py  ratchet baseline (<module>.strength): flags weakened specs
-kern/package.py   packages + imports: a dir with kern.pkg; `import a.b`; one merged Module, per-file visibility
-kern/host.py      OS boundary (docs/HOST.md): SQLite state, outbox + channels, recorded clock, net endpoints,
-                  HTTP + console front ends, replay, permission manifest, proof gate, `page`
-kern/mcp.py       MCP server (stdio): views, why, check, callers, structural edits that re-check callers
-kern/emit_rust.py `kern build`: Kern (file or package) -> Rust crate in build/<module>, linked with runtime/
-runtime/          kern-rt, the Rust runtime crate (src/lib.rs: world, Tx, rollback; src/driver.rs: the binary's CLI)
+kern/src/syntax.rs    lexer and parser; AST enums (Expr, Stmt, Def, Module); code() prints it back
+kern/src/run.rs       interpreter; HANDLERS table (ledger/clock/audit); atomic run(); the reference semantics
+kern/src/wf.rs        well-formedness + type check; runs before anything is proven or run
+kern/src/infer.rs     uses / fails / writes / lifted (body-level refusal conditions) inference
+kern/src/prove.rs     symbolic execution to Z3 (zz.rs builds the terms); modular calls (callee spec, then
+                      havoc the state, then assume its ensures); counterexample -> eg line, replayed in the
+                      interpreter; a fresh Z3 context per proof
+kern/src/check.rs     examples, random property tests, mutation testing
+kern/src/report.rs    runs all checks (analyse); trust propagation (callers downgraded to "conditional" if a
+                      callee is not clean); the .kern-cache
+kern/src/views.rs     iface / spec / editor views + token counts; English templates
+kern/src/render.rs    proof page HTML + terminal output
+kern/src/why.rs       .why store, interface-anchored hash, staleness, orphans, obligation lint
+kern/src/baseline.rs  ratchet baseline (<module>.strength): flags weakened specs
+kern/src/package.rs   packages + imports: a dir with kern.pkg; `import a.b`; one merged Module, per-file visibility
+kern/src/host.rs      `kern host` (docs/HOST.md): SQLite state, outbox + channels, recorded clock, net endpoints,
+                      HTTP + console front ends, replay, permission manifest, proof gate, `page`
+kern/src/mcp.rs       `kern mcp`, the MCP server (stdio): views, why, check, callers, structural edits that
+                      re-check callers
+kern/src/emit_rust.rs `kern build`: Kern (file or package) -> Rust crate in build/<module>, linked with runtime/
+                      (an installed binary carries the kern-rt sources)
+kern/src/cli.rs       the `kern` command line (main.rs routes `host` and `mcp`)
+kern/src/py*.rs       Python's repr, random and json.dumps, byte for byte: definition hashes, .why anchors and
+                      the random test streams kept their Python values, so existing .why files stay valid
+runtime/              kern-rt, the Rust runtime crate (src/lib.rs: world, Tx, rollback; src/driver.rs: the binary's CLI)
 
-examples/         one standalone project per directory, each with a README and proof-pages/:
-                  ledger-tour/ (ledger_v1..v7 + .why, the demo loop), ledger-large/, escrow/ (escrow_s1..s3, scale
-                  sizes, docs/research/SCALE.md), limits/ (host net demo), batch/ (loops), raffle/ (assumed
-                  handler), shop/ library/ lottery/ (packages)
+examples/             one standalone project per directory, each with a README and proof-pages/:
+                      ledger-tour/ (ledger_v1..v7 + .why, the demo loop), ledger-large/, escrow/ (escrow_s1..s3, scale
+                      sizes, docs/research/SCALE.md), limits/ (host net demo), batch/ (loops), raffle/ (assumed
+                      handler), shop/ library/ lottery/ (packages), random-portal/ (a web app on the host)
 
-tests/test_fundamentals.py  adversarial audit tests, one section per fundamental (being ported; front-end half
-                          in toolchain/tests/fundamentals_front.rs)
-tests/probes/             small modules the tests and validation tools use
-toolchain/tests/          cargo tests of the Rust port (docs/research/RUST_PORT_PLAN.md): host.rs, mcp.rs,
-                          package.rs, runtime.rs (compiled program vs interpreter), docs.rs (REFERENCE/GUIDE in step
-                          with the code); *_oracle.rs compare each module with the Python oracle's JSON;
-                          golden.rs + golden/: recorded `check` output, views and some proof pages per module, the
-                          regression floor (re-record with KERN_BLESS=1, and say why in the commit)
-validation/tests/         cargo tests of the validation tools: difftest.rs (compiled program vs interpreter on every
-                          example), fuzz.rs (port of test_fuzz.py: a small fuzz run is clean and deterministic; an
-                          injected prover fault is found), digest.rs (both digests at their recorded values),
-                          fuzz_generators.rs (the generators make exactly fuzz.py's programs)
+kern/tests/           fundamentals_front.rs, fundamentals_back.rs, fundamentals_scale.rs: adversarial audit tests,
+                      one section per fundamental; host.rs, mcp.rs, package.rs, runtime.rs (compiled program vs
+                      interpreter), docs.rs (REFERENCE/GUIDE in step with the code); golden.rs + golden/: recorded
+                      `check` output, views and some proof pages per module, the regression floor (re-record with
+                      KERN_BLESS=1, and say why in the commit)
+tests/probes/         small modules the tests and validation tools use
+validation/src/       kern-validation (binaries; validation/README.md): fuzz (soundness fuzzer: random loop/handler
+                      programs + template mutants, interpreter as oracle), digest (results digests, S2 and --loops:
+                      the floor for prover changes), difftest and fuzzdiff (compiled program vs interpreter),
+                      sensitivity (does difftest catch planted runtime/emitter bugs), chains (C6's chain generator)
+validation/tests/     difftest, fuzz, digest (both digests at their recorded values), fuzz_generators,
+                      prover_no_answer
 
-validation/src/           kern-validation, the Rust tools (binaries `fuzz`, `digest`, `difftest`; validation/README.md):
-                          fuzz.rs (the soundness fuzzer), digest.rs (results digests), difftest.rs, chains.rs
-validation/fuzz.py        soundness fuzzer: random loop/handler programs + template mutants, interpreter as oracle
-validation/digest.py      results digests (S2 and --loops): the floor for prover changes
-validation/difftest.py, fuzzdiff.py, sensitivity.py   Rust runtime vs run.py, and whether that test has teeth
-validation/chains.py      synthetic chain modules (a copy of C6's frozen generator)
-
-experiments/challenge/    C1, C2, C6 (frozen; scripts expect the pre-2026-11-04 layout, rerun from d521236)
+experiments/challenge/    C1, C2, C6 (frozen Python; scripts expect the pre-2026-11-04 layout, rerun from d521236)
 experiments/compare/      Kern vs TS and Go (docs/research/COMPARE.md)
 experiments/bench/        runtime baselines (docs/research/RUNTIME_PLAN.md)
 experiments/scale/        the scale scorecard (was `kern score`)
 
 docs/REFERENCE.md         the language reference (≤ 2,500 tokens; C2's language tax)
-docs/GUIDE.md             how-to: tools, file formats, Python API, common errors
-docs/research/            AUDIT, FIXES, SCALE, COMPARE, CHALLENGE, ROADMAP_RUN, HOST_PLAN, RUNTIME_PLAN
+docs/GUIDE.md             how-to: install, tools, file formats, Rust library API, common errors
+docs/research/            AUDIT, FIXES, SCALE, COMPARE, CHALLENGE, ROADMAP_RUN, HOST_PLAN, RUNTIME_PLAN, RUST_PORT_PLAN
 AGENTS.md                 working rules for agents, including the docs-update rule
 ```
 
-Run: `python -m kern check examples/ledger-tour/ledger_v3.k --why examples/ledger-tour/ledger.why --html build/proof.html`.
-Install: `pip install -e .` (`z3-solver` required; extras `tokens` = `tokenizers` and `anthropic==0.34.2`
-for token counts, `dev` = pytest).
+Run: `kern check examples/ledger-tour/ledger_v3.k --why examples/ledger-tour/ledger.why --html build/proof.html`.
+Install: `cargo install --path kern` (needs Z3 5.3.3, e.g. `brew install z3`; or `--features static-z3` to build
+it from source), or `docker build -t kern .`. Token counts need the Claude tokenizer file from `anthropic==0.34.2`
+(`KERN_TOKENIZER` or `~/.cache/kern/tokenizer.json`). Tests: `cargo test --workspace --release`.
 
 ### Known limitations
 
-- The domain is hard-coded: the ledger, clock and audit handlers are written in Python. Modules
+- The domain is hard-coded: the ledger, clock and audit handlers are built into the interpreter. Modules
   can declare `state NAME Int|Account` maps (Int values) and `invariant x:Type COND` (assumed
   and checked at parameter keys only; a computed-key write makes it unknown).
 - `need as C args` / `emit as C args` expand a callee's spec at parse time; only right when
@@ -207,11 +211,12 @@ for token counts, `dev` = pytest).
   that read balances aren't visible to callers. Agent views show only a definition's
   *own* body needs (inherited ones measured at ~2x the spec-view tokens).
 - Counterexamples from modular proofs may not replay; those show as `?` unconfirmed,
-  never ✗. Within one long-running process, Z3's witness choice can depend on earlier
-  solver calls, which can flip a mutant between refuted and unconfirmed. Across processes,
-  results repeat since 2026-11-04: solver limits are Z3 steps (`rlimit`), not wall-clock, and the
-  prover no longer iterates sets in hash order. Before that, CLI runs were *not* reliably
-  reproducible (FZ finding 6).
+  never ✗. Results repeat, within one process too: since 2026-11-05 every proof gets a fresh Z3
+  context and fresh names (`kern/tests/determinism.rs`; `KERN_Z3_FRESH` switches it off for
+  comparisons). In the Python toolchain, Z3's witness choice followed earlier solver calls in the same
+  process, which could flip a mutant between refuted and unconfirmed. Across processes, results repeat
+  since 2026-11-04: solver limits are Z3 steps (`rlimit`), not wall-clock, and the prover no longer
+  iterates sets in hash order. Before that, CLI runs were *not* reliably reproducible (FZ finding 6).
 - Mutation tests use 150 random runs per mutant; the `settle` audit mutant needed 500
   to be caught by random tests (the prover now catches it).
 - The obligation lint for `why` is a keyword heuristic.
@@ -223,7 +228,7 @@ for token counts, `dev` = pytest).
 - `check --quick` skips mutation testing; `.kern-cache/` reuses results by a conservative key. A full
   cold `check` still misses C6's thresholds (docs/research/ROADMAP_RUN.md, S2). `kern.mcp` serves views and
   structural edits to agents.
-- Tier ○ (runtime-checked) and record/replay exist only in the host (`kern/host.py`: SQLite,
+- Tier ○ (runtime-checked) and record/replay exist only in the host (`kern host`: SQLite,
   replay, invariants checked at the keys a call wrote, after every call by default; `--skip-proven`
   removes the check for proven definitions, opt-in since Fredrik's decision of 2026-11-04). Output channels (`channel console`,
   `emit console Line x`) are exact per channel, unordered across channels. Network requests are

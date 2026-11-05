@@ -14,14 +14,14 @@ ledger-tour/
 
 ## Run it
 
-With Kern installed (`pip install -e <kern repo>`), from this directory:
+With Kern installed (`cargo install --path <kern repo>/kern`), from this directory:
 
 ```text
 kern check ledger_v1.k --why ledger.why       # step 1: refuted, with a counterexample
 kern check ledger_v2.k --why ledger.why       # step 2: proven
 kern view ledger_v7.k payout --as spec        # what a caller of payout reads (163 tokens)
 kern why ledger_v3.k transfer --why ledger.why
-python -m kern.host repl ledger_v7.k --world "A:500@u1 B:0@u1 H:0@u1"
+kern host repl ledger_v7.k --world "A:500@u1 B:0@u1 H:0@u1"
 ```
 
 ## The steps

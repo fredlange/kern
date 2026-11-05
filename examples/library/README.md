@@ -17,12 +17,12 @@ library/
 
 ## Run it
 
-With Kern installed (`pip install -e <kern repo>`), from this directory:
+With Kern installed (`cargo install --path <kern repo>/kern`), from this directory:
 
 ```text
 kern check .
 kern view . borrow --as spec
-python -m kern.host repl . --world "M:20@u1 L:0@u9"
+kern host repl . --world "M:20@u1 L:0@u9"
 kern build .
 ```
 

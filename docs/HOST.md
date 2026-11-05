@@ -1,8 +1,10 @@
 # Host: how Kern reaches the operating system
 
 Kern code never touches the OS. A **host** does, and keeps the three properties the proofs
-rest on: atomicity, a closed world of effects, and determinism. Prototype: `kern/host.py`
-(stdlib only: `sqlite3`, `http.server`). Tests: `tests/test_host.py`.
+rest on: atomicity, a closed world of effects, and determinism. Prototype: `kern host`
+(`kern/src/host.rs`: SQLite via rusqlite, bundled; an HTTP server and client). Tests: `kern/tests/host.rs`.
+Until 2026-11-05 the host was Python (`kern/host.py`); the measurements below that predate that date
+were taken on it, and the Rust host keeps its database format (docs/research/RUST_PORT_PLAN.md).
 
 ## Effects, sorted by what they do to the proofs
 
@@ -16,16 +18,16 @@ rest on: atomicity, a closed world of effects, and determinism. Prototype: `kern
 ## What the host does
 
 ```
-python -m kern.host manifest examples/escrow/escrow_s2.k
-python -m kern.host repl     examples/escrow/escrow_s2.k --db e.db --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"
-python -m kern.host serve    examples/escrow/escrow_s2.k --db e.db --port 8080
-python -m kern.host replay   examples/escrow/escrow_s2.k --db e.db
+kern host manifest examples/escrow/escrow_s2.k
+kern host repl     examples/escrow/escrow_s2.k --db e.db --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"
+kern host serve    examples/escrow/escrow_s2.k --db e.db --port 8080
+kern host replay   examples/escrow/escrow_s2.k --db e.db
 ```
 
-- **Proof-gated:** at startup the host runs the checks (`analyse`, no mutation: 0.83 s for
-  escrow_s2's 26 defs) and refuses to run any definition that is not clean (HTTP 403).
+- **Proof-gated:** at startup the host runs the checks (`analyse`, no mutation: 0.2 s for
+  escrow_s2's 26 defs, 2026-11-05; the Python host took 0.83 s) and refuses to run any definition that is not clean (HTTP 403).
   `--no-gate` turns that off.
-- **One call = one transaction:** `begin immediate` → load world → `Interp.run` →
+- **One call = one transaction:** `begin immediate` → load world → `Interp::run` →
   runtime invariant check → write the diff, log entry, outbox rows → `commit`. A refusal or
   runtime error writes only the log entry. Calls are serialised with a lock (the proofs
   assume one top-level call at a time).
@@ -37,7 +39,7 @@ python -m kern.host replay   examples/escrow/escrow_s2.k --db e.db
   to stdout. stdin is the event source and stdout is a sink.
 - **Permission manifest:** the inferred `uses` of every def, plus how the host realises each
   effect. The module cannot name anything else. *The enforcement is the closed handler table,
-  not an OS sandbox:* the Python host process itself can do anything. A real sandbox is
+  not an OS sandbox:* the host process itself can do anything. A real sandbox is
   roadmap 4 (Wasm/WASI).
 - **Replay:** the log records every attempted call with its `now`. `replay` re-runs it from the
   genesis world and compares the state and the outbox with the database.
@@ -124,9 +126,9 @@ python -m kern.host replay   examples/escrow/escrow_s2.k --db e.db
   reply never ran and its request stayed pending).
 - **Simulation:** `SimNet` is seeded. It drops, duplicates, delays or fails each reply, and
   `release()` lets held-back replies go in a random order.
-- **The page:** `python -m kern.host page FILE.k --html X` writes the proof page plus a Host
+- **The page:** `kern host page FILE.k --html X` writes the proof page plus a Host
   section: effects, endpoints and assumptions, every line marked *assumed*, none ✔
-  (`render.host_html`, fixed templates).
+  (`render::host_html`, fixed templates).
 
 **Findings:**
 - **The plan's demo design needed one change to pass item 5.** With only `pending` as a flag, a
@@ -140,7 +142,7 @@ python -m kern.host replay   examples/escrow/escrow_s2.k --db e.db
 - **Requests are at-least-once too.** A crash during `flush` re-sends a request, so the risk
   service must tolerate duplicates. The reply side is safe (Stale); the request side relies on
   the server.
-- **This is a proof of concept on one process.** There's no sandbox (the Python host can do
+- **This is a proof of concept on one process.** There's no sandbox (the host process can do
   anything; see "Permission manifest" above), no concurrent calls, and no Text or records.
 
 **Known gaps found while doing this, not fixed (not plan items):**

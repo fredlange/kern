@@ -17,14 +17,14 @@ escrow/
 
 ## Run it
 
-With Kern installed (`pip install -e <kern repo>`), from this directory:
+With Kern installed (`cargo install --path <kern repo>/kern`), from this directory:
 
 ```text
 kern check escrow_s1.k
-kern check escrow_s3.k --quick        # skip mutation testing: seconds instead of minutes
+kern check escrow_s3.k --quick        # skip mutation testing: 0.5 s instead of 4.8 s (2026-11-05)
 kern view escrow_s2.k purchase_order --as spec
-python -m kern.host repl escrow_s1.k --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"
-python -m kern.host serve escrow_s2.k --db escrow.db --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"
+kern host repl escrow_s1.k --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"
+kern host serve escrow_s2.k --db escrow.db --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"
 kern build escrow_s2.k
 ```
 

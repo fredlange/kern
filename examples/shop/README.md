@@ -18,13 +18,13 @@ shop/
 
 ## Run it
 
-With Kern installed (`pip install -e <kern repo>`; see the repository README), from this directory:
+With Kern installed (`cargo install --path <kern repo>/kern`; see the repository README), from this directory:
 
 ```text
 kern check .                         # prove everything, run the examples, measure spec strength
 kern check . --html proof-pages/shop.html
 kern view . buy --as spec            # what a caller of `buy` reads
-python -m kern.host repl . --world "A:100@u1 S:0@u2"
+kern host repl . --world "A:100@u1 S:0@u2"
 kern build .                         # a native binary (needs cargo)
 ```
 

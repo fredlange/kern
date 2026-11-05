@@ -4,39 +4,42 @@ New here? Read [docs/REFERENCE.md](docs/REFERENCE.md) (the language) and
 [docs/GUIDE.md](docs/GUIDE.md) (tools, files, API). Agents: [AGENTS.md](AGENTS.md).
 
 A small language for agent-written code. The agent reads only what it needs, and
-humans get a proof page generated from verifier results. The toolchain is Python (about
-5,500 lines) with Z3 as the prover. A Rust runtime (about 800 lines) runs compiled programs.
+humans get a proof page generated from verifier results. The toolchain is one Rust binary,
+`kern` (about 12,500 lines), with Z3 as the prover. A Rust runtime (about 800 lines) runs compiled
+programs. Until 2026-11-05 the toolchain was Python; the Rust port was checked against it module by
+module before it was deleted ([docs/research/RUST_PORT_PLAN.md](docs/research/RUST_PORT_PLAN.md)).
 
 ```
-pip install -U pip               # editable installs need pip >= 21.3
-pip install -e .                 # the toolchain, its one dependency (z3-solver) and a `kern` command
-pip install -e '.[tokens,dev]'   # optional: token counts in `view`, and pytest
-python -m kern check  examples/ledger-tour/ledger_v3.k --why examples/ledger-tour/ledger.why --html build/proof.html
-python -m kern view   examples/ledger-tour/ledger_v3.k payout --as editor --why examples/ledger-tour/ledger.why
-python -m kern why    examples/ledger-tour/ledger_v3.k transfer --why examples/ledger-tour/ledger.why
-python -m kern run    examples/ledger-tour/ledger_v3.k "transfer A B 100" --world "A:500@u1 B:0@u1"
-python -m kern baseline examples/ledger-tour/ledger_v4.k     # record guarantee strength; check then flags drops
-python -m kern check  examples/shop --quick      # a package: every file, grouped by module
-python -m kern.host repl examples/escrow/escrow_s2.k --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"   # run it for real (docs/HOST.md)
-python -m kern.host manifest examples/limits/limits.k   # effects and network endpoints the module can reach
-python -m kern build examples/shop             # compile to a native binary in build/ (needs cargo)
+brew install z3                  # Z3 5.3.3 (or: cargo install --path kern --features static-z3)
+cargo install --path kern        # puts `kern` in ~/.cargo/bin; or use Docker (docs/GUIDE.md)
+kern check  examples/ledger-tour/ledger_v3.k --why examples/ledger-tour/ledger.why --html build/proof.html
+kern view   examples/ledger-tour/ledger_v3.k payout --as editor --why examples/ledger-tour/ledger.why
+kern why    examples/ledger-tour/ledger_v3.k transfer --why examples/ledger-tour/ledger.why
+kern run    examples/ledger-tour/ledger_v3.k "transfer A B 100" --world "A:500@u1 B:0@u1"
+kern baseline examples/ledger-tour/ledger_v4.k     # record guarantee strength; check then flags drops
+kern check  examples/shop --quick      # a package: every file, grouped by module
+kern host repl examples/escrow/escrow_s2.k --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"   # run it for real (docs/HOST.md)
+kern host manifest examples/limits/limits.k   # effects and network endpoints the module can reach
+kern build examples/shop             # compile to a native binary in build/ (needs cargo)
+kern mcp                             # the MCP server on stdio (docs/GUIDE.md)
 ```
 
-Tests: `pytest` from the repository root runs the whole suite. `tests/test_fundamentals.py` is the
-audit against [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md). Known gaps are strict `xfail`s (see
-[docs/research/AUDIT.md](docs/research/AUDIT.md); fixes and their before/after evidence are in
-[docs/research/FIXES.md](docs/research/FIXES.md)).
+Tests: `cargo test --workspace --release` from the repository root runs the whole suite.
+`kern/tests/fundamentals_*.rs` are the audit against [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md).
+Known gaps are `#[should_panic]` tests marked `// gap` (see [docs/research/AUDIT.md](docs/research/AUDIT.md);
+fixes and their before/after evidence are in [docs/research/FIXES.md](docs/research/FIXES.md)).
+`kern/tests/golden/` records every example's `check` output, views and some proof pages.
 
 ## Repository layout
 
 | Path | What it is | Ships? |
 |---|---|---|
-| `kern/` | the toolchain: parser, checker, prover, views, proof page, host, MCP server, Rust emitter | yes (`pyproject.toml`) |
+| `kern/` | the toolchain (crate and binary `kern`): parser, checker, prover, views, proof page, host, MCP server, Rust emitter | yes (`kern/Cargo.toml`; `Dockerfile`) |
 | `runtime/` | `kern-rt`, the Rust crate every compiled program links with | yes (`runtime/Cargo.toml`) |
 | `docs/` | the language reference, the guide, the host design, the fundamentals | docs |
 | `examples/` | example programs and generated proof pages ([examples/README.md](examples/README.md)) | no |
-| `tests/` | the test suite (`pytest`); `tests/probes/` holds the small modules the tests use | no |
-| `validation/` | tools that check the toolchain itself: fuzzer, digests, Rust-vs-interpreter tests ([validation/README.md](validation/README.md)) | no |
+| `tests/probes/` | small modules the tests and validation tools use (the tests are in `kern/tests/` and `validation/tests/`) | no |
+| `validation/` | tools that check the toolchain itself (crate `kern-validation`): fuzzer, digests, compiled-vs-interpreter tests ([validation/README.md](validation/README.md)) | no |
 | `experiments/` | measurements behind the design claims: challenges, language comparison, benchmarks ([experiments/README.md](experiments/README.md)) | no |
 | `docs/research/` | plans, pre-registered scorecards and results ([docs/research/README.md](docs/research/README.md)) | no |
 | `build/` | generated: Rust crates, cargo output, ad hoc proof pages (ignored by git) | no |
@@ -141,7 +144,7 @@ lines were added; see docs/research/FIXES.md.)
 ## Built-in versus missing
 
 The prototype has one hard-coded domain: handlers for `ledger`, `clock` and `audit`
-written in Python. It has only `Int` and `Account` types and only straight-line
+built into the interpreter (`kern/src/run.rs`). It has only `Int` and `Account` types and only straight-line
 bodies with guards and `if`/`else` blocks (docs/research/SCALE.md, size 1). A small type checker covers the six built-in types. There are no
 written frame conditions: the frame is *inferred* (`writes`), and the page says which
 written balances no guarantee describes. A spec can say *when* a call succeeds

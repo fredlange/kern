@@ -4,22 +4,22 @@ A working guide: set up, write a module, read what `check` says, fix it, keep it
 The language itself is in [REFERENCE.md](REFERENCE.md); read that first. This guide covers
 the tools, the file formats and the Rust library API.
 
-`toolchain/tests/docs.rs` keeps this file honest. Every `kern` code block must parse and
+`kern/tests/docs.rs` keeps this file honest. Every `kern` code block must parse and
 check. Every CLI command and option must be documented here, and every API name listed must
 exist. If you change any of them, update this file in the same commit (see
 [AGENTS.md](../AGENTS.md)).
 
 ## Set up
 
-Kern is one binary, `kern`, built from `toolchain/` (Rust). Install it as a dev tool:
+Kern is one binary, `kern`, built from `kern/` (Rust). Install it as a dev tool:
 
 ```text
 brew install z3                              # Z3 5.3.3, the version the prover is pinned to
-cargo install --path toolchain               # puts `kern` in ~/.cargo/bin
+cargo install --path kern                    # puts `kern` in ~/.cargo/bin
 kern check examples/ledger-tour/ledger_v3.k
 ```
 
-Without a system Z3, `cargo install --path toolchain --features static-z3` compiles Z3 5.3.3 from
+Without a system Z3, `cargo install --path kern --features static-z3` compiles Z3 5.3.3 from
 source and links it in (needs `cmake` and a C++ compiler; a few minutes). Or use the container,
 which needs nothing but Docker:
 
@@ -31,13 +31,14 @@ docker run --rm -p 8080:8080 -v "$PWD:/work" kern host serve examples/shop --bin
 ```
 
 - **Token counts** (`view`, the MCP tools) need the Claude tokenizer file that `anthropic==0.34.2`
-  bundles: set `KERN_TOKENIZER=/path/tokenizer.json`, or put it in `~/.cache/kern/tokenizer.json`.
-  Without it, counts are simply absent.
+  bundles (`anthropic/tokenizer.json` inside that wheel on PyPI): set `KERN_TOKENIZER=/path/tokenizer.json`,
+  or put it in `~/.cache/kern/tokenizer.json`. Without it, counts are simply absent.
 - **`kern build`** needs `cargo`. An installed `kern` carries the `kern-rt` sources and writes them
   out under the build directory; `KERN_RUNTIME` and `KERN_BUILD` override where the runtime and the
   build directory are.
-- **Tests:** `cargo test` from the repository root (oracle tests skip when their Python-generated
-  input in `build/` is missing). Validation tools: [validation/README.md](../validation/README.md);
+- **Tests:** `cargo test --workspace --release` from the repository root. `kern/tests/golden/` holds the
+  recorded output of every example and probe; after an intended change, re-record with
+  `KERN_BLESS=1 cargo test -p kern --release --test golden` and say why in the commit. Validation tools: [validation/README.md](../validation/README.md);
   experiments: [experiments/README.md](../experiments/README.md).
 
 ## The loop
@@ -200,7 +201,7 @@ What an edit does and reports:
 `kern build FILE.k` writes a Rust crate for the module (or the whole package) to `build/<module>/`,
 links it with the runtime crate `kern-rt` in `runtime/`, and runs `cargo build --release` (the
 target directory is `build/target`). `need`s compile to code. `keep`, `ensure` and
-`emit` are proven, so they compile to nothing. The interpreter (`toolchain/src/run.rs`) stays the
+`emit` are proven, so they compile to nothing. The interpreter (`kern/src/run.rs`) stays the
 reference semantics: the runtime is wrong wherever the two disagree. The contract and the known divergences (for example,
 Int is i64 at run time, i128 in the interpreter and the prover's model is unbounded) are in
 [research/RUNTIME_PLAN.md](research/RUNTIME_PLAN.md). Needs `cargo`.
@@ -236,7 +237,7 @@ Int is i64 at run time, i128 in the interpreter and the prover's model is unboun
 
 ## Rust library API
 
-The `kern` crate (`toolchain/`) is a library as well as the binary. The AST is plain enums
+The `kern` crate (`kern/`) is a library as well as the binary. The AST is plain enums
 (`Expr`, `Stmt`, `Need`, `Emit`); maps keep insertion order (`IndexMap`). These are the entry points:
 
 | API | does |

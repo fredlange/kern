@@ -1,7 +1,7 @@
 # Kern language reference
 
 A module is a `.k` file of definitions and declarations. Indent with two spaces. There are
-no comments; rationale goes in a `.why` file. To check a module: `python -m kern check FILE.k`.
+no comments; rationale goes in a `.why` file. To check a module: `kern check FILE.k`.
 
 ## Definitions
 
