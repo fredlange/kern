@@ -23,7 +23,7 @@ When an entry closes, move it to "Closed" with the commit and the evidence. Don'
 
 **The gap tests** (`kern/tests/shortcomings.rs`) each assert the behaviour we want, with
 `#[should_panic(expected = "gap Sn …")]`, so an unrelated crash doesn't count as the gap. Some features
-have no syntax yet (text, `match`, `clock.tick`, events in `eg`).
+have no syntax yet (`match`, `clock.tick`, events in `eg`).
 Their tests use a *placeholder* syntax. Whoever builds the feature must rewrite the test to the real
 syntax; otherwise it keeps panicking for the wrong reason. The other tests flip on their own.
 `every_test_and_path_the_register_names_exists` fails if this file names a test or a
@@ -124,7 +124,7 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   | Missing | Gap test |
   |---|---|
   | ~~records~~ first cut closed `b18367a` (Closed: "S5, records") | `s5_records_check` |
-  | text (P) | `s5_text_checks` |
+  | ~~text~~ closed `135dfca` (Closed: "S5, text") | `s5_text_checks` |
   | `match` (P) | `s5_match_checks` |
   | recursion (rejected: no termination measures) | `s5_recursion_is_accepted` |
   | nested loops | `s5_nested_loops_check` |
@@ -235,6 +235,28 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S5, text (one row of S5)
+- **Kind:** code gap. **Closed** 2026-11-05 in `135dfca`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
+  Text; app's request #2). Host `d2b67e7` and compiled path `e7df085` (runtime); tests `99c302b`, `2ba095e`.
+- **Was:** parameters and state held only Int and Account; an app's tasks had no titles, the random portal showed
+  joke ids.
+- **Decided by** F2/F5 (exact, no approximation): `t:Text`, `"…"` literals (escapes `\"`, `\\`), `length t`,
+  `a + b` joins, `=`/`!=`; `state NAME KEY -> Text` (default `""`), Text record fields, Text in `eg` lines. The
+  prover uses Z3 strings by code point, and counterexamples quote Text and replay. Ordering on Text and Text
+  refusal payloads are rejected.
+- **Evidence:** `s5_text_checks`, rewritten to the real syntax, passes as an ordinary test, with proofs of joins,
+  lengths, a quantified loop over a text map and a console event. Seeded floor: 84 goals, 65 proven, 19 refuted
+  and replayed, 0 undecided. Tester: prover and interpreter agree on escapes, é/😀 and code points past U+2FFFF
+  (gen_text, seeds 1–3, 1,027/1,027, 0 contradictions; a reversed join and `length + 1` planted and caught);
+  compiled and host Text: tests/probes/texts.k 10,007 calls and fuzzdiff --texts 927 programs, 0 divergences, a
+  byte-length plant caught. Digests and goldens unchanged. REFERENCE.md 2,524 → 2,627 tokens.
+- **What remains:**
+  - A counterexample world drops Text map entries, so a refutable claim can show `?` instead of ✗ (tester; a
+    lang task). Safe direction, but the ✗ never becomes an example (F8).
+  - Under `KERN_Z3_FRESH=ctx`/`off` one text-loop mutant is killed by random tests, not the prover (a Z3 string
+    quantifier near its step limit); the default is deterministic.
+  - examples/random-portal still shows joke ids; the change to Text there is still to make.
 
 ### S20. Integers had three widths: prover, interpreter and host store disagreed at the edges
 - **Kind:** code gap. **Closed** 2026-11-05: host side `8e8f1b5` (runtime, tests `0a55c5e`), source side and gap
