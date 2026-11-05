@@ -5,4 +5,5 @@ pub mod fuzz;
 pub mod fuzzdiff;
 pub mod sensitivity;
 pub mod chains;
+pub mod c6;
 pub mod digest;

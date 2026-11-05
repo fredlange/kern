@@ -411,3 +411,47 @@ weaker than baseline):
 - A result cache makes an unchanged re-check 0.14% of cold, and a one-leaf change re-checks
   only the leaf and its callers.
 - `experiments/challenge/c6/results_after_S2.json`.
+
+**C6 addendum, 2026-11-05 (the Rust toolchain; thresholds, generator and plan unchanged): both pass.**
+- **Runner:** `validation/src/c6.rs` (`cargo run -p kern-validation --release --bin c6`), a port of the frozen
+  `run.py`. It has the same plan, and each configuration runs in its own child process. It times the same
+  region: `analyse` with mutation testing, after parsing. Rust's `analyse` also repeats the well-formedness
+  check inside the timer, which makes the result slightly worse, not better. It doesn't measure peak memory
+  (std has no `getrusage`). `kern-validation` links `kern` with the `faults` feature, an environment-variable
+  check in the prover. The plain CLI build, without that feature, took 8.83 s wall-clock for P1, startup
+  included, against 8.73 s here, so the feature doesn't explain the result.
+- **Checks that the work is the same:**
+  - the generator (`validation/src/chains.rs`) is byte-identical to `gen.py` on all 27 configurations;
+  - every row has the same number of mutants and guarantees as the 2026-11-03 run (P1 376/50, P2 4,201/1,000);
+  - every module is clean.
+- **Machine:** Apple M5 Max, 18 cores, the checker single-threaded. The 2026-11-03 run didn't record its
+  machine. Two other sessions were building and testing in the same checkout during this run.
+  - Seven runs of P1 and P2: the four in the jsonl, and three earlier ones not saved (P1 0.875–0.908 s
+    per definition, P2 35.5–39.3 s).
+  - The spread is plausibly load from those sessions.
+  - Every run passes.
+
+| condition | 2026-11-03 (Python) | 2026-11-05 (Rust, 7 runs) | pass |
+|---|---|---|---|
+| P1: ≤ 1 s per definition at d=6, k=4, e=6 (n=10) | 16.46 s | **0.85–0.91 s** | **pass** (9–15% margin) |
+| P2: ≤ 60 s for n=200 at d=3, k=2, e=3 | 110.0 s | **34.0–39.3 s** | **pass** |
+
+**Curves** (seconds per definition, Rust; Python's in the table above):
+
+| sweep | values |
+|---|---|
+| depth d = 1…8 | 0.18, 0.17, 0.16, 0.16, 0.16, 0.18, 0.18, 0.19 (flat) |
+| ifs k = 0…6 | 0.07, 0.11, 0.16, 0.26, 0.59, 1.31, 2.95 (×1.5–2.3 per `if`; ×2.2 from k=4) |
+| emits e = 0…8 | 0.11, 0.12, 0.14, 0.16, 0.20, 0.22, 0.26, 0.31, 0.36 |
+| size n = 10 / 50 / 200 | 0.16 / 0.16 / 0.18 (linear in n) |
+| state + invariant, off / on (n=10) | 0.16 / 0.26 |
+
+**Read that carefully:**
+- **The constant moved, not the curve.** Each `if` still costs ×2.2 once k ≥ 4, because paths are still
+  forked and never merged. P1 passes at k=4. At d=3, k=5 is already 1.31 s per definition. So the
+  thresholds are met by about one `if`, not by a change in the algorithm.
+- **Mutation testing is still most of the time:** the CLI takes 0.89 s for P1 with `--quick` against 8.83 s
+  full, and 1.91 s against 34.9 s for P2. That is 90–95%.
+- Depth no longer costs per definition (0.16–0.19 s for d = 1–8, where Python went 0.40 → 1.65 s), so
+  the event matching that grew with depth is no longer the bottleneck.
+- Raw rows, the repeats included: `experiments/challenge/c6/results_rust_2026-11-05.jsonl`.

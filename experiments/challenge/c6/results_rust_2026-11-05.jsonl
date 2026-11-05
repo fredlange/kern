@@ -1,0 +1,36 @@
+{"tag":"P1","d":6,"k":4,"e":6,"n":10,"state":0,"secs":8.725137958,"per_def":0.8725137958,"defs":10,"clean":10,"guarantees":50,"mutants":376}
+{"tag":"P2","d":3,"k":2,"e":3,"n":200,"state":0,"secs":35.830037208,"per_def":0.17915018604,"defs":200,"clean":200,"guarantees":1000,"mutants":4201}
+{"tag":"d","d":1,"k":2,"e":3,"n":1,"state":0,"secs":0.1797175,"per_def":0.1797175,"defs":1,"clean":1,"guarantees":5,"mutants":23}
+{"tag":"d","d":2,"k":2,"e":3,"n":2,"state":0,"secs":0.329222375,"per_def":0.1646111875,"defs":2,"clean":2,"guarantees":10,"mutants":43}
+{"tag":"d","d":3,"k":2,"e":3,"n":3,"state":0,"secs":0.476625834,"per_def":0.158875278,"defs":3,"clean":3,"guarantees":15,"mutants":63}
+{"tag":"d","d":4,"k":2,"e":3,"n":4,"state":0,"secs":0.629102792,"per_def":0.157275698,"defs":4,"clean":4,"guarantees":20,"mutants":83}
+{"tag":"d","d":5,"k":2,"e":3,"n":5,"state":0,"secs":0.818355542,"per_def":0.16367110840000001,"defs":5,"clean":5,"guarantees":25,"mutants":103}
+{"tag":"d","d":6,"k":2,"e":3,"n":6,"state":0,"secs":1.064624584,"per_def":0.17743743066666665,"defs":6,"clean":6,"guarantees":30,"mutants":123}
+{"tag":"d","d":7,"k":2,"e":3,"n":7,"state":0,"secs":1.224256333,"per_def":0.17489376185714287,"defs":7,"clean":7,"guarantees":35,"mutants":143}
+{"tag":"d","d":8,"k":2,"e":3,"n":8,"state":0,"secs":1.517874458,"per_def":0.18973430725,"defs":8,"clean":8,"guarantees":40,"mutants":163}
+{"tag":"k","d":3,"k":0,"e":3,"n":3,"state":0,"secs":0.208868292,"per_def":0.069622764,"defs":3,"clean":3,"guarantees":15,"mutants":39}
+{"tag":"k","d":3,"k":1,"e":3,"n":3,"state":0,"secs":0.315025375,"per_def":0.10500845833333333,"defs":3,"clean":3,"guarantees":15,"mutants":51}
+{"tag":"k","d":3,"k":2,"e":3,"n":3,"state":0,"secs":0.469206333,"per_def":0.15640211099999998,"defs":3,"clean":3,"guarantees":15,"mutants":63}
+{"tag":"k","d":3,"k":3,"e":3,"n":3,"state":0,"secs":0.789312042,"per_def":0.263104014,"defs":3,"clean":3,"guarantees":15,"mutants":75}
+{"tag":"k","d":3,"k":4,"e":3,"n":3,"state":0,"secs":1.7830755,"per_def":0.5943585,"defs":3,"clean":3,"guarantees":15,"mutants":99}
+{"tag":"k","d":3,"k":5,"e":3,"n":3,"state":0,"secs":3.931928667,"per_def":1.3106428890000001,"defs":3,"clean":3,"guarantees":15,"mutants":123}
+{"tag":"k","d":3,"k":6,"e":3,"n":3,"state":0,"secs":8.849813625,"per_def":2.949937875,"defs":3,"clean":3,"guarantees":15,"mutants":147}
+{"tag":"e","d":3,"k":2,"e":0,"n":3,"state":0,"secs":0.31485525,"per_def":0.10495175,"defs":3,"clean":3,"guarantees":12,"mutants":60}
+{"tag":"e","d":3,"k":2,"e":1,"n":3,"state":0,"secs":0.364357208,"per_def":0.12145240266666667,"defs":3,"clean":3,"guarantees":15,"mutants":57}
+{"tag":"e","d":3,"k":2,"e":2,"n":3,"state":0,"secs":0.403509833,"per_def":0.13450327766666667,"defs":3,"clean":3,"guarantees":15,"mutants":54}
+{"tag":"e","d":3,"k":2,"e":3,"n":3,"state":0,"secs":0.493112,"per_def":0.16437066666666666,"defs":3,"clean":3,"guarantees":15,"mutants":63}
+{"tag":"e","d":3,"k":2,"e":4,"n":3,"state":0,"secs":0.587666625,"per_def":0.195888875,"defs":3,"clean":3,"guarantees":15,"mutants":72}
+{"tag":"e","d":3,"k":2,"e":5,"n":3,"state":0,"secs":0.654286333,"per_def":0.21809544433333336,"defs":3,"clean":3,"guarantees":15,"mutants":81}
+{"tag":"e","d":3,"k":2,"e":6,"n":3,"state":0,"secs":0.774468375,"per_def":0.258156125,"defs":3,"clean":3,"guarantees":15,"mutants":90}
+{"tag":"e","d":3,"k":2,"e":7,"n":3,"state":0,"secs":0.932054292,"per_def":0.310684764,"defs":3,"clean":3,"guarantees":15,"mutants":99}
+{"tag":"e","d":3,"k":2,"e":8,"n":3,"state":0,"secs":1.07441225,"per_def":0.35813741666666665,"defs":3,"clean":3,"guarantees":15,"mutants":108}
+{"tag":"n","d":3,"k":2,"e":3,"n":10,"state":0,"secs":1.638535208,"per_def":0.16385352079999999,"defs":10,"clean":10,"guarantees":50,"mutants":212}
+{"tag":"n","d":3,"k":2,"e":3,"n":50,"state":0,"secs":8.126800125,"per_def":0.16253600250000003,"defs":50,"clean":50,"guarantees":250,"mutants":1051}
+{"tag":"state","d":3,"k":2,"e":3,"n":10,"state":0,"secs":1.620521708,"per_def":0.1620521708,"defs":10,"clean":10,"guarantees":50,"mutants":212}
+{"tag":"state","d":3,"k":2,"e":3,"n":10,"state":1,"secs":2.61381,"per_def":0.261381,"defs":10,"clean":10,"guarantees":70,"mutants":262}
+{"tag": "P1 repeat", "d": 6, "k": 4, "e": 6, "n": 10, "state": 0, "secs": 8.769293583, "per_def": 0.8769293583, "defs": 10, "clean": 10, "guarantees": 50, "mutants": 376}
+{"tag": "P2 repeat", "d": 3, "k": 2, "e": 3, "n": 200, "state": 0, "secs": 35.135801583, "per_def": 0.17567900791500002, "defs": 200, "clean": 200, "guarantees": 1000, "mutants": 4201}
+{"tag": "P1 repeat", "d": 6, "k": 4, "e": 6, "n": 10, "state": 0, "secs": 8.539970666, "per_def": 0.8539970666000001, "defs": 10, "clean": 10, "guarantees": 50, "mutants": 376}
+{"tag": "P2 repeat", "d": 3, "k": 2, "e": 3, "n": 200, "state": 0, "secs": 34.150036083, "per_def": 0.170750180415, "defs": 200, "clean": 200, "guarantees": 1000, "mutants": 4201}
+{"tag": "P1 repeat", "d": 6, "k": 4, "e": 6, "n": 10, "state": 0, "secs": 8.558945083, "per_def": 0.8558945082999999, "defs": 10, "clean": 10, "guarantees": 50, "mutants": 376}
+{"tag": "P2 repeat", "d": 3, "k": 2, "e": 3, "n": 200, "state": 0, "secs": 33.963905, "per_def": 0.16981952499999997, "defs": 200, "clean": 200, "guarantees": 1000, "mutants": 4201}
