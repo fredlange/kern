@@ -418,6 +418,20 @@ impl<'m> Prover<'m> {
                 let range = zz::and(&[zz::le(lo.i(), &j), zz::lt(&j, hi.i())]);
                 SV::B(zz::forall(&[&j], &zz::implies(&range, inner.b())))
             }
+            Expr::Frame(x, range) => {
+                let post = post.expect("a frame needs the after-state");
+                let (before, after) = (&cur.maps[x.as_str()], &post.maps[x.as_str()]);
+                match range {
+                    None => SV::B(zz::eq_array(after, before)),
+                    Some((a, b)) => {
+                        let lo = self.sev(a, env, cur, None).i().clone();
+                        let hi = self.sev(b, env, cur, None).i().clone();
+                        let j = zz::int(&format!("j_{}", fresh()));
+                        let outside = zz::or(&[zz::lt(&j, &lo), zz::ge(&j, &hi)]);
+                        SV::B(zz::forall(&[&j], &zz::implies(&outside, &zz::same_at(after, before, &j))))
+                    }
+                }
+            }
             Expr::Sum(j, a, b, body, cond) => {
                 let lo = self.sev(a, env, cur, post).i().clone();
                 let hi = self.sev(b, env, cur, post).i().clone();
@@ -1390,7 +1404,8 @@ impl<'m> Prover<'m> {
                 let g = self.sev(c, &p.env, &pre, Some(&p.s)).b().clone();
                 cases.push(Case { goal: g, pc: p.pc.clone(), draws: Some(p.draws.clone()) });
             }
-            goals.push(Goal { kind: "ensure".into(), expr: GoalExpr::Expr(c.clone()), text: code(c), cases });
+            let kind = if matches!(c, Expr::Frame(..)) { "keep" } else { "ensure" };
+            goals.push(Goal { kind: kind.into(), expr: GoalExpr::Expr(c.clone()), text: code(c), cases });
         }
         let mut unknowable: Vec<Guarantee> = vec![];
         goals.append(&mut std::mem::take(&mut self.loop_goals));

@@ -43,7 +43,9 @@ refusal names the shortfall.
 - **Specs over a range.** `ensure hold.get' j = 0 when expiry.get j < clock.now for j from lo to hi`
   says what happens to every record in the range, not just one.
 - **The frame.** `sweep_elsewhere` proves that a sweep leaves a hold outside the range alone.
-  The loop's frame (what it may write) is inferred, not written.
+  The loop's frame (what it may write) is inferred, not written. `advance_subs` also states its frame,
+  `keep sub_due except lo to hi`, as a guarantee: a loop that ran one step too far (`hi + 1`) or started
+  one too early (`lo - 1`) now breaks it, so those mutants no longer survive.
 
 ## Status
 
@@ -51,6 +53,5 @@ refusal names the shortfall.
 
 ## Limits
 
-- Loops are bounded ranges of `Int` keys. They can't be nested, and they can't run over a list
-  of accounts.
+- Loops are bounded ranges of `Int` keys. They can't run over a list of accounts.
 - Loops are still a proposal in Kern.

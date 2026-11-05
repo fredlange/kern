@@ -121,6 +121,27 @@ impl<'a> Checker<'a> {
                 self.err(place, "`for j from A to B` is only allowed at the end of an `ensure` or a loop `invariant`");
                 "Bool".into()
             }
+            Expr::Frame(x, range) => {
+                match self.defs.states.get(x) {
+                    // `keep NAME` where NAME isn't a state: say what it is, an unknown name (body lets included)
+                    None if range.is_none() => self.err(place, &format!("unknown name `{}`", x)),
+                    None => self.err(place, &format!("`keep {}`: {} is not a declared state", code(e), x)),
+                    Some(kt) if range.is_some() && kt != "Int" => {
+                        self.err(place, &format!("`keep {}`: a range frame needs an Int-keyed state, {} is {}-keyed", code(e), x, kt))
+                    }
+                    _ => {}
+                }
+                if !primed_ok {
+                    self.err(place, "`keep X [except A to B]` is a spec clause");
+                }
+                if let Some((a, b)) = range {
+                    for bnd in [a, b] {
+                        let t = self.ty(bnd, scope, place, spec, false, false);
+                        self.expect(place, &t, "Int");
+                    }
+                }
+                "Bool".into()
+            }
             Expr::Sum(j, a, b, body, cond) => {
                 for bnd in [a, b] {
                     let t = self.ty(bnd, scope, place, spec, primed_ok, false);

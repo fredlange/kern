@@ -199,11 +199,12 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   them (modularly: uninterpreted over their arguments and the state they read, + their ensures). Recursion is rejected (no termination measures yet).
 - Bodies are guards plus `if`/`else` blocks (the prover forks a path per branch; paths grow as
   2^ifs per body) and bounded loops `for k from LO to HI` with `invariant` lines (a proposal, roadmap
-  run S4). The loop frame is inferred, never stated; there's no per-iteration emit form. Loops nest; the outer
+  run S4). The loop frame is inferred (a spec may state one: `keep X except lo to hi`); there's no per-iteration emit form. Loops nest; the outer
   loop's frame havocs what an inner loop writes unless keyed by the outer variable. Locals can't be updated in a loop (no accumulators); `sum j from A to B of E [where C]` (a Z3
   recursive function per sum) covers totals and counts, in specs and bodies. `match E` arms (`PAT -> STMT`) are the `if` chain they stand for (n arms, n paths). Specs have `ensure E when C`
   and `emit … when C`.
-- Frames are *inferred* (`writes`), not written.
+- Frames are *inferred* (`writes`), not written; a spec may state one as a checked claim, `keep X` or
+  `keep X except A to B` (S6), where the frame should be a guarantee.
 - `ok otherwise` (opt-in) says a call succeeds whenever its spec needs hold. A caller that
   opts in must restate every refusal (payout's spec view: 97 → 163 tokens); nothing is
   inherited, and every refusing callee must be marked too. Only 1 of 9 existing defs passed

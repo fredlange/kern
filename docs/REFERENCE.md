@@ -86,6 +86,7 @@ line in `kern.pkg` makes a sibling package's modules importable as `money.ledger
 | `need COND else Ctor ARGS` | runs before the body; the call refuses unless COND holds |
 | `ok otherwise` | claim: if every `need` holds, the call succeeds. Body and callee refusals must follow from the needs, and refusing callees must say `ok otherwise` too |
 | `keep EXPR` | same value before and after a successful call |
+| `keep X [except A to B]` | state X is unchanged, or unchanged at every key outside [A, B) (Int keys; bounds atoms): a stated frame |
 | `ensure COND [when C] [for j from A to B]` | must hold after success; `when C` (about the before-state) makes it conditional, and `for j …` makes it hold for every j in [A, B). Bounds are atoms |
 | `emit [CHANNEL] Ctor ARGS [when C]` | the exact sequence the call appends to the channel (default `audit`). `_` matches any value. A channel with no `emit` clause is unconstrained |
 | `need as F ARGS`, `emit as F ARGS [when C]` | F's spec needs or emits, with F's parameters replaced by ARGS. Only right when F runs first |

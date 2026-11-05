@@ -117,6 +117,7 @@ fn guarantee_text(g: &Guarantee) -> String {
         ("invariant", GoalExpr::Invariant(var, t, cond)) => {
             format!("keeps the module invariant for every <code>{}</code> ({}): {}", var, t, en(cond, &none, false))
         }
+        ("keep", GoalExpr::Expr(e @ crate::syntax::Expr::Frame(..))) => en(e, &none, false),
         ("keep", GoalExpr::Expr(e)) => format!("{} is unchanged", en(e, &none, false)),
         (_, GoalExpr::Expr(e)) => en_ensure(e),
         // Python renders the (handler, need) pair of a call-site goal through en_ensure, which gives None

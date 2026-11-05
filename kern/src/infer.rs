@@ -26,6 +26,10 @@ pub fn walk(e: &Expr) -> Vec<&Expr> {
                 go(b, out);
                 go(body, out);
             }
+            Expr::Frame(_, Some((a, b))) => {
+                go(a, out);
+                go(b, out);
+            }
             Expr::Sum(_, a, b, body, cond) => {
                 go(a, out);
                 go(b, out);

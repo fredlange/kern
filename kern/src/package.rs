@@ -512,6 +512,11 @@ fn uses_of(defs: &Module, d: &Def) -> Vec<(String, String)> {
             let name = match n {
                 Expr::App(h, _, _) => h,
                 Expr::Name(x, _) => x,
+                // `keep X …` names a state
+                Expr::Frame(x, _) if defs.states.contains_key(x) => {
+                    out.insert(("state".into(), x.clone()));
+                    continue;
+                }
                 _ => continue,
             };
             let (x, op) = name.rsplit_once('.').unwrap_or(("", name.as_str()));

@@ -268,6 +268,7 @@ fn has_prime(e: &Expr) -> bool {
         Expr::App(_, p, args) => *p || args.iter().any(has_prime),
         Expr::Bin(_, l, r) => has_prime(l) || has_prime(r),
         Expr::Sum(_, a, b, x, c) => has_prime(a) || has_prime(b) || has_prime(x) || c.as_deref().is_some_and(has_prime),
+        Expr::Frame(..) => true,
         _ => false,
     }
 }
@@ -285,6 +286,13 @@ pub fn en(e: &Expr, lets: &Lets, tense: bool) -> String {
             en(a, lets, false),
             en(b, lets, false),
             if tense { en_ensure(body) } else { en(body, lets, false) }
+        ),
+        Expr::Frame(x, None) => format!("<code>{}</code> is unchanged", x),
+        Expr::Frame(x, Some((a, b))) => format!(
+            "<code>{}</code> is unchanged outside {} to {} (not included)",
+            x,
+            en(a, lets, false),
+            en(b, lets, false)
         ),
         Expr::Sum(j, a, b, x, c) => format!(
             "the sum of {} for every <code>{}</code> from {} to {} (not included){}",

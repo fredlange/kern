@@ -625,15 +625,72 @@ fn s5_packages_use_packages_transitively_with_one_name_each() {
 // =====================================================================================
 
 #[test]
-#[should_panic(expected = "gap S6 loop frame:")]
 fn s6_a_guarantee_kills_the_sweep_one_too_many_mutant() {
-    // gap (S6): batch.k's `hi + 1` and `lo - 1` loop-bound mutants survive every guarantee, because "every key
-    // outside [lo, hi) is unchanged" can't be stated (the frame is inferred). Closing it means adding the stated
-    // frame to batch.k's advance_subs; then no bound mutant survives the guarantees.
+    // closed (S6's frame): batch.k's advance_subs states `keep sub_due except lo to hi` (DECISIONS.md, 2026-11-05,
+    // a stated loop frame), so the `hi + 1` and `lo - 1` loop-bound mutants are caught by a guarantee.
     let defs = parse(&read("examples/batch/batch.k"));
     let m = mutation_score(&defs, &defs.defs["advance_subs"], 150);
     let bound: Vec<&String> = m.guarantee_missed.iter().map(|(d, _)| d).filter(|d| d.contains("hi + 1") || d.contains("lo - 1")).collect();
     assert!(bound.is_empty(), "gap S6 loop frame: no guarantee catches {bound:?}");
+}
+
+#[test]
+fn s6_a_stated_frame_is_checked_both_ways() {
+    let src = "state due Int
+state title Int -> Text
+
+sweep lo:Int hi:Int
+  ok otherwise
+  keep due except lo to hi
+body
+  for k from lo to hi
+    invariant due.get' j = 0 for j from lo to k
+    due.set k 0
+
+overrun lo:Int hi:Int
+  ok otherwise
+  keep due except lo to hi
+body
+  for k from lo to (hi + 1)
+    due.set k 0
+
+touch k:Int
+  ok otherwise
+  keep due
+body
+  due.set k 1
+
+rename k:Int t:Text
+  ok otherwise
+  keep title except k to (k + 1)
+  keep due
+body
+  title.set k t
+";
+    let defs = parse(src);
+    let reps = reports(&defs);
+    let frame = |n: &str| reps[n].guarantees.iter().filter(|g| g.kind == "keep").map(|g| g.status).collect::<Vec<_>>();
+    use kern::report::Status::{Proven, Refuted};
+    assert_eq!(frame("sweep"), [Proven]);
+    assert_eq!(frame("rename"), [Proven, Proven], "a Text map's frame, and a whole map untouched");
+    for bad in ["overrun", "touch"] {
+        assert_eq!(frame(bad), [Refuted], "{bad}");
+        let g = reps[bad].guarantees.iter().find(|g| g.kind == "keep").unwrap();
+        let cx = g.counterexample.clone().unwrap();
+        assert!(cx.confirmed_by_interpreter, "{bad}: {}", cx.eg);
+    }
+    // wf: the state must exist, and a range needs Int keys
+    for (clause, want) in [("keep nope except lo to hi", "not a declared state"), ("keep title except lo to hi", "")] {
+        let src = format!("state title Int -> Text\nstate owed Account\n\nf lo:Int hi:Int\n  ok otherwise\n  {clause}\nbody\n  title.set lo \"\"\n");
+        let r = analyse(&parse(&src), false, None, None);
+        if want.is_empty() {
+            assert!(r.is_ok(), "{clause}");
+        } else {
+            assert!(r.unwrap_err().message().contains(want), "{clause}");
+        }
+    }
+    let e = analyse(&parse("state owed Account\n\nf a:Account\n  ok otherwise\n  keep owed except 0 to 1\nbody\n  owed.set a 1\n"), false, None, None).unwrap_err();
+    assert!(e.message().contains("needs an Int-keyed state"), "{}", e.message());
 }
 
 #[test]

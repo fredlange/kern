@@ -43,6 +43,7 @@ body
 advance_subs lo:Int hi:Int
   ok otherwise
   keep ledger.total
+  keep sub_due except lo to hi
   ensure sub_due.get' j = sub_due.get j + 30 when sub_amount.get j > 0 and sub_due.get j <= clock.now for j from lo to hi
   ensure sub_due.get' j = sub_due.get j when sub_amount.get j = 0 or sub_due.get j > clock.now for j from lo to hi
   eg sub_amount.1:40 sub_due.1:5 sub_due.2:5 now:10 | advance_subs 1 3 -> ok | sub_due.1:35 sub_due.2:5

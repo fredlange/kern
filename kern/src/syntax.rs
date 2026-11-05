@@ -32,6 +32,9 @@ pub enum Expr {
     All(String, Box<Expr>, Box<Expr>, Box<Expr>),
     /// `sum j from A to B of E [where C]`: E summed over j in [A, B), only where C holds
     Sum(String, Box<Expr>, Box<Expr>, Box<Expr>, Option<Box<Expr>>),
+    /// `keep X [except A to B]` (a spec clause, kept with the ensures): state X is the same after the call at every
+    /// key, or at every key outside [A, B)
+    Frame(String, Option<(Box<Expr>, Box<Expr>)>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -188,6 +191,11 @@ impl Expr {
                 Py::List(args.iter().map(Expr::to_py).collect()),
             ]),
             Expr::All(j, a, b, e) => Py::Tuple(vec![Py::s("all"), Py::s(j), a.to_py(), b.to_py(), e.to_py()]),
+            Expr::Frame(x, r) => Py::Tuple(vec![
+                Py::s("frame"),
+                Py::s(x),
+                r.as_ref().map(|(a, b)| Py::Tuple(vec![a.to_py(), b.to_py()])).unwrap_or(Py::None),
+            ]),
             Expr::Sum(j, a, b, e, c) => Py::Tuple(vec![
                 Py::s("sum"),
                 Py::s(j),
@@ -1074,6 +1082,11 @@ fn const_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     re(&R, r"^const ([a-z]\w*) (\d+)$")
 }
+/// `X` or `X except A to B` after `keep` (a bare name: whether it is a state is wf's question).
+fn frame_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    re(&R, &format!(r"^([a-z]\w*)(?: except {ATOM} to {ATOM})?$"))
+}
 fn record_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     re(&R, r"^record ([A-Z]\w*)((?:\s+[a-z]\w*:\w+)+)\s*$")
@@ -1259,7 +1272,21 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
             let (c, ctor, args) = parse_need(rest, no)?;
             d.needs.push(Need::Need(c, ctor, args));
         } else if word == "keep" {
-            d.keeps.push(parse_expr(rest, no)?);
+            // `keep X` / `keep X except A to B` over a state: a frame (a Bool claim, with the ensures)
+            if let Some(m) = frame_re().captures(rest.trim()) {
+                let range = match (m.get(2), m.get(3)) {
+                    (Some(a), Some(b)) => Some((Box::new(parse_expr(a.as_str(), no)?), Box::new(parse_expr(b.as_str(), no)?))),
+                    _ => None,
+                };
+                d.ensures.push(Expr::Frame(m[1].to_string(), range));
+            } else if rest.contains(" except ") {
+                return Err(ParseError::at(
+                    "`keep X except A to B`: X a state, A and B atoms (parenthesise a compound bound)",
+                    no,
+                ));
+            } else {
+                d.keeps.push(parse_expr(rest, no)?);
+            }
         } else if word == "ensure" {
             d.ensures.push(parse_clause(rest, no)?);
         } else if word == "emit" {
@@ -1314,6 +1341,7 @@ pub fn subst(e: &Expr, m: &IndexMap<String, Expr>) -> Expr {
         Expr::Name(n, false) => m.get(n).cloned().unwrap_or_else(|| e.clone()),
         Expr::Bin(op, l, r) => Expr::Bin(op, Box::new(subst(l, m)), Box::new(subst(r, m))),
         Expr::App(h, p, args) => Expr::App(h.clone(), *p, args.iter().map(|a| subst(a, m)).collect()),
+        Expr::Frame(x, Some((a, b))) => Expr::Frame(x.clone(), Some((Box::new(subst(a, m)), Box::new(subst(b, m))))),
         Expr::Sum(j, a, b, x, c) => {
             let mut inner = m.clone();
             inner.shift_remove(j);
@@ -1395,6 +1423,10 @@ impl Consts<'_> {
                     Box::new(self.expr(x, used)?),
                 )
             }
+            Expr::Frame(x, r) => Expr::Frame(
+                x.clone(),
+                r.as_ref().map(|(a, b)| Ok::<_, ParseError>((Box::new(self.expr(a, used)?), Box::new(self.expr(b, used)?)))).transpose()?,
+            ),
             Expr::Sum(j, a, b, x, c) => {
                 self.binder(j, "the sum's variable")?;
                 Expr::Sum(
@@ -1614,6 +1646,10 @@ impl Records<'_> {
                 Box::new(self.expr(b)?),
                 Box::new(self.expr(x)?),
                 c.as_ref().map(|c| self.expr(c).map(Box::new)).transpose()?,
+            ),
+            Expr::Frame(x, r) => Expr::Frame(
+                x.clone(),
+                r.as_ref().map(|(a, b)| Ok::<_, ParseError>((Box::new(self.expr(a)?), Box::new(self.expr(b)?)))).transpose()?,
             ),
         })
     }
@@ -2030,6 +2066,8 @@ pub fn code(e: &Expr) -> String {
         }
         Expr::Bin(op, l, r) => format!("{} {} {}", side(l, op, false, code), op, side(r, op, true, code)),
         Expr::All(j, a, b, e) => format!("{} for {} from {} to {}", code(e), j, atom_code(a), atom_code(b)),
+        Expr::Frame(x, None) => x.clone(),
+        Expr::Frame(x, Some((a, b))) => format!("{} except {} to {}", x, atom_code(a), atom_code(b)),
         Expr::Sum(j, a, b, x, c) => {
             let s = format!("sum {} from {} to {} of {}", j, atom_code(a), atom_code(b), code(x));
             match c {

@@ -543,6 +543,37 @@ impl<'m, 'p> Interp<'m, 'p> {
                 }
                 Ok(Value::Bool(true))
             }
+            Expr::Frame(x, range) => {
+                // every key either world holds, outside the range: the same value (missing = the default)
+                let bounds = match range {
+                    Some((a, b)) => {
+                        let lo = int_of(&self.ev(a, env, pre, None)?, "")?;
+                        let hi = int_of(&self.ev(b, env, pre, None)?, "")?;
+                        Some((lo, hi))
+                    }
+                    None => None,
+                };
+                let Some(post) = post else {
+                    return Err(RunError::Kern(format!("keep {} (a frame) needs the after-state", code(e))).into());
+                };
+                let outside = |k: &Key| match (bounds, k) {
+                    (Some((lo, hi)), Key::Int(n)) => *n < lo || *n >= hi,
+                    _ => bounds.is_none(),
+                };
+                let text = self.defs.text_states.iter().any(|t| t == x);
+                let mut keys: Vec<Key> = vec![];
+                for w in [&*pre, &*post] {
+                    if text {
+                        keys.extend(w.texts.get(x).into_iter().flat_map(|m| m.keys().cloned()));
+                    } else {
+                        keys.extend(w.maps.get(x).into_iter().flat_map(|m| m.keys().cloned()));
+                    }
+                }
+                let same = keys.iter().filter(|k| outside(k)).all(|k| {
+                    if text { pre.text_get(x, k) == post.text_get(x, k) } else { pre.map_get(x, k) == post.map_get(x, k) }
+                });
+                Ok(Value::Bool(same))
+            }
             Expr::Sum(j, a, b, body, cond) => {
                 let lo = self.ev(a, env, pre, post.as_deref_mut())?;
                 let hi = self.ev(b, env, pre, post.as_deref_mut())?;
@@ -942,7 +973,8 @@ impl<'m, 'p> Interp<'m, 'p> {
         }
         for c in &d.ensures {
             if !self.ev(c, &env, pre, Some(post)).map_err(stop_err)?.truthy() {
-                bad.push(("ensure".to_string(), code(c)));
+                let kind = if matches!(c, Expr::Frame(..)) { "keep" } else { "ensure" };
+                bad.push((kind.to_string(), code(c)));
             }
         }
         for ch in emit_channels(d) {
