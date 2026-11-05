@@ -36,7 +36,7 @@ cargo run --release -p kern -- build examples/apps/booking/booking.k
 ## What it can't do yet
 
 - **Module invariant on a computed key:** with `invariant s:Int slot.get s >= 0` (`probes/booking_with_invariant.k`)
-  `book`, `cancel` and `seat` now prove (the straight-line fix landed), but `clear_day` and `clear_all`, which write
+  at committed HEAD `book` and `cancel` are ○ (computed key); with lang's uncommitted OH54XTG7VD work in the tree `book`, `cancel` and `seat` prove, but `clear_day` and `clear_all`, which write
   the computed key inside a loop, read "Depends on unproven code": their loop-start and per-iteration invariant goals
   rely on the module invariant, which isn't proven in a loop. Request in `.party/requests.md`; `booking.k` has no invariant.
 - No `mod`, no constant expressions (`slots` is `rooms * days` by hand).

@@ -18,14 +18,14 @@ cargo run --release -p kern -- check examples/apps/shop
 cargo run --release -p kern -- build examples/apps/shop
 ```
 
-## What `check` says (HEAD at recording: bec40c9 + working tree of the commit that adds shipping.k, `--cache ''`)
+## What `check` says (HEAD at recording: ecf1dbc (committed code; `cancel` as the reviewer built it), `--cache ''`)
 
 | definition | status | spec strength |
 |---|---|---|
 | `restock`, `take`, `set_price` | All guarantees proven | 8/8, 5/5, 3/3; spec refusals all caught |
 | `place` | All guarantees proven (stock reduced, order recorded, exact `emit`) | 26/26; spec refusals 12/12 |
 | `advance` (`match`) | All guarantees proven (`phase' = phase + 1`) | 12/12 |
-| `cancel` (calls `restock`) | All guarantees proven (the stock invariant at a computed key now proves) | 4/4 |
+| `cancel` (calls `restock`) | **Checked at run time only** (○): the stock invariant is written at a computed key. (With lang's uncommitted OH54XTG7VD work in the tree it proves; re-record when that lands.) | |
 | `quote` | All guarantees proven | 3/3 |
 | `parcels` (recursive) | All guarantees proven, incl. `measure decreases weight` and the closed form `(weight + 4) / 5` | 11/12; the survivor `<=` → `<` is equivalent (weight 5 gives 1 either way) |
 | `shipping` | All guarantees proven | 2/2 |
