@@ -69,6 +69,50 @@ body
     );
 }
 
+#[test]
+fn s5_nested_records_and_record_equality_check() {
+    // closed (S5, records second cut, DECISIONS.md 2026-11-06): a field of a record type, read by its path, passed
+    // whole by its path, built nested; `=` / `!=` on two records of one type compare every field
+    must_check(
+        "gap S5 nested records and record equality",
+        "record Point x:Int y:Int
+record Line a:Point b:Point
+
+state px Int
+
+put k:Int p:Point
+  ok otherwise
+  ensure px.get' k = p.x
+body
+  px.set k p.x
+
+start k:Int l:Line
+  need l.a != l.b else Empty
+  ok otherwise
+  ensure px.get' k = l.a.x
+  eg | start 1 1 2 3 4 -> ok | px.1:1
+  eg | start 1 1 2 1 2 -> Empty
+body
+  put k l.a
+
+same p:Point q:Point -> Int
+  ensure result = 1 when p = q
+  ensure result = 0 when p != q
+body
+  if p = q
+    result = 1
+  else
+    result = 0
+
+diagonal k:Int
+  ok otherwise
+  ensure px.get' k = 3
+body
+  start k (Line (Point 3 3) (Point 5 5))
+",
+    );
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int
@@ -214,7 +258,8 @@ fn s5_a_record_is_read_by_field_or_passed_whole() {
     for (src, want) in [
         ("record Int a:Int\n", "built-in type"),
         ("record P get:Int\n", "can't be named get"),
-        ("record P a:Q\n", "must be Int, Account or Text"),
+        ("record P a:Q\n", "must be Int, Account, Text or a record"),
+        ("record P a:Q\nrecord Q b:P\n", "record P contains itself (P -> Q -> P)"),
     ] {
         assert!(parse_module(src, true).unwrap_err().0.contains(want), "{src}");
     }

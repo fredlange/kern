@@ -14,7 +14,8 @@ body
 
 - **Parameter types:** `Int`, `Account`, `Text` and declared records. A record parameter `p:Point` is read by field,
   `p.x`, or passed whole to a definition taking a Point (`move p`); build one only as a call argument,
-  `move (Point a b)`. In `eg` lines its fields are separate arguments, in order.
+  `move (Point a b)`. In `eg` lines its fields are separate arguments, in order. A field may be a record
+  (`record Line a:Point b:Point`): read `l.a.x`, pass `l.a` as a Point. `p = q` and `p != q` compare every field.
 - **`-> Int`**: the definition returns a value; every path sets `result`, and its spec calls it `result`. One
   that only reads (state, the clock) and never refuses is a *function*: specs and expressions may call it. One that
   changes state or refuses is called only as a whole statement, `loan = borrow book` (or `borrow book`, dropping

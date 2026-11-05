@@ -1585,7 +1585,9 @@ struct Records<'a> {
     records: &'a IndexMap<String, Vec<(String, String)>>,
     /// definition -> its parameters as declared (record types not yet flattened)
     sigs: &'a IndexMap<String, Vec<(String, String)>>,
-    /// this definition's record parameters -> their record type
+    /// record type -> its fields flattened to Int/Account/Text leaves: (path, type), `a.x` for a nested one
+    flat: &'a IndexMap<String, Vec<(String, String)>>,
+    /// this definition's record-valued paths (a record parameter, and its fields of a record type) -> record type
     recs: IndexMap<String, String>,
     who: String,
     /// record types this definition names (header and literals), for the package's import rule
@@ -1601,7 +1603,15 @@ impl Records<'_> {
             self.used.push(r.to_string());
         }
     }
-    /// The fields of a whole-record argument `arg` for a parameter of record type `want`.
+    /// The record type of a record-valued expression: a record-valued path or a constructor.
+    fn record_type(&self, e: &Expr) -> Option<String> {
+        match e {
+            Expr::Name(q, false) => self.recs.get(q).cloned(),
+            Expr::App(r, false, _) if self.records.contains_key(r) => Some(r.clone()),
+            _ => None,
+        }
+    }
+        /// The fields of a whole-record argument `arg` for a parameter of record type `want`.
     fn whole(&mut self, arg: &Expr, want: &str, callee: &str) -> PResult<Vec<Expr>> {
         let fields = &self.records[want];
         match arg {
@@ -1609,14 +1619,22 @@ impl Records<'_> {
                 if self.recs[q] != want {
                     return Err(self.err(format!("`{}` passes {} ({}) where a {} is wanted", callee, q, self.recs[q], want)));
                 }
-                Ok(fields.iter().map(|(f, _)| Expr::Name(format!("{}.{}", q, f), false)).collect())
+                Ok(self.flat[want].iter().map(|(f, _)| Expr::Name(format!("{}.{}", q, f), false)).collect())
             }
             Expr::App(r, false, args) if r == want => {
                 self.note(want);
                 if args.len() != fields.len() {
                     return Err(self.err(format!("`{}` has {} field(s), got {}", want, fields.len(), args.len())));
                 }
-                args.iter().map(|a| self.expr(a)).collect()
+                let mut out = vec![];
+                for (a, (_, t)) in args.iter().zip(fields.clone()) {
+                    if self.records.contains_key(&t) {
+                        out.extend(self.whole(a, &t, want)?);
+                    } else {
+                        out.push(self.expr(a)?);
+                    }
+                }
+                Ok(out)
             }
             _ => Err(self.err(format!(
                 "`{}` takes a {} here: pass a {} parameter, or build one with ({} {})",
@@ -1662,14 +1680,34 @@ impl Records<'_> {
             Expr::Name(n, _) => {
                 if let Some((q, f)) = n.split_once('.') {
                     if let Some(r) = self.recs.get(q) {
-                        if !self.records[r].iter().any(|(x, _)| x == f) {
-                            return Err(self.err(format!("{} ({}) has no field {}", q, r, f)));
+                        if !self.flat[r].iter().any(|(x, _)| x == f) {
+                            let at = f.rsplit_once('.').map_or(q.to_string(), |(a, _)| format!("{q}.{a}"));
+                            return Err(self.err(format!("{} ({}) has no field {}", at, self.recs.get(&at).unwrap_or(r), f.rsplit('.').next().unwrap())));
                         }
                     }
                 }
                 e.clone()
             }
             Expr::App(h, p, args) => Expr::App(h.clone(), *p, self.args(h, args)?),
+            Expr::Bin(op @ ("=" | "!="), l, r) if self.record_type(l).is_some() || self.record_type(r).is_some() => {
+                // two records of one type: every field equal (`=`), some field different (`!=`)
+                let (lt, rt) = (self.record_type(l), self.record_type(r));
+                let t = match (&lt, &rt) {
+                    (Some(a), Some(b)) if a == b => a.clone(),
+                    _ => {
+                        return Err(self.err(format!(
+                            "`{}` compares {} with {}: both sides must be records of one type",
+                            code(e),
+                            lt.unwrap_or_else(|| "a non-record".into()),
+                            rt.unwrap_or_else(|| "a non-record".into())
+                        )))
+                    }
+                };
+                let (ls, rs) = (self.whole(l, &t, op)?, self.whole(r, &t, op)?);
+                let parts: Vec<Expr> = ls.into_iter().zip(rs).map(|(a, b)| Expr::Bin(op, Box::new(a), Box::new(b))).collect();
+                let join = if *op == "=" { "and" } else { "or" };
+                parts.into_iter().reduce(|a, b| Expr::Bin(join, Box::new(a), Box::new(b))).unwrap()
+            }
             Expr::Bin(op, l, r) => Expr::Bin(op, Box::new(self.expr(l)?), Box::new(self.expr(r)?)),
             Expr::All(j, a, b, x) => {
                 Expr::All(j.clone(), Box::new(self.expr(a)?), Box::new(self.expr(b)?), Box::new(self.expr(x)?))
@@ -1756,8 +1794,48 @@ pub fn flatten_records(defs: &mut Module) -> PResult<IndexMap<String, Vec<String
             if fields[..i].iter().any(|(g, _)| g == f) {
                 return Err(ParseError(format!("record {}: field {} appears twice", r, f)));
             }
-            if t != "Int" && t != "Account" && t != "Text" {
-                return Err(ParseError(format!("record {}: field {} must be Int, Account or Text, not {}", r, f, t)));
+            if t != "Int" && t != "Account" && t != "Text" && !defs.records.contains_key(t) {
+                return Err(ParseError(format!("record {}: field {} must be Int, Account, Text or a record, not {}", r, f, t)));
+            }
+        }
+    }
+    // each record's fields flattened to leaves; a record that contains itself (through any path) is an error
+    fn leaves(
+        r: &str,
+        records: &IndexMap<String, Vec<(String, String)>>,
+        chain: &mut Vec<String>,
+    ) -> PResult<Vec<(String, String)>> {
+        if chain.iter().any(|c| c == r) {
+            chain.push(r.to_string());
+            return Err(ParseError(format!("record {} contains itself ({})", chain[0], chain.join(" -> "))));
+        }
+        chain.push(r.to_string());
+        let mut out = vec![];
+        for (f, t) in &records[r] {
+            if records.contains_key(t) {
+                for (g, gt) in leaves(t, records, chain)? {
+                    out.push((format!("{f}.{g}"), gt));
+                }
+            } else {
+                out.push((f.clone(), t.clone()));
+            }
+        }
+        chain.pop();
+        Ok(out)
+    }
+    let mut flat = IndexMap::new();
+    for r in defs.records.keys() {
+        flat.insert(r.clone(), leaves(r, &defs.records, &mut vec![])?);
+    }
+    // the record types a record type mentions, itself first, depth first
+    fn nested(r: &str, records: &IndexMap<String, Vec<(String, String)>>, out: &mut Vec<String>) {
+        if out.iter().any(|x| x == r) {
+            return;
+        }
+        out.push(r.to_string());
+        for (_, t) in &records[r] {
+            if records.contains_key(t) {
+                nested(t, records, out);
             }
         }
     }
@@ -1775,22 +1853,38 @@ pub fn flatten_records(defs: &mut Module) -> PResult<IndexMap<String, Vec<String
     let records = defs.records.clone();
     let mut used = IndexMap::new();
     for d in defs.defs.values_mut() {
-        let mut k = Records { records: &records, sigs: &sigs, recs: IndexMap::new(), who: d.name.clone(), used: vec![] };
+        let mut k =
+            Records { records: &records, flat: &flat, sigs: &sigs, recs: IndexMap::new(), who: d.name.clone(), used: vec![] };
         let mut params = vec![];
         for (p, t) in &d.params {
-            let Some(fields) = records.get(t) else {
+            if !records.contains_key(t) {
                 params.push((p.clone(), t.clone()));
                 continue;
-            };
+            }
             if roots.contains(p) {
                 return Err(k.err(format!("the record parameter {} has the name of a state, channel or handler", p)));
             }
             k.recs.insert(p.clone(), t.clone());
-            k.note(t);
-            if !d.records.iter().any(|(r, _)| r == t) {
-                d.records.push((t.clone(), fields.clone()));
+            // its fields of a record type are record-valued paths too: `l.a` is a Point
+            fn paths(q: &str, t: &str, records: &IndexMap<String, Vec<(String, String)>>, recs: &mut IndexMap<String, String>) {
+                for (f, ft) in &records[t] {
+                    if records.contains_key(ft) {
+                        let at = format!("{q}.{f}");
+                        recs.insert(at.clone(), ft.clone());
+                        paths(&at, ft, records, recs);
+                    }
+                }
             }
-            params.extend(fields.iter().map(|(f, ft)| (format!("{}.{}", p, f), ft.clone())));
+            paths(p, t, &records, &mut k.recs);
+            k.note(t);
+            let mut types = vec![];
+            nested(t, &records, &mut types);
+            for r in types {
+                if !d.records.iter().any(|(x, _)| *x == r) {
+                    d.records.push((r.clone(), records[&r].clone()));
+                }
+            }
+            params.extend(flat[t].iter().map(|(f, ft)| (format!("{}.{}", p, f), ft.clone())));
         }
         k.def(d)?;
         d.params = params;
