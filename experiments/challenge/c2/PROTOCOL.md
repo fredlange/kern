@@ -200,3 +200,41 @@ K-full/TS runs would have been invalid, not 17. Three K-full runs ran no chained
 left `kern/` (so `tool_hash()` covers a different file set). The hashed files are unchanged and still
 match `HIDDEN.sha256.json`, but `run.py` and `common.py` find the repository from their own location
 and expect the old layout. A rerun needs a checkout of `d521236` (the run's commit) or a re-freeze.
+
+**2026-11-05: where K-view's tokens went (added after the run; nothing above is changed).** Computed by
+`view_cost.py` from `runs/` and git (no new agent runs). Token counts of text use the proxy tokenizer
+(anthropic==0.34.2); usage numbers are the API's own.
+- **The tool schemas were never counted.** On the first request of every run, cache_read is 3,338 in all
+  9 K-view runs and 4,529 in all 18 K-full and TS runs. The API sends tools, then system, then messages,
+  and K-view runs with no built-in tools (`--tools ""`), so its cached prefix is the system prompt plus the
+  ten MCP schemas. K-full and TS carry Read/Edit/Write/Bash instead, 1,191 more. This is an inference
+  from those identical values and that difference; no transcript field names what was cached. The
+  frozen metric (input + cache_creation + output) leaves cache reads out, so the MCP schemas added 0
+  tokens to every K-view run, and K-view's tool definitions are smaller than TS's. **The attribution to
+  "ten MCP tool schemas" under "What the numbers say" above does not hold under the frozen metric.** The
+  fixed cost that counts is REFERENCE.md and the longer preamble.
+- **Calibration.** First-request cache_creation is 3,892–4,043 for K-view and 1,108–1,263 for TS. The
+  median gap, 2,786, is REFERENCE plus the preamble difference, against 2,126 proxy tokens for REFERENCE.
+  So real counts are at most ~1.3× the proxy here. The ten schemas are 825 proxy tokens as `kern mcp`
+  serves them (descriptions alone 250; the Python server at the run had the same descriptions), about
+  1,000 real. REFERENCE.md is 2,227 proxy tokens now, against 2,126 at the run.
+- **Tools the K-view agents used** (runs / calls): kern_list 9/9 (9), kern_view 9/9 (35), kern_check 9/9 (9),
+  kern_callers 6/9 (6), kern_edit 6/9 (6), kern_add 3/9 (3). kern_why, kern_run, kern_replace and
+  kern_remove were never called. All 35 views were `editor`.
+- **First request against the rest** (medians, frozen metric; "rest" is every later cache_creation, input
+  and all output):
+
+  | task | K-view: first + rest | K-full: first + rest | TS: first + rest |
+  |---|---|---|---|
+  | T1 | 4,041 + 8,799 = 12,840 | 4,305 + 8,981 = 13,286 | 1,263 + 11,214 = 12,474 |
+  | T2 | 3,921 + 11,772 = 15,695 | 4,177 + 14,496 = 18,670 | 1,135 + 12,074 = 13,209 |
+  | T3 | 3,892 + 12,533 = 16,429 | 4,156 + 10,524 = 14,680 | 1,111 + 11,287 = 12,395 |
+
+  Without the first request, K-view is 0.78× / 0.97× / 1.11× TS. The first request is what fails it in T1
+  and T2; in T3 the rest of the session costs more too.
+- **The views read more than the file in T3.** Tool results in the 9 K-view runs: editor views 25,481
+  proxy tokens over 35 calls (median 776), kern_list 410 per run, everything else 2,232 together. Per run the
+  editor views read 1,785–2,146 tokens in T1, 2,620 in T2 and 3,848 in every T3 run (move, capture, refund,
+  split, tip, purchase), against 2,267 for the whole of `escrow_s1.k`. An editor view carries the spec of
+  each callee, and related definitions share callees, so the same specs are read more than once. On this
+  10-definition module, reading through views cost about the same as the file in T1 and 1.7× the file in T3.
