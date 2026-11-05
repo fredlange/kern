@@ -76,7 +76,21 @@ fn rust_type(t: &str) -> Option<&'static str> {
 }
 
 pub fn ident(name: &str) -> String {
-    let name = name.replace('.', "_");
+    if name.contains('.') {
+        // a flattened record field (`p.x`) or a handler (`rand.below`): `_`, then `_` as `__` and `.` as `_0`, a
+        // prefix-free code, so it is injective; and no usable Kern name starts with `_`, so it never meets one
+        // (`p.x` -> `_p_0x`, while a Kern `p_x` stays `p_x`)
+        let mut out = String::from("_");
+        for c in name.chars() {
+            match c {
+                '_' => out.push_str("__"),
+                '.' => out.push_str("_0"),
+                c => out.push(c),
+            }
+        }
+        return out;
+    }
+    let name = name.to_string();
     let reserved = RUST_KEYWORDS.split_whitespace().any(|k| k == name)
         || ["tx", "rt", "w", "exec", "prov", "args"].contains(&name.as_str());
     if reserved {
@@ -403,6 +417,10 @@ impl<'a> Gen<'a> {
     }
 
     fn definition(&mut self, d: &Def) -> G<Vec<String>> {
+        if let Some((p, _)) = d.params.iter().find(|(p, _)| p.starts_with('_')) {
+            // `_…` is where ident puts dotted names; such a parameter can't be read in Kern anyway
+            return unsupported(format!("{}: parameter {} starts with `_`", d.name, p));
+        }
         let mut sc: Scope = d.params.iter().cloned().collect();
         let params: String = d.params.iter().map(|(p, t)| format!(", {}: {}", ident(p), rust_type(t).unwrap())).collect();
         let ret = if d.ret.is_some() { "i64" } else { "()" };
@@ -830,6 +848,15 @@ body
         assert!(src.contains("3 => exec.call(w, prov, |tx| note(tx, rt::acct(args[0]))).map(|_| None),"));
         assert!(src.contains("for o in tx.written_ints() {") && src.contains("for a in tx.written_accts() {"));
         assert!(!src.contains("fn inv__safe") && !src.contains("fn inv__note"));
+    }
+
+    #[test]
+    fn identifiers_are_injective() {
+        let names = ["p.x", "p_x", "p__x", "p_.x", "p._x", "a_b.c", "a.b_c", "a.b.c", "rand.below", "rand_below", "tx", "move"];
+        let ids: Vec<String> = names.iter().map(|n| super::ident(n)).collect();
+        let distinct: std::collections::BTreeSet<&String> = ids.iter().collect();
+        assert_eq!(distinct.len(), names.len(), "{ids:?}");
+        assert_eq!((ids[0].as_str(), ids[1].as_str()), ("_p_0x", "p_x"));
     }
 
     #[test]
