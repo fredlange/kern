@@ -786,6 +786,9 @@ pub fn terminal(reports: &IndexMap<String, Report>, defs: &Module, whys: &IndexM
                 for (n, cs) in &sm.survived {
                     out.push(format!("      unpinned: {n} ({})", cs.join(", ")));
                 }
+                for e in &sm.ill_formed {
+                    out.push(format!("      ill-formed (not counted): {e}"));
+                }
                 for e in &sm.errors {
                     out.push(format!("      crashed (not counted): {e}"));
                 }
@@ -861,15 +864,24 @@ fn spec_mutation_html(sm: &crate::report::SpecMutation) -> String {
     );
     if !sm.survived.is_empty() {
         let items: String =
-            sm.survived.iter().map(|(n, cs)| format!("<li><code>{}</code>: {}</li>", escape(n), escape(&cs.join("; ")))).collect();
+            sm.survived.iter().map(|(n, cs)| format!("<li><code>{}</code>: {}</li>", escape(n), ticks_to_code(&cs.join("; ")))).collect();
         out.push_str(&format!(
             "<p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p>\
              <ul class='ex'>{items}</ul>"
         ));
+    }
+    if !sm.ill_formed.is_empty() {
+        let items: String = sm.ill_formed.iter().map(|e| format!("<li>{}</li>", ticks_to_code(e))).collect();
+        out.push_str(&format!("<p class='muted'>Not counted, since they don't pass the type check:</p><ul class='ex'>{items}</ul>"));
     }
     if !sm.errors.is_empty() {
         let items: String = sm.errors.iter().map(|e| format!("<li>{}</li>", escape(e))).collect();
         out.push_str(&format!("<p class='failc'>The checker crashed on these (not counted):</p><ul class='ex'>{items}</ul>"));
     }
     out
+}
+
+/// Escaped text with `quoted` parts as <code>.
+fn ticks_to_code(s: &str) -> String {
+    s.split('`').enumerate().map(|(i, part)| if i % 2 == 1 { format!("<code>{}</code>", escape(part)) } else { escape(part) }).collect()
 }

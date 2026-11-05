@@ -210,6 +210,8 @@ pub struct SpecMutation {
     pub by_guarantees: u64,
     /// per spec need (its code) the changes nothing caught: "dropped", "`>` → `>=`"
     pub survived: Vec<(String, Vec<String>)>,
+    /// changes that make the definition ill-formed: not counted
+    pub ill_formed: Vec<String>,
     pub errors: Vec<String>,
 }
 
@@ -532,7 +534,8 @@ pub fn mutation_json(m: &Mutation) -> J {
 pub fn spec_mutation_json(m: &SpecMutation) -> J {
     json!({
         "total": m.total, "by_examples": m.by_examples, "by_guarantees": m.by_guarantees,
-        "survived": m.survived.iter().map(|(n, cs)| json!([n, cs])).collect::<Vec<_>>(), "errors": m.errors,
+        "survived": m.survived.iter().map(|(n, cs)| json!([n, cs])).collect::<Vec<_>>(), "ill_formed": m.ill_formed,
+        "errors": m.errors,
     })
 }
 
@@ -547,6 +550,7 @@ fn spec_mutation_from(j: &J) -> Option<SpecMutation> {
             .iter()
             .map(|x| Some((x[0].as_str()?.to_string(), x[1].as_array()?.iter().filter_map(|c| c.as_str().map(String::from)).collect())))
             .collect::<Option<Vec<_>>>()?,
+        ill_formed: strs("ill_formed")?,
         errors: strs("errors")?,
     })
 }

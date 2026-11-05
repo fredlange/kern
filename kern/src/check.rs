@@ -580,10 +580,13 @@ pub fn spec_mutation_score(defs: &Module, d: &Def, n_props: u64) -> Option<SpecM
         return None;
     }
     let scored = pool(&ms, |(_, _, md)| score_spec_one(defs, md, n_props));
-    let mut m = SpecMutation { total: 0, by_examples: 0, by_guarantees: 0, survived: vec![], errors: vec![] };
+    let mut m = SpecMutation { total: 0, by_examples: 0, by_guarantees: 0, survived: vec![], ill_formed: vec![], errors: vec![] };
     for ((need, change, _), s) in ms.into_iter().zip(scored) {
         match s {
-            SpecScored::IllFormed => continue,
+            SpecScored::IllFormed => {
+                m.ill_formed.push(format!("{change} in the spec's `{need}`"));
+                continue;
+            }
             SpecScored::Examples => m.by_examples += 1,
             SpecScored::Guarantees => m.by_guarantees += 1,
             SpecScored::Survived => match m.survived.iter_mut().find(|(n, _)| *n == need) {

@@ -455,3 +455,15 @@ weaker than baseline):
 - Depth no longer costs per definition (0.16–0.19 s for d = 1–8, where Python went 0.40 → 1.65 s), so
   the event matching that grew with depth is no longer the bottleneck.
 - Raw rows, the repeats included: `experiments/challenge/c6/results_rust_2026-11-05.jsonl`.
+
+**C6 note, 2026-11-05, later (no rerun; thresholds unchanged): a full check now does more work.** Two changes
+since the addendum above move its numbers:
+- **Parallel mutants** (`fdaf9e3`, `KERN_JOBS`, default 4): P1 0.36 s per definition, P2 0.07 s (SHORTCOMINGS
+  S16). The addendum's numbers are single-threaded, and they stay the comparison with the Python run.
+- **Spec-need mutants** (`df332d5`, SHORTCOMINGS S8): each spec `need` is also dropped and flipped. That is
+  60 more mutants on P1, on top of run.py's 376 body ones. `c6 --one` now prints them as `spec_mutants`,
+  so the extra work is visible next to `mutants`, which stays run.py's count.
+- **Single-threaded P1**, best of three with the two builds alternated: 0.849 s per definition at f4f6674,
+  0.899 s at df332d5 (runs 0.90–0.99 s). It still passes, but the margin has shrunk from 9–15% to 1–10%.
+  With the default 4 jobs, P1 is 0.42 s. A rerun of the frozen plan on the current toolchain should say which
+  of these it measures.

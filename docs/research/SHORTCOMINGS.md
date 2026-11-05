@@ -265,8 +265,9 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   - **Output:** `spec refusals: 6/8 changes caught (examples 5, guarantees 1)`, and one `unpinned:` line per
     need with a surviving change. The page says the same in a paragraph under Spec strength.
 - **Found:**
-  - Across the 18 example modules' goldens, 552 of 772 spec changes are caught: 247 by examples, 305 by
-    guarantees. 220 survive (28%).
+  - Across the 18 recorded `check` outputs of the examples, 552 of 772 spec changes are caught: 247 by
+    examples, 305 by guarantees. 220 survive (28%). The tour's seven steps are counted separately, so
+    transfer's needs are counted in several of them.
   - In the tour's last step, nothing pins transfer's `need amount > 0` (dropped or `>=`). payout's
     `ledger.balance from >= amount + fee` survives `>` (no example at the boundary).
 - **Cost (a trade-off, measured):**
@@ -281,7 +282,9 @@ to make decisions as long as they follow the fundamentals". Each one names the f
     | ledger_large `check` (s) | 0.148 | 0.181 | ×1.22 |
     | ledger_v7 `check` (s) | 0.062 | 0.081 | ×1.30 |
 
-    C6's thresholds (1 s per definition; P2 60 s in all) still pass.
+    Those runs use the default 4 jobs. **Single-threaded, as C6's 2026-11-05 addendum measured**, P1 goes
+    from 0.849 to 0.899 s per definition (best of three; runs 0.90–0.99 s). That still passes, but with a
+    1–10% margin instead of 9–15% (CHALLENGE.md, C6 note). P2 stays far under 60 s.
   - **Tokens:** escrow_s3's CLI `check` report grows from 10,220 to 12,834 (+26%), mostly from 84
     `unpinned:` lines. That counts against C2b's K-full arm. MCP's `kern_check` and the views are unchanged.
     REFERENCE.md grows by one bullet (2,227 → 2,262 tokens).
@@ -389,7 +392,8 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   both: P1 0.85–0.91 s, P2 34.0–39.3 s, over 7 runs. The work was the same: the generator is
   byte-identical and the mutant counts are equal
   ([CHALLENGE.md, C6 addendum 2026-11-05](CHALLENGE.md#c6-prover-stress-run-2026-11-03)).
-- **What remains** is S16: P1 passes by about one `if`.
+- **What remains** is S16: P1 passes by about one `if`. Since S8, single-threaded P1 is 0.90–0.99 s
+  (CHALLENGE.md, C6 note).
 
 For gaps found and closed before this register
 existed, see AUDIT.md's "Status after the fix pass" and ROADMAP_RUN.md's FZ findings.

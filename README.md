@@ -169,7 +169,8 @@ approximate.
   whether an agent can game a green page (C3), hasn't been tested.
 - **The prover's speed has little margin.** On the Python toolchain, C6 failed both speed
   thresholds (16 s per definition at depth 6 with 4 `if`s). The Rust toolchain passes both (0.85–0.91
-  s against 1 s). That margin is about one `if`, because each `if` still doubles the paths.
+  s against 1 s on one thread; 0.90–0.99 s since spec needs get mutants too). That margin is about one
+  `if`, because each `if` still doubles the paths.
 - **At a leaf, Kern doesn't win.** The savings come from callees read as specs, not from the
   syntax.
 - **One author, one model family.** The same agent wrote the Kern, TypeScript and Go versions, in
@@ -196,7 +197,7 @@ Kern is one Rust binary, `kern` (about 12,500 lines), with Z3 as the prover. It 
   and deterministic replay.
 
 [examples/](examples/) has ten standalone projects, from the ledger tour to a small web app.
-`cargo test --workspace --release` runs 284 tests: an adversarial test suite per design
+`cargo test --workspace --release` runs 285 tests: an adversarial test suite per design
 fundamental, golden outputs, the toolchain's own checks, and a gap test for each known shortcoming.
 
 What's next: records, `match`, and the central experiment: the same tasks done in editor view

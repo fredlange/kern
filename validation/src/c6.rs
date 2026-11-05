@@ -33,6 +33,8 @@ pub fn measure_one(c: [usize; 5]) -> serde_json::Value {
         "clean": reps.values().filter(|r| r.clean).count(),
         "guarantees": reps.values().map(|r| r.guarantees.len()).sum::<usize>(),
         "mutants": muts.iter().map(|m| m.total).sum::<u64>(),
+        // body mutants are run.py's count; spec-need mutants (S8, since df332d5) are extra work run.py didn't do
+        "spec_mutants": reps.values().filter_map(|r| r.spec_mutation.as_ref()).map(|m| m.total).sum::<u64>(),
     })
 }
 
