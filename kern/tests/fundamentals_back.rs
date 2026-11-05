@@ -786,3 +786,19 @@ body
     let ex = parse_example(&cx.eg[3..], None).unwrap();
     assert!(cx.confirmed_by_interpreter && ex.now != 7, "{}", cx.eg); // replays at a time other than 7
 }
+
+#[test]
+fn f5_sum_bounds_never_prove_a_false_claim() {
+    // 80c3b26 bounds every sum by interval arithmetic on its term. Floor division of negatives, negative factors,
+    // filtered negative terms, cancelling terms: each true claim is ✔ or ◐, each false one ✗ with a replaying
+    // counterexample (2026-11-05, #IHGVAGXX6Q)
+    let src = "state hold Int\nstate flag Int\n\nf1 n:Int -> Int\n  ensure result = n when n >= 0\nbody\n  result = sum j from 0 to n of 3 / 2\n\nf2 n:Int -> Int\n  ensure result >= 2 * n when n >= 0\nbody\n  result = sum j from 0 to n of 3 / 2\n\nf3 n:Int -> Int\n  ensure result >= 0 - n\nbody\n  result = sum j from 0 to n of (0 - 3) / 2\n\nf4 n:Int -> Int\n  ensure result <= 0 - 2 * n when n >= 0\nbody\n  result = sum j from 0 to n of (0 - 3) / 2\n\nf5 n:Int -> Int\n  ensure result >= 0 - 2 * n\nbody\n  result = sum j from 0 to n of (0 - 3) / 2\n\nf6 n:Int -> Int\n  ensure result >= 0\nbody\n  result = sum j from 0 to n of (0 - 1) / 2\n\nf7 n:Int -> Int\n  ensure result >= 1 when n > 0\nbody\n  result = sum j from 0 to n of 1 / 2\n\nf8 n:Int -> Int\n  ensure result >= 1 when n > 0\nbody\n  result = sum j from 0 to n of (hold.get j - hold.get j + 1) / 2\n\nf9 n:Int -> Int\n  ensure result >= 0\nbody\n  result = sum j from 0 to n of j\n\nf10 n:Int -> Int\n  ensure result >= 0 when n >= 0\nbody\n  result = sum j from 0 to n of j\n\nf11 n:Int -> Int\n  ensure result <= 0\nbody\n  result = sum j from 0 to n of 0 - 2 * hold.get j\n\nf12 n:Int -> Int\n  ensure result >= 0\nbody\n  result = sum j from 0 to n of 2 * (hold.get j - hold.get j) - 1\n\nf13 n:Int -> Int\n  ensure result <= 0 - 6 * n when n >= 0\nbody\n  result = sum j from 0 to n of (0 - 2) * 3\n\nf14 n:Int -> Int\n  ensure result >= 0 - 5 * n\nbody\n  result = sum j from 0 to n of (0 - 2) * 3\n\nf15 n:Int -> Int\n  ensure result >= 1 when n > 0\nbody\n  result = sum j from 0 to n of 1 where hold.get j > 0\n\nf16 n:Int -> Int\n  ensure result >= 0\nbody\n  result = sum j from 0 to n of 0 - 1 where hold.get j > 0\n\nf17 n:Int -> Int\n  ensure result <= 0\nbody\n  result = sum j from 0 to n of 0 - 1 where hold.get j > 0\n\nf18 n:Int -> Int\n  ensure result = 0\nbody\n  result = sum j from 0 to n of hold.get j / 2 - hold.get j / 2\n\nf19 n:Int -> Int\n  ensure result >= 0\nbody\n  result = sum j from 0 to n of (hold.get j + 1) / 2 - hold.get j / 2\n\nf20 n:Int -> Int\n  ensure result <= n when n >= 0\nbody\n  result = sum j from 0 to n of (hold.get j + 1) / 2 - hold.get j / 2\n\nf21 n:Int -> Int\n  ensure result = 5 * n when n >= 0\nbody\n  result = sum j from 0 to n of hold.get j * 0 + 5\n\nf22 n:Int -> Int\n  ensure result >= 6 * n when n > 0\nbody\n  result = sum j from 0 to n of 5 - hold.get j * 0\n\n";
+    let (_, reps) = analysed(src, false);
+    let proven: &[u32] = &[1, 4, 13, 17, 18, 19];
+    let refuted: &[u32] = &[2, 3, 5, 6, 7, 8, 11, 12, 14, 15, 16, 22];
+    for i in 1..=22u32 {
+        let g = &reps[&format!("f{i}")].guarantees[0];
+        let want = if proven.contains(&i) { Status::Proven } else if refuted.contains(&i) { Status::Refuted } else { Status::Tested };
+        assert_eq!(g.status, want, "f{i}: {}", g.clause);
+    }
+}
