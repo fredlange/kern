@@ -752,6 +752,47 @@ pub fn package_variant(src: &str, dir: &std::path::Path) -> Option<Module> {
     kern::package::load(&app.to_string_lossy(), &IndexMap::new()).ok()
 }
 
+// ---------------------------------------------------------------- stated loop frames (S6, 48dd716)
+
+/// A loop that writes hold at k + OFF for k in [lo, hi), with a stated frame `keep hold except A to B` (right, or
+/// one key too narrow at either end) and sometimes `keep other` (right, or broken by an extra write). Own stream.
+pub fn gen_frame(rnd: &mut Random) -> String {
+    let off = *rnd.choice(&[0i64, 0, 1, -1]);
+    let b = |x: &str, d: i64| if d == 0 { x.to_string() } else if d > 0 { format!("({x} + {d})") } else { format!("({x} - {})", -d) };
+    let (mut a_off, mut b_off) = (off, off);
+    if rnd.random() < 0.5 {
+        if rnd.random() < 0.5 { a_off += 1 } else { b_off -= 1 }
+    }
+    let other_write = rnd.random() < 0.25;
+    let mut lines: Vec<String> = vec!["state hold Int".into(), "state other Int".into(), String::new(), "f lo:Int hi:Int v:Int".into()];
+    if rnd.random() < 0.5 {
+        lines.push("  need lo <= hi else Empty".into());
+    }
+    lines.push("  ok otherwise".into());
+    lines.push(format!("  keep hold except {} to {}", b("lo", a_off), b("hi", b_off)));
+    if rnd.random() < 0.5 {
+        lines.push("  keep other".into());
+    }
+    lines.push("body".into());
+    lines.push("  for k from lo to hi".into());
+    lines.push(format!("    hold.set {} v", b("k", off)));
+    if other_write {
+        lines.push("    other.set k v".into());
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `n` frame programs from their own stream, labelled `frame#i`.
+pub fn frame_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 48);
+    (0..n)
+        .map(|i| {
+            let src = gen_frame(&mut rnd);
+            Job { label: format!("frame#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -1280,7 +1321,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "tiers": tiers, "runs": runs, "ok_runs": ok, "skipped": skipped, "unmapped": unmapped, "unmapped_kinds": unmapped_kinds,
         "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"), "text_well_formed": fam("text#"), "nest_well_formed": fam("nest#"), "match_well_formed": fam("match#"),
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
-        "tick_well_formed": fam("tick#"),
+        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"),
         "variant_mismatches": variant_mismatches(results),
     })
 }
@@ -1293,12 +1334,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -1331,6 +1372,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(nest_jobs(num("seed", 1) as i128, num("nests", 100) as usize, num("runs", 300)));
     js.extend(match_jobs(num("seed", 1) as i128, num("matches", 100) as usize, num("runs", 300)));
     js.extend(tick_jobs(num("seed", 1) as i128, num("ticks", 100) as usize, num("runs", 300)));
+    js.extend(frame_jobs(num("seed", 1) as i128, num("frames", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));

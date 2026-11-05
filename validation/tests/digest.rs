@@ -7,6 +7,9 @@
 //!       Rust: a counterexample that doesn't replay, so conditional).
 //!       2026-11-05, S11 (f160617): 776c5ca29063f921. A dump diff against 43362dd shows exactly two goals moved,
 //!       fz2.k f and p2.k shifted, both computed-key module invariants: unknown -> runtime (tier ○).
+//!       2026-11-05, S6 stated frame (48dd716): e90c41b6af1ac4d6. batch.k's advance_subs now states
+//!       `keep sub_due except lo to hi`: a dump diff shows only that definition, one more goal (13 -> 14, the
+//!       `keep`, proven) and the goals after it shifted by one.
 use std::path::Path;
 
 use kern_validation::digest::{digest, digest_loops};
@@ -22,5 +25,5 @@ fn the_s2_digest_is_unchanged() {
 
 #[test]
 fn the_loop_digest_is_unchanged() {
-    assert_eq!(digest_loops(&root()).0, "776c5ca29063f921");
+    assert_eq!(digest_loops(&root()).0, "e90c41b6af1ac4d6");
 }

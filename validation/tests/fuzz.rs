@@ -278,3 +278,16 @@ fn a_small_tick_fuzz_run_is_clean() {
     assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
     assert!(s["tiers"]["ensure"]["refuted"].as_u64().unwrap_or(0) > 0 && s["tiers"]["ensure"]["proven"].as_u64().unwrap_or(0) > 5);
 }
+
+#[test]
+fn a_small_frame_fuzz_run_is_clean() {
+    // gen_frame (S6's stated frame, 48dd716): `keep hold except A to B`, right or one key too narrow, and `keep
+    // other`. Teeth (2026-11-05): the frame's `j >= B` planted as `j > B` -> 3,103 contradictions in 24 of 100.
+    let results: Vec<_> = kern_validation::fuzz::frame_jobs(5, 30, 60).iter().map(check_program).collect();
+    let s = summarise(&results);
+    assert_eq!(s["frame_well_formed"], "30/30");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    let k = &s["tiers"]["keep"];
+    assert!(k["proven"].as_u64().unwrap_or(0) > 5 && k["refuted"].as_u64().unwrap_or(0) > 5, "{k}");
+}
