@@ -172,9 +172,9 @@ fn how(g: &Guarantee) -> String {
             format!("Fails for this input:<pre>{}</pre>{}{}", escape(&cx.eg), got, conf)
         }
         G::Runtime => format!(
-            "Not proven{}{} <code>kern host</code> checks it after every call, at the keys the call wrote, and \
-             undoes a call that breaks it (a host fault, not one of the declared refusals). The gated host serves \
-             this definition only with <code>--no-gate</code>; a program from <code>kern build</code> doesn't check it.",
+            "Not proven{}{} <code>kern host</code> and programs from <code>kern build</code> check it after every \
+             call, at the keys the call wrote, and undo a call that breaks it (a fault, not one of the declared \
+             refusals). The gated host serves this definition only with <code>--no-gate</code>.",
             match g.reason.as_deref() {
                 Some(r) if !r.is_empty() => format!(" ({})", escape(r)),
                 _ => String::new(),
@@ -719,7 +719,7 @@ pub fn terminal(reports: &IndexMap<String, Report>, defs: &Module, whys: &IndexM
             }
             if g.status == G::Runtime {
                 let tested = g.tested.map(|n| format!("held in {} random successes; ", n)).unwrap_or_default();
-                line.push_str(&format!("   (not proven; {}`kern host` checks it after every call)", tested));
+                line.push_str(&format!("   (not proven; {}checked at run time after every call)", tested));
                 if let Some(reason) = g.reason.as_deref().filter(|r| !r.is_empty()) {
                     line.push_str(&format!("\n      cannot be proven: {}", reason));
                 }

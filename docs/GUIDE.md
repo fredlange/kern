@@ -82,7 +82,7 @@ body
 | Random tests | 500 random worlds and inputs; every guarantee is checked on each success |
 | Proofs | symbolic execution to Z3. Calls are verified *modularly*, from the callee's spec and inferred interface, never its body |
 | Refusals | with `ok otherwise`, proven to refuse only where a spec `need` fails |
-| Tiers | ✔ proven, ✗ refuted (replayed), ? unconfirmed or no answer, ! relies on something unproven, ⊙ relies on an assumed handler, ◐ tested only, ○ a module invariant only `kern host` checks (after every call; `kern build` doesn't, and the gated host serves it only with `--no-gate`), ∅ never succeeds |
+| Tiers | ✔ proven, ✗ refuted (replayed), ? unconfirmed or no answer, ! relies on something unproven, ⊙ relies on an assumed handler, ◐ tested only, ○ a module invariant checked only at run time, after every call (`kern host` and `kern build` programs; the gated host serves it only with `--no-gate`), ∅ never succeeds |
 | Trust | a modular proof is downgraded if a callee's guarantees are broken |
 | Counterexamples | rendered as `eg` lines and replayed in the interpreter; only a replayed one counts as ✗ |
 | Spec strength | mutation testing of the body. The headline is what the *guarantees* catch; examples are reported separately |

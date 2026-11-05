@@ -821,8 +821,11 @@ fn s11_an_invariant_the_prover_cannot_decide_is_runtime_checked_on_the_page() {
     assert_eq!(kern::render::status(&reps["drain"]).1, "Broken guarantees");
     let whys: IndexMap<String, why::Status> = defs.defs.keys().map(|k| (k.clone(), why::Status::default())).collect();
     let page = kern::render::page(&reps, &defs, &whys, "s11", &kern::render::Orphans::new(), None);
-    assert!(page.contains("<code>kern host</code> checks it after every call"), "the page says who checks it");
-    assert!(page.contains("doesn't check it"), "and that a `kern build` program doesn't");
+    assert!(
+        page.contains("<code>kern host</code> and programs from <code>kern build</code> check it after every call"),
+        "the page says who checks it"
+    );
+    assert!(page.contains("only with <code>--no-gate</code>"), "and that the gated host doesn't serve it");
     let out = kern::render::terminal(&reps, &defs, &whys, &IndexMap::new());
     assert!(out.contains("○ invariant o:Int hold.get o >= 0   (not proven; held in"), "{out}");
 }

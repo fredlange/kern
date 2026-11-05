@@ -57,8 +57,8 @@ page are the same mechanism. The prover follows the same rule: calls are verifie
    - ✔ proven for all inputs.
    - ! conditional: relies on a callee that is not proven.
    - ✗ refuted, with a counterexample.
-   - ◐ tested-only; ○ runtime-checked-only (a module invariant the prover can't decide; `kern host` checks
-     it after every call, `kern build` doesn't).
+   - ◐ tested-only; ○ runtime-checked-only (a module invariant the prover can't decide; `kern host` and
+     `kern build` programs check it after every call).
    - Spec strength is the mutation score, measured only when everything passes.
 7. **Failure is atomic:** a refusal rolls back the whole call, so guarantees only
    need to hold on success.
@@ -238,7 +238,8 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   cold `check` still misses C6's thresholds (docs/research/ROADMAP_RUN.md, S2). `kern.mcp` serves views and
   structural edits to agents.
 - Tier ○ (runtime-checked) is shown by `check` and the page for a module invariant the prover neither proved
-  nor refuted (SHORTCOMINGS S11); the check itself, and record/replay, exist only in the host (`kern host`: SQLite,
+  nor refuted (SHORTCOMINGS S11); the check runs in the host and, since f53e1a0, in `kern build` programs for
+  invariants not proven. Record/replay exist only in the host (`kern host`: SQLite,
   replay, invariants checked at the keys a call wrote, after every call by default; `--skip-proven`
   removes the check for proven definitions, opt-in since Fredrik's decision of 2026-11-04). Output channels (`channel console`,
   `emit console Line x`) are exact per channel, unordered across channels. Network requests are

@@ -1,0 +1,209 @@
+$ kern check tests/probes/consts.k   (exit 0)
+half [7a5bf28c]  All guarantees proven
+  ✔ ensure result * 2 <= n
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 0/2; together 2/2
+
+charge [13f50c24]  All guarantees proven
+  ✔ ensure ledger.balance' a = ledger.balance a - amount
+  ✔ ensure hold.get' k = hold.get k + amount - 5
+  ✔ emit Charged a amount 5
+  writes a hold.k
+  examples 3/3   random tests 82/500 reached success, 0 violations
+  spec strength: guarantees 13/13 (prover 13, random tests 13); examples 9/13; together 13/13
+  spec refusals: 3/6 changes caught (examples 3, guarantees 0)
+      unpinned: need hold.get k + amount <= 100 else Over (`<=` → `<`)
+      unpinned: need ledger.balance a >= amount else Insufficient (dropped, `>=` → `>`)
+
+relay [fe61abfd]  All guarantees proven
+  ✔ emit Charged a amount 5
+  writes a hold.k   (no guarantee about the new balance of a, hold.k)
+  examples 0/0   random tests 82/500 reached success, 0 violations
+  spec strength: guarantees 2/3 (prover 2, random tests 2); examples 0/3; together 2/3
+      survived: `k` → `amount` in `charge a k amount`
+  spec refusals: 0/6 changes caught (examples 0, guarantees 0)
+      unpinned: need amount > 5 else TooSmall (dropped, `>` → `>=`)
+      unpinned: need hold.get k + amount <= 100 else Over (dropped, `<=` → `<`)
+      unpinned: need ledger.balance a >= amount else Insufficient (dropped, `>=` → `>`)
+
+bump [f7a8a98e]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure hold.get' j = hold.get j + 1 when hold.get j < 100 for j from lo to (lo + 3)
+  ✔ ensure hold.get' j = hold.get j when hold.get j >= 100 for j from lo to (lo + 3)
+  ✔ loop hold.get' j = hold.get j + 1 when hold.get j < 100 for j from lo to k  (holds when the loop starts)
+  ✔ loop hold.get' j = hold.get j when hold.get j >= 100 for j from lo to k  (holds when the loop starts)
+  ✔ loop hold.get' j = hold.get j + 1 when hold.get j < 100 for j from lo to k  (kept by every iteration)
+  ✔ loop hold.get' j = hold.get j when hold.get j >= 100 for j from lo to k  (kept by every iteration)
+  ✔ loop hold.get' j = hold.get j + 1 when hold.get j < 100 for j from lo to k  (kept by every iteration)
+  ✔ loop hold.get' j = hold.get j when hold.get j >= 100 for j from lo to k  (kept by every iteration)
+  writes hold.*   (no guarantee about the new value of hold.*)
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 12/14 (prover 12, random tests 12); examples 0/14; together 12/14
+      survived: `lo` → `lo - 1` in `for k from lo to (lo + 3)`
+      survived: `lo + 3` → `lo + 3 + 1` in `for k from lo to (lo + 3)`
+
+scaled [bf023788]  All guarantees proven
+  ✔ ensure result = x * 5 + half x
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 1, random tests 2); examples 0/2; together 2/2
+
+
+$ kern view tests/probes/consts.k half --as iface   (exit 0)
+half n:Int -> Int
+  uses 
+
+$ kern view tests/probes/consts.k half --as spec   (exit 0)
+half n:Int -> Int
+  uses 
+  const two 2
+  ensure result * two <= n
+  proof ok
+
+$ kern view tests/probes/consts.k half --as editor   (exit 0)
+half n:Int -> Int
+  uses 
+  const two 2
+  ensure result * two <= n
+body
+  result = n / two
+
+$ kern view tests/probes/consts.k charge --as iface   (exit 0)
+charge a:Account k:Int amount:Int
+  uses ledger.write audit hold.write
+  writes a hold.k
+  fails TooSmall(Int) Over(Int) Insufficient(Int)
+
+$ kern view tests/probes/consts.k charge --as spec   (exit 0)
+charge a:Account k:Int amount:Int
+  uses ledger.write audit hold.write
+  writes a hold.k
+  fails TooSmall(Int) Over(Int) Insufficient(Int)
+  const fee 5
+  const lim 100
+  need amount > fee else TooSmall fee
+  need hold.get k + amount <= lim else Over (lim - hold.get k)
+  need ledger.balance a >= amount else Insufficient amount
+  ensure ledger.balance' a = ledger.balance a - amount
+  ensure hold.get' k = hold.get k + amount - fee
+  emit Charged a amount fee
+  proof ok
+
+$ kern view tests/probes/consts.k charge --as editor   (exit 0)
+charge a:Account k:Int amount:Int
+  uses ledger.write audit hold.write
+  writes a hold.k
+  fails TooSmall(Int) Over(Int) Insufficient(Int)
+  const fee 5
+  const lim 100
+  need amount > fee else TooSmall fee
+  need hold.get k + amount <= lim else Over (lim - hold.get k)
+  need ledger.balance a >= amount else Insufficient amount
+  ensure ledger.balance' a = ledger.balance a - amount
+  ensure hold.get' k = hold.get k + amount - fee
+  emit Charged a amount fee
+  eg A:50@u1 hold.1:0 | charge A 1 10 -> ok | A:40 hold.1:5
+  eg A:50@u1 | charge A 1 5 -> TooSmall 5
+  eg A:500@u1 hold.1:98 | charge A 1 10 -> Over 2
+body
+  ledger.debit a amount
+  net = amount - fee
+  hold.set k (hold.get k + net)
+  audit.emit (Charged a amount fee)
+
+$ kern view tests/probes/consts.k relay --as iface   (exit 0)
+relay a:Account k:Int amount:Int
+  uses ledger.write audit hold.write
+  writes a hold.k
+  fails TooSmall(Int) Over(Int) Insufficient(Int)
+
+$ kern view tests/probes/consts.k relay --as spec   (exit 0)
+relay a:Account k:Int amount:Int
+  uses ledger.write audit hold.write
+  writes a hold.k
+  fails TooSmall(Int) Over(Int) Insufficient(Int)
+  need amount > 5 else TooSmall 5
+  need hold.get k + amount <= 100 else Over (100 - hold.get k)
+  need ledger.balance a >= amount else Insufficient amount
+  emit Charged a amount 5
+  proof ok
+
+$ kern view tests/probes/consts.k relay --as editor   (exit 0)
+relay a:Account k:Int amount:Int
+  uses ledger.write audit hold.write
+  writes a hold.k
+  fails TooSmall(Int) Over(Int) Insufficient(Int)
+  need as charge a k amount
+  emit as charge a k amount
+body
+  charge a k amount
+
+charge a:Account k:Int amount:Int
+  uses ledger.write audit hold.write
+  writes a hold.k
+  fails TooSmall(Int) Over(Int) Insufficient(Int)
+  const fee 5
+  const lim 100
+  need amount > fee else TooSmall fee
+  need hold.get k + amount <= lim else Over (lim - hold.get k)
+  need ledger.balance a >= amount else Insufficient amount
+  ensure ledger.balance' a = ledger.balance a - amount
+  ensure hold.get' k = hold.get k + amount - fee
+  emit Charged a amount fee
+  proof ok
+
+$ kern view tests/probes/consts.k bump --as iface   (exit 0)
+bump lo:Int
+  uses hold.write
+  writes hold.*
+
+$ kern view tests/probes/consts.k bump --as spec   (exit 0)
+bump lo:Int
+  uses hold.write
+  writes hold.*
+  const cap 3
+  const lim 100
+  ok otherwise
+  ensure hold.get' j = hold.get j + 1 when hold.get j < lim for j from lo to (lo + cap)
+  ensure hold.get' j = hold.get j when hold.get j >= lim for j from lo to (lo + cap)
+  proof ok
+
+$ kern view tests/probes/consts.k bump --as editor   (exit 0)
+bump lo:Int
+  uses hold.write
+  writes hold.*
+  const cap 3
+  const lim 100
+  ok otherwise
+  ensure hold.get' j = hold.get j + 1 when hold.get j < lim for j from lo to (lo + cap)
+  ensure hold.get' j = hold.get j when hold.get j >= lim for j from lo to (lo + cap)
+body
+  for k from lo to (lo + cap)
+    invariant hold.get' j = hold.get j + 1 when hold.get j < lim for j from lo to k
+    invariant hold.get' j = hold.get j when hold.get j >= lim for j from lo to k
+    if hold.get k < lim
+      hold.set k (hold.get k + 1)
+
+$ kern view tests/probes/consts.k scaled --as iface   (exit 0)
+scaled x:Int -> Int
+  uses 
+
+$ kern view tests/probes/consts.k scaled --as spec   (exit 0)
+scaled x:Int -> Int
+  uses 
+  const fee 5
+  ensure result = x * fee + half x
+  proof ok
+
+$ kern view tests/probes/consts.k scaled --as editor   (exit 0)
+scaled x:Int -> Int
+  uses 
+  const fee 5
+  ensure result = x * fee + half x
+body
+  result = fee * x + half x
+
+half n:Int -> Int
+  uses 
+  const two 2
+  ensure result * two <= n
+  proof ok

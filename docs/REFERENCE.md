@@ -101,7 +101,7 @@ Every guarantee gets an icon:
 - `?` no proof (unconfirmed counterexample, or no answer);
 - `!` proven, but relies on a callee that isn't;
 - ◐ held in random tests only;
-- ○ a module invariant with no proof: `kern host` checks it after every call (`kern build` doesn't);
+- ○ a module invariant with no proof, checked at run time after every call (`kern host`, `kern build`);
 - ∅ the call can never succeed;
 - ⊙ proven, assuming a handler's declared spec.
 
