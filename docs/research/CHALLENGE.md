@@ -94,6 +94,7 @@ reported.
   records, `match`, text and constants don't fit in 2,500. C2's result below was measured on the 2,262-token reference
   and stays as recorded; it does not hold for a larger reference. Each raise in `kern/tests/docs.rs` states the new
   count and the reason in its commit, so the language tax stays measured.
+  First raise: 2,500 → 3,500 (`9fc5ef8`, `kern/tests/docs.rs`; AGENTS.md in `96667ab`).
 
 **Tasks** on escrow_s1, where the TypeScript and Go twins exist. Each is written in English
 with hidden acceptance cases:
