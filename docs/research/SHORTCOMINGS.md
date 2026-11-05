@@ -171,16 +171,6 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Evidence:** the checker's proof page has no ○. The host checks invariants at run time.
 - **Fixed when:** `f5_runtime_only_tier_exists` (`kern/tests/fundamentals_back.rs:628`).
 
-### S12. The host: a reply that never arrives leaves the request pending
-- **Kind:** code gap.
-- **Evidence:** HttpNet's 2 s transport timeout already becomes the `fail` call. What's missing is
-  the case where the reply never reaches the host (a dropped reply, a crash after flush), or the
-  module refuses it. Then the request stays pending forever ([HOST.md](../HOST.md)). Output delivery
-  is at least once.
-- **Fixed when:** `s12_a_request_with_no_reply_times_out_into_a_call` (examples/limits, a Net that
-  never answers). At-least-once delivery may be the contract to keep, with receivers
-  deduplicating. That is a decision, not a test.
-
 ### S14. `ok otherwise` makes callers restate every refusal
 - **Kind:** trade-off.
 - **Evidence:** payout's spec view grows from 97 to 163 tokens. Nothing is inherited, every refusing
@@ -280,6 +270,24 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S12. The host: a reply that never arrived left the request pending
+- **Kind:** code gap. **Closed** 2026-11-05 in `f79f085` (runtime); gap test flipped by lang in `96667ab`
+  (the two-commit rule for a runtime-only gap); the page states each endpoint's deadline in `43362dd`.
+- **Was:** HttpNet's 2 s transport timeout became the `fail` call, but a reply that never reached the host
+  (a dropped reply, a crash after flush), or one the module refused, left the request pending forever.
+- **Decided by** F7 (every effect recorded, so replay covers it): a request that no ok call to its endpoint's
+  reply or fail definition has answered within `timeout N` (a new optional clause on the `.host` line,
+  default 300 s) gets its `fail` call once, as an ordinary logged call. The deadline is measured on the
+  recorded clock, checked after each call, so it is deterministic and reads no extra clock. A refused reply
+  doesn't answer, so it times out too.
+- **Evidence:** `s12_a_request_with_no_reply_times_out_into_a_call` passes as an ordinary test and asserts the
+  timeout fires exactly once. Hostile network, 1,000 runs, timeout 20: 0 accounts pending once every deadline
+  has passed (was 1,952 stuck), 0 faults, 0 replay mismatches. The tester (`c4bd8f9`): a deadline fires once and
+  not early, a manual answer suppresses it, a late reply is Stale, replay matches, `timeout 0`/`-1`/`x` is
+  refused. No golden, digest or build hash changed. HOST.md and GUIDE.md (`FILE.host`) describe it.
+- **What remains:** an idle `serve` fires a deadline only at its next call (no timer). At-least-once
+  delivery stays the output contract; whether receivers must deduplicate is a decision, not a test.
 
 ### S5, records (first cut: record-typed parameters; one row of S5)
 - **Kind:** code gap. **Closed** 2026-11-05 in `b18367a`, under delegation (.party/DECISIONS.md, 2026-11-05,
