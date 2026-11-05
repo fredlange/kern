@@ -393,6 +393,9 @@ fn s5_a_constant_name_reads_one_way() {
     }
     let e = parse_module("handler rand.below n:Int -> Int\n  ensure result >= 0\n\nconst rand 5\n", true).unwrap_err();
     assert!(e.0.contains("handler's root"), "{}", e.0);
+    // a sum with a compound bound says so too
+    let e = kern::syntax::parse_expr("sum j from lo to lo + 3 of 1", None).unwrap_err();
+    assert!(e.0.contains("parenthesise a compound one"), "{}", e.0);
     // a loop with a compound bound says the same as the ensure form
     let e = parse_module("state hold Int\n\nf lo:Int\nbody\n  for k from lo to lo + 3\n    hold.set k 1\n", true).unwrap_err();
     assert!(e.0.contains("parenthesise a compound one"), "{}", e.0);

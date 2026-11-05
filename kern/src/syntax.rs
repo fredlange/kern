@@ -497,8 +497,14 @@ impl ExprParser {
         }
         self.word("from")?;
         let lo = self.atom()?;
+        if !self.peek_name("to") {
+            return Err(self.err("`sum j from A to B of E`: each bound is one atom, so parenthesise a compound one: `to (lo + n)`".into()));
+        }
         self.word("to")?;
         let hi = self.atom()?;
+        if !self.peek_name("of") {
+            return Err(self.err("`sum j from A to B of E`: each bound is one atom, so parenthesise a compound one: `to (lo + n)`".into()));
+        }
         self.word("of")?;
         let body = self.sum()?;
         let cond = if self.peek_name("where") {
