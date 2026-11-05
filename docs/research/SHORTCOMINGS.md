@@ -245,6 +245,19 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Next:** none planned. Each needs a merge of after-states, which is the same machinery as S16's
   path merging.
 
+### S20. Integers have three widths: prover, interpreter and host store disagree at the edges
+- **Kind:** code gap. **Weakens:** F5 (a ✔ the host can break) and F7 (replay). Found 2026-11-05 by the tester
+  (.party/notes/tester.md, `#PIJSU5HEBM`), while testing the host's record parameters; not records-specific.
+- **Evidence:** the prover reasons over unbounded integers, the interpreter computes in i128, the host's SQLite
+  store keeps i64. A call with `x = i64::MAX` that writes key `x + 1` succeeds, the store records key 0, and
+  replay computes 2^63: `kern host replay` reports "state differs" (same via `repl`). Also over HTTP, `1.5` for
+  an `Int` parameter is accepted and truncated, not refused with 400. Integer literals past i64
+  (`99999999999999999999999`) parse; what the interpreter does with them is not yet probed.
+- **Fixed when:** one integer range for every path, either refused at the boundary (host input, literals)
+  or carried through, with a gap test in `kern/tests/shortcomings.rs` (not written yet). Until then the host,
+  not the interpreter, is wrong (AGENTS.md).
+- **Next:** not in this quest's list; raised to runtime (host boundary) and lang (literals).
+
 ## Closed
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
