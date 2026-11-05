@@ -31,7 +31,7 @@ body
 
 ### Expressions
 
-- **Operands:** integers, names, and juxtaposition application `f a b`. Arguments are atoms,
+- **Operands:** integers (literals fit in i64), names, and juxtaposition application `f a b`. Arguments are atoms,
   so parenthesise anything compound: `Insufficient (amount - have)`.
 - **Arithmetic:** `+ - * /`. `*` needs a literal on one side; `/` needs a positive literal
   on the right (floor division).

@@ -358,7 +358,9 @@ pub fn lex(s: &str, line: Option<usize>) -> PResult<Vec<Tok>> {
             let text: String = chars[start..p].iter().collect();
             let n: Int = text
                 .parse()
-                .map_err(|_| ParseError::at(format!("integer {} is too large", text), line))?;
+                .ok()
+                .filter(|n| in_range(*n))
+                .ok_or_else(|| ParseError::at(out_of_range(&text), line))?;
             toks.push(Tok::Int(n));
         } else if is_name_start(c) {
             let start = p;
@@ -713,8 +715,22 @@ fn map_item() -> &'static Regex {
     re(&R, r"^([a-z]\w*)\.([A-Z]\w*|-?\d+):(-?\d+)$")
 }
 
+/// Kern's Int is i64 at run time (the host's store, `kern build` programs), so a literal outside it is refused
+/// where it is written, not wrapped or widened later (SHORTCOMINGS S20).
+pub fn in_range(n: Int) -> bool {
+    (i64::MIN as Int..=i64::MAX as Int).contains(&n)
+}
+
+fn out_of_range(text: &str) -> String {
+    format!("integer {} is outside Int's range ({} to {})", text, i64::MIN, i64::MAX)
+}
+
 fn int(s: &str, line: Option<usize>) -> PResult<Int> {
-    s.parse().map_err(|_| ParseError::at(format!("bad integer {}", repr_str(s)), line))
+    let n: Int = s.parse().map_err(|_| ParseError::at(format!("bad integer {}", repr_str(s)), line))?;
+    if !in_range(n) {
+        return Err(ParseError::at(out_of_range(s), line));
+    }
+    Ok(n)
 }
 
 pub type Maps = IndexMap<String, IndexMap<Key, Int>>;
@@ -800,7 +816,11 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
     for a in &call[1..] {
         let digits = a.trim_start_matches('-');
         if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
-            args.push(Key::Int(a.parse().map_err(|_| usage())?));
+            let n: Int = a.parse().map_err(|_| usage())?;
+            if !in_range(n) {
+                return Err(ParseError::at(out_of_range(a), line));
+            }
+            args.push(Key::Int(n));
         } else {
             args.push(Key::Str(a.to_string()));
         }
@@ -811,6 +831,9 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
     } else {
         let Some((ctor, rest)) = out.split_first() else { return Err(usage()) };
         let vals: Result<Vec<Int>, _> = rest.iter().map(|x| x.parse::<Int>()).collect();
+        if let Some(x) = vals.as_ref().ok().and_then(|v| v.iter().zip(rest).find(|(n, _)| !in_range(**n))) {
+            return Err(ParseError::at(out_of_range(x.1), line));
+        }
         Outcome::Fail(ctor.to_string(), vals.map_err(|_| usage())?)
     };
     let (after_src, after_maps) = if parts.len() == 3 { split_maps(parts[2])? } else { (String::new(), Maps::new()) };

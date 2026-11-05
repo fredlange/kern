@@ -1124,6 +1124,37 @@ fn s21_a_huge_bound_ends_as_a_fault_in_the_host_and_the_compiled_program() {
 }
 
 // =====================================================================================
+// S20 (lang's half). Integer literals: one range, i64, refused where they are written
+// =====================================================================================
+
+#[test]
+fn s20_an_integer_literal_outside_i64_is_refused_where_it_is_written() {
+    // the host's store and `kern build` programs are i64 (runtime's half: values at the host boundary); a literal
+    // past it used to parse and run in the interpreter's i128
+    let big = "99999999999999999999999";
+    let max = i64::MAX.to_string();
+    let over = (i64::MAX as i128 + 1).to_string();
+    let body = |lit: &str| format!("state hold Int\n\nput k:Int\n  ok otherwise\nbody\n  hold.set k {lit}\n");
+    for lit in [big, over.as_str()] {
+        let e = parse_module(&body(lit), true).unwrap_err();
+        assert!(e.0.contains("outside Int's range"), "{lit}: {}", e.0);
+        let e = parse_module(&format!("const c {lit}\n"), true).unwrap_err();
+        assert!(e.0.contains("outside Int's range"), "const {lit}: {}", e.0);
+        for eg in [format!("| put {lit} -> ok"), format!("hold.1:{lit} | put 1 -> ok"), format!("| put 1 -> Bad {lit}")] {
+            let src = body("1").replace("  ok otherwise\n", &format!("  ok otherwise\n  eg {eg}\n"));
+            let e = parse_module(&src, true).unwrap_err();
+            assert!(e.0.contains("outside Int's range"), "eg {eg}: {}", e.0);
+        }
+    }
+    // the largest i64 is a literal like any other
+    assert!(must_parse_and_check(&body(&max)));
+}
+
+fn must_parse_and_check(src: &str) -> bool {
+    analyse(&parse(src), false, None, None).is_ok()
+}
+
+// =====================================================================================
 // S12. The host: a request with no reply stays pending forever
 // =====================================================================================
 

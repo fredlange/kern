@@ -188,7 +188,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   and checked at parameter keys only; a computed-key write makes it unknown).
 - `need as C args` / `emit as C args` expand a callee's spec at parse time; only right when
   the callee runs first (otherwise the prover refutes it and the caller restates).
-- Arithmetic is linear: `*` needs a literal on one side, `/` a positive literal on the right.
+- Arithmetic is linear: `*` needs a literal on one side, `/` a positive literal on the right. Int is i64 at run time
+  (host store, `kern build`); a literal, `const` or `eg` value outside i64 is a parse error (S20). The interpreter
+  computes in i128 and the prover over unbounded integers, so an i64 overflow in the middle of a call is a run-time fault.
 - Types: `Int`, `Account` and record parameters (plus internal Owner/Bool/Event/Unit). Return values only for
   total functions (`-> Int`, set `result`) that may read state and the clock but write nothing; specs may call
   them (modularly: uninterpreted over their arguments and the state they read, + their ensures). Recursion is rejected (no termination measures yet).
