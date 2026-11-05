@@ -490,6 +490,8 @@ state due Int
 
 count_overdue lo:Int hi:Int -> Int
   ensure result = sum k from lo to hi of 1 where status.get k = 1 and due.get k < clock.now
+  ensure result >= 0
+  ensure result <= hi - lo when hi >= lo
 body
   result = sum k from lo to hi of 1 where status.get k = 1 and due.get k < clock.now
 ";
@@ -580,8 +582,10 @@ fn s6_sum_verdicts_agree_with_the_interpreter() {
         .flat_map(|bf| tweaks.iter().map(move |t| (bf, t)))
         .enumerate()
     {
+        // the sum lemma's claims (#IHGVAGXX6Q): right for a 0/1 term, wrong for others; they don't depend on t
+        let bounds = if t.is_empty() { "\n  ensure result >= 0\n  ensure result <= hi - lo when hi >= lo" } else { "" };
         let src = format!(
-            "state hold Int\n\nf lo:Int hi:Int -> Int\n  ensure result = (sum j from lo to hi of {b}{f}){t}\nbody\n  result = sum j from lo to hi of {b}{f}\n\nsweep pool:Account lo:Int hi:Int\n  ok otherwise\n  ensure ledger.balance' pool = ledger.balance pool + (sum j from lo to hi of {b}{f}){t}\nbody\n  for k from lo to hi\n    invariant ledger.balance' pool = ledger.balance pool + (sum j from lo to k of {b}{f})\n    ledger.credit pool (sum j from k to (k + 1) of {b}{f})\n"
+            "state hold Int\n\nf lo:Int hi:Int -> Int\n  ensure result = (sum j from lo to hi of {b}{f}){t}{bounds}\nbody\n  result = sum j from lo to hi of {b}{f}\n\nsweep pool:Account lo:Int hi:Int\n  ok otherwise\n  ensure ledger.balance' pool = ledger.balance pool + (sum j from lo to hi of {b}{f}){t}\nbody\n  for k from lo to hi\n    invariant ledger.balance' pool = ledger.balance pool + (sum j from lo to k of {b}{f})\n    ledger.credit pool (sum j from k to (k + 1) of {b}{f})\n"
         );
         let defs = parse_module(&src, true).unwrap_or_else(|e| panic!("{n}: {}\n{src}", e.0));
         let reps = analyse(&defs, false, None, None).unwrap_or_else(|e| panic!("{n}: {}\n{src}", e.message()));

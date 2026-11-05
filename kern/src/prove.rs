@@ -284,7 +284,45 @@ pub struct Prover<'m> {
     /// record them; the oracle needs them to replay a witness in a module with handlers (not in the report).
     pub witness_draws: IndexMap<String, Vec<Int>>,
     /// one recursive function per distinct sum (its text, the names it reads, whether it sees an after-state)
-    sums: IndexMap<String, z3::RecFuncDecl>,
+    sums: IndexMap<String, (z3::RecFuncDecl, Option<Int>, Option<Int>)>,
+}
+
+/// Bounds [lo, hi] (None = unbounded) of an Int term over every environment and state: interval arithmetic on its
+/// syntax, so a sum's lemma holds wherever it is applied. Reads, names and calls are unbounded.
+fn term_bounds(e: &Expr) -> (Option<Int>, Option<Int>) {
+    let both = |a: Option<Int>, b: Option<Int>, f: fn(Int, Int) -> Option<Int>| match (a, b) {
+        (Some(x), Some(y)) => f(x, y),
+        _ => None,
+    };
+    match e {
+        Expr::Int(n) => (Some(*n), Some(*n)),
+        Expr::Bin("+", l, r) => {
+            let ((a, b), (c, d)) = (term_bounds(l), term_bounds(r));
+            (both(a, c, |x, y| x.checked_add(y)), both(b, d, |x, y| x.checked_add(y)))
+        }
+        Expr::Bin("-", l, r) => {
+            let ((a, b), (c, d)) = (term_bounds(l), term_bounds(r));
+            (both(a, d, |x, y| x.checked_sub(y)), both(b, c, |x, y| x.checked_sub(y)))
+        }
+        Expr::Bin("*", l, r) => {
+            let (k, x) = match (&**l, &**r) {
+                (Expr::Int(k), x) | (x, Expr::Int(k)) => (*k, x),
+                _ => return (None, None),
+            };
+            let (a, b) = term_bounds(x);
+            let (a, b) = (a.and_then(|v| v.checked_mul(k)), b.and_then(|v| v.checked_mul(k)));
+            if k >= 0 { (a, b) } else { (b, a) }
+        }
+        Expr::Bin("/", l, r) => match &**r {
+            // floor division by a positive literal is monotone
+            Expr::Int(k) if *k > 0 => {
+                let (a, b) = term_bounds(l);
+                (a.map(|v| v.div_euclid(*k)), b.map(|v| v.div_euclid(*k)))
+            }
+            _ => (None, None),
+        },
+        _ => (None, None),
+    }
 }
 
 /// A state's parts as function arguments: balances, owners, total, now, then each state map in declaration order.
@@ -461,7 +499,24 @@ impl<'m> Prover<'m> {
                 formals.extend(state_args(fp));
             }
             let f = zz::rec_sum(&p, &formals, &flo, &fhi, &step);
-            self.sums.insert(key.clone(), f);
+            // each term's bounds over every environment and state: interval arithmetic on the syntax (a filtered
+            // term can also be 0), then a validity check of `step >= 0` / `step <= 0` where that is stronger
+            let (mut m, mut big_m) = term_bounds(body);
+            if cond.is_some() {
+                (m, big_m) = (m.map(|x| x.min(0)), big_m.map(|x| x.max(0)));
+            }
+            let valid = |claim: Bool| {
+                let solver = zz::solver();
+                solver.assert(&zz::not(&claim));
+                zz::check(&solver) == zz::Check::Unsat
+            };
+            if m.map_or(true, |x| x < 0) && valid(zz::ge(&step, &zz::val(0))) {
+                m = Some(0);
+            }
+            if big_m.map_or(true, |x| x > 0) && valid(zz::le(&step, &zz::val(0))) {
+                big_m = Some(0);
+            }
+            self.sums.insert(key.clone(), (f, m, big_m));
         }
         let mut args: Vec<Dynamic> = free.iter().map(|v| value(&env[v])).collect();
         args.extend(state_args(cur));
@@ -470,7 +525,19 @@ impl<'m> Prover<'m> {
         }
         args.push(Dynamic::from(lo.clone()));
         args.push(Dynamic::from(hi.clone()));
-        zz::apply_rec(&self.sums[&key], &args)
+        let (f, m, big_m) = &self.sums[&key];
+        let (m, big_m) = (*m, *big_m);
+        let total = zz::apply_rec(f, &args);
+        // a sum lemma, as ground facts at this application (no induction needed): each term lies in [m, M] for
+        // every environment and state, so the n = max(0, hi - lo) terms sum to [m*n, M*n]
+        let n = zz::ite(&zz::gt(hi, lo), &zz::sub(hi, lo), &zz::val(0));
+        if let Some(m) = m {
+            self.pc.borrow_mut().push(zz::ge(&total, &zz::mul(&zz::val(m), &n)));
+        }
+        if let Some(big_m) = big_m {
+            self.pc.borrow_mut().push(zz::le(&total, &zz::mul(&zz::val(big_m), &n)));
+        }
+        total
     }
 
     /// Python `sev` at statement level, where the call may change the state (a write, an emit, a callee).

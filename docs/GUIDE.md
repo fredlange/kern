@@ -102,7 +102,10 @@ body
 
 A sum (`sum j from A to B of E`) is proven through a Z3 recursive function, so a loop invariant like
 `ledger.balance' pool = ledger.balance pool + sum j from lo to k of hold.get j` is kept by one unfolding per
-step. After a write, a body `need` that sums over state isn't lifted into the pre-state (no `body need` line).
+step. Each application of a sum also gets its bounds: if every term lies in [m, M] whatever the state (interval
+arithmetic on the term, or a Z3 check of `term >= 0` / `term <= 0`, filter included), the sum lies in
+[m·n, M·n] with n = max(0, B − A). So a count is between 0 and B − A, and a sum of non-negative terms is
+non-negative, without induction. After a write, a body `need` that sums over state isn't lifted into the pre-state (no `body need` line).
 
 A record type in the header adds a line `  record Name f:Type …` to every view (a caller needs the fields to build
 one). The checker flattens a record parameter `p:Point` into `p.x`, `p.y` at load time, so `eg` lines,
