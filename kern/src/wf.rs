@@ -13,7 +13,7 @@ use crate::infer::{called_names, callees, uses};
 use crate::run::{assumed_op, channel_op, is_handler, state_op};
 use crate::syntax::{code, flat, Def, Emit, Expr, Module, Need, ParseError, Stmt};
 
-pub const PARAM_TYPES: [&str; 2] = ["Int", "Account"];
+pub const PARAM_TYPES: [&str; 3] = ["Int", "Account", "Text"];
 const ANY: &str = "Any";
 
 /// handler -> (argument types, result type)
@@ -77,10 +77,13 @@ impl<'a> Checker<'a> {
     fn ty(&mut self, e: &Expr, scope: &Scope, place: &str, spec: bool, primed_ok: bool, wild_ok: bool) -> String {
         match e {
             Expr::Int(_) => "Int".into(),
+            Expr::Text(_) => "Text".into(),
             Expr::Bin(op, l, r) => {
                 let lt = self.ty(l, scope, place, spec, primed_ok, false);
                 let rt = self.ty(r, scope, place, spec, primed_ok, false);
                 match *op {
+                    // `+` on two Texts joins them
+                    "+" if lt == "Text" || rt == "Text" => self.need_types(place, op, &[&lt, &rt], &["Text", "Text"], "Text"),
                     "+" | "-" => self.need_types(place, op, &[&lt, &rt], &["Int", "Int"], "Int"),
                     "*" | "/" => {
                         // linear arithmetic only, so the prover stays decidable
@@ -198,10 +201,12 @@ impl<'a> Checker<'a> {
             } else if channel_op(defs, name).is_some() {
                 (vec!["Event".into()], "Unit")
             } else if let Some((_, op, kt)) = st {
+                // a state's values are Int, or Text when declared `-> Text`
+                let vt = if defs.text_states.iter().any(|x| Some(x.as_str()) == st.map(|s| s.0)) { "Text" } else { "Int" };
                 if op == "get" {
-                    (vec![kt.to_string()], "Int")
+                    (vec![kt.to_string()], vt)
                 } else {
-                    (vec![kt.to_string(), "Int".into()], "Unit")
+                    (vec![kt.to_string(), vt.into()], "Unit")
                 }
             } else {
                 let (w, r) = sig(name).unwrap();
@@ -219,6 +224,10 @@ impl<'a> Checker<'a> {
             }
             let want: Vec<String> = callee.params.iter().map(|(_, t)| t.clone()).collect();
             return self.check_args(place, name, &want, &arg_types, if fn_ { "Int" } else { "Unit" });
+        }
+        if name == "length" {
+            // `length t`: the number of characters of a Text
+            return self.check_args(place, name, &["Text".to_string()], &arg_types, "Int");
         }
         if name == "distinct" {
             // `distinct a b c`: pairwise different
@@ -265,12 +274,18 @@ impl<'a> Checker<'a> {
         let mut params = Scope::new();
         for (p, t) in &d.params {
             if !PARAM_TYPES.contains(&t.as_str()) {
-                self.err("header", &format!("parameter type `{}` is not supported (Int, Account)", t));
+                self.err("header", &format!("parameter type `{}` is not supported (Int, Account, Text)", t));
             }
             if params.contains_key(p) {
                 self.err("header", &format!("parameter `{}` appears twice", p));
             }
             params.insert(p.clone(), if PARAM_TYPES.contains(&t.as_str()) { t.clone() } else { ANY.into() });
+            if p == "length" {
+                self.err("header", "`length` is built in (the length of a Text); name the parameter otherwise");
+            }
+        }
+        if d.name == "length" {
+            self.err("header", "`length` is built in (the length of a Text); name the definition otherwise");
         }
         if let Some(r) = &d.ret {
             if r != "Int" {
@@ -296,7 +311,9 @@ impl<'a> Checker<'a> {
             let t = self.ty(c, &params, &place, true, false, false);
             self.expect(&place, &t, "Bool");
             for a in args {
-                self.ty(a, &params, &place, true, false, false);
+                if self.ty(a, &params, &place, true, false, false) == "Text" {
+                    self.err(&place, &format!("failure payload `{}` is Text; payloads are Int or Account", code(a)));
+                }
             }
         }
         for c in &d.keeps {
@@ -424,6 +441,9 @@ impl<'a> Checker<'a> {
                         let t = self.ty(a, scope, &place, false, false, false);
                         if t == "Unit" {
                             self.err(&place, &format!("failure payload `{}` has no value (Unit)", code(a)));
+                        }
+                        if t == "Text" {
+                            self.err(&place, &format!("failure payload `{}` is Text; payloads are Int or Account", code(a)));
                         }
                     }
                 }

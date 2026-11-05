@@ -100,6 +100,11 @@ body
 | `spec` | + need, keep, ensure, emit, own `body need` lines, proof status | 77 tokens |
 | `editor` | own full definition + the `spec` view of each callee (never callee bodies) | 251 tokens |
 
+Text (`t:Text`, `state title Int -> Text`, `"…"`, `length`, `+`) is proven with Z3's strings. In `eg` lines,
+counterexamples and `kern run` a Text is quoted (`name_it 1 "a b"`, `title.1:"a b"`), so a literal may hold
+spaces and `|`. Random tests draw Text from a small pool (`""`, `"a"`, `"ab"`, `"hello world"`, `"Ω"`).
+`kern build` and the host's store don't carry Text yet (runtime's follow-up).
+
 A sum (`sum j from A to B of E`) is proven through a Z3 recursive function, so a loop invariant like
 `ledger.balance' pool = ledger.balance pool + sum j from lo to k of hold.get j` is kept by one unfolding per
 step. Each application of a sum also gets its bounds: if every term lies in [m, M] whatever the state (interval

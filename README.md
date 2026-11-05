@@ -176,8 +176,8 @@ approximate.
 - **One author, one model family.** The same agent wrote the Kern, TypeScript and Go versions, in
   a ledger domain that suits Kern. C2's "cold" authors were the same model family that designed
   Kern.
-- **A small language.** Parameters are `Int`, `Account` or records of those; records can't yet be
-  stored in state or returned. There is no text. Loops are bounded and can't be nested. The ledger, clock and audit
+- **A small language.** Parameters are `Int`, `Account`, `Text` or records of those; records can't yet be
+  stored in state or returned. Text has only `=`, `length` and `+`. Loops are bounded and can't be nested. The ledger, clock and audit
   handlers are built in.
 
 Every known shortcoming, with its evidence and what would count as fixing it, is in
@@ -200,7 +200,7 @@ Kern is one Rust binary, `kern` (about 12,500 lines), with Z3 as the prover. It 
 `cargo test --workspace --release` runs 285 tests: an adversarial test suite per design
 fundamental, golden outputs, the toolchain's own checks, and a gap test for each known shortcoming.
 
-What's next: `match`, text, sums, and the central experiment: the same tasks done in editor view
+What's next: `match`, nested loops, and the central experiment: the same tasks done in editor view
 versus full source, measuring tokens, task success and how often the agent breaks a guarantee it
 never read.
 

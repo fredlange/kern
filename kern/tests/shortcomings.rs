@@ -195,7 +195,7 @@ fn s5_a_record_is_read_by_field_or_passed_whole() {
     for (src, want) in [
         ("record Int a:Int\n", "built-in type"),
         ("record P get:Int\n", "can't be named get"),
-        ("record P a:Q\n", "must be Int or Account"),
+        ("record P a:Q\n", "must be Int, Account or Text"),
     ] {
         assert!(parse_module(src, true).unwrap_err().0.contains(want), "{src}");
     }
@@ -228,12 +228,11 @@ fn s5_a_record_from_another_module_needs_an_import() {
 }
 
 #[test]
-#[should_panic(expected = "gap S5 text:")]
 fn s5_text_checks() {
-    // gap (S5): no text. examples/random-portal stores joke ids, not jokes. placeholder: `Text`, `length`
+    // closed (S5): `Text`, `"…"`, `length`, `+` joins, `state NAME KEY -> Text` (DECISIONS.md, 2026-11-05, Text)
     must_check(
         "gap S5 text",
-        "state title Text
+        "state title Int -> Text
 
 name_it slot:Int t:Text
   need length t > 0 else Empty
@@ -632,6 +631,138 @@ fn s6_sum_verdicts_agree_with_the_interpreter() {
     assert!(proven > 60 && refuted > 30, "proven {proven}, refuted {refuted}: the set must exercise both");
     // every goal here is decidable: an undecided one found a bug once (a free `lo` and the lower bound shared a Z3
     // name, so the sum read its bound as `lo`)
+    assert_eq!(other, 0, "undecided goals (listed above)");
+}
+
+const TEXT_SRC: &str = "state title Int -> Text
+channel console
+
+name_it slot:Int t:Text
+  need length t > 0 else Empty
+  ok otherwise
+  ensure title.get' slot = t
+  eg | name_it 1 \"hello | world\" -> ok | title.1:\"hello | world\"
+  eg title.1:\"old\" | name_it 1 \"\" -> Empty
+body
+  title.set slot t
+
+greet k:Int name:Text
+  need length name <= 20 else TooLong
+  ok otherwise
+  ensure title.get' k = \"Hi \" + name
+  ensure length (title.get' k) = length name + 3
+  emit console Line (\"Hi \" + name)
+body
+  msg = \"Hi \" + name
+  title.set k msg
+  console.emit (Line msg)
+
+clear lo:Int hi:Int
+  ok otherwise
+  ensure title.get' j = \"\" for j from lo to hi
+body
+  for k from lo to hi
+    invariant title.get' j = \"\" for j from lo to k
+    title.set k \"\"
+";
+
+#[test]
+fn s5_text_proves_joins_lengths_loops_and_events_and_keeps_its_source() {
+    must_check("text", TEXT_SRC);
+    let defs = parse(TEXT_SRC);
+    // a literal with `|` and spaces is one argument, in source, eg lines and views
+    let ex = &defs.defs["name_it"].examples[0];
+    assert_eq!(ex.call.1, [Key::Int(1), Key::Str("hello | world".into())]);
+    assert_eq!(ex.after_texts["title"][&Key::Int(1)], "hello | world");
+    let view = views::editor(&reports(&defs), "name_it", &defs.defs.keys().map(|k| (k.clone(), why::Status::default())).collect());
+    assert!(view.contains("eg | name_it 1 \"hello | world\" -> ok | title.1:\"hello | world\""), "{view}");
+    assert!(views::spec(&reports(&defs)["greet"], &why::Status::default()).contains("ensure title.get' k = \"Hi \" + name"));
+}
+
+#[test]
+fn s5_a_wrong_text_claim_is_refuted_by_an_eg_that_replays() {
+    // F8 for Text: the counterexample quotes Text arguments and entries, so it parses back to the same call
+    let src = "state title Int -> Text\n\nwrong k:Int name:Text\n  ok otherwise\n  ensure title.get' k = name\nbody\n  title.set k (name + \"!\")\n";
+    let defs = parse(src);
+    let reps = reports(&defs);
+    let g = &reps["wrong"].guarantees.iter().find(|g| g.kind == "ensure").unwrap();
+    assert_eq!(g.status, kern::report::Status::Refuted);
+    let cx = g.counterexample.clone().unwrap();
+    assert!(cx.confirmed_by_interpreter, "{}", cx.eg);
+    let mut d = defs.defs["wrong"].clone();
+    d.examples = vec![kern::syntax::parse_example(cx.eg.trim_start_matches("eg").trim(), None).unwrap()];
+    assert!(kern::check::run_examples(&defs, &d).unwrap()[0].pass, "{}", cx.eg);
+}
+
+#[test]
+fn s5_text_is_typed_apart_from_int_and_account() {
+    let head = "state title Int -> Text\nstate n Int\n\n";
+    for (def, want) in [
+        ("f t:Text\n  ensure 1 = 1\nbody\n  x = t + 1\n", "needs Text and Text"),
+        ("f t:Text\n  ensure 1 = 1\nbody\n  n.set 1 t\n", "must be Int"),
+        ("f k:Int\n  ensure 1 = 1\nbody\n  title.set k 5\n", "must be Text"),
+        ("f t:Text\n  ensure 1 = 1\nbody\n  need t < \"b\" else Bad\n", "needs Int and Int"),
+        ("f t:Text\n  ensure 1 = 1\nbody\n  need length t > 0 else Bad t\n", "payload"),
+        ("f k:Int\n  ensure 1 = 1\nbody\n  x = length k\n", "must be Text"),
+        ("length k:Int\n  ensure 1 = 1\nbody\n  x = k\n", "`length` is built in"),
+    ] {
+        let defs = parse_module(&format!("{head}{def}"), true).unwrap();
+        let e = analyse(&defs, false, None, None).unwrap_err().message();
+        assert!(e.contains(want), "{def}: {e}");
+    }
+    // a refusal payload in an eg is Int only
+    let e = parse_module("f t:Text\n  ensure 1 = 1\n  eg | f \"a\" -> Bad \"x\"\nbody\n  x = t\n", true).unwrap_err();
+    assert!(e.0.contains("payload is Int only"), "{}", e.0);
+}
+
+#[test]
+fn s5_text_verdicts_agree_with_the_interpreter() {
+    // the floor for Text (neither the fuzzer nor the digests generate it): seeded programs whose claims are right
+    // or slightly wrong; a ✔ with a random-test violation, a ✗ that doesn't replay, or an undecided goal fails
+    let values = ["t", "t + \"!\"", "\"x\" + t", "t + t", "\"\"", "u + t"];
+    let claims = [
+        ("title.get' k = {v}", true),
+        ("title.get' k = t", false),
+        ("length (title.get' k) = length ({v})", true),
+        ("length (title.get' k) >= length t", false),
+        ("length (title.get' k) <= length t + length u + 1", false),
+        ("title.get' k != \"zz\" when length t < 2 and length u < 2", false),
+        ("title.get' k = u + t", false),
+        ("length (title.get' k) < 4", false),
+    ];
+    let (mut proven, mut refuted, mut other) = (0, 0, 0);
+    for (n, v) in values.iter().enumerate() {
+        let ensures: String = claims.iter().map(|(c, _)| format!("  ensure {}\n", c.replace("{v}", v))).collect();
+        let src = format!(
+            "state title Int -> Text\n\nput k:Int t:Text u:Text\n  ok otherwise\n{ensures}body\n  title.set k ({v})\n\nstore k:Int t:Text u:Text\n  ok otherwise\n  ensure title.get' k = {v}\nbody\n  title.set k ({v})\n\nkeep_other k:Int j:Int t:Text u:Text\n  need j != k else Same\n  ok otherwise\n  ensure title.get' j = title.get j\n  ensure title.get' k = {v}\nbody\n  store k t u\n"
+        );
+        let defs = parse_module(&src, true).unwrap_or_else(|e| panic!("{n}: {}\n{src}", e.0));
+        let reps = analyse(&defs, false, None, None).unwrap_or_else(|e| panic!("{n}: {}\n{src}", e.message()));
+        for r in reps.values() {
+            for g in &r.guarantees {
+                match g.status {
+                    kern::report::Status::Proven => {
+                        proven += 1;
+                        let broke = r.props.violations.iter().any(|x| match x {
+                            kern::report::Violation::Clause { clause, .. } => *clause == format!("{} {}", g.kind, g.clause),
+                            _ => true,
+                        });
+                        assert!(!broke, "{n}: proven, but random tests broke it:\n{src}\n{:?}", r.props.violations)
+                    }
+                    kern::report::Status::Refuted => {
+                        refuted += 1;
+                        assert!(g.counterexample.as_ref().unwrap().confirmed_by_interpreter, "{n}: unconfirmed ✗\n{src}")
+                    }
+                    _ => {
+                        other += 1;
+                        eprintln!("{n}: {:?} {} {}", g.status, g.kind, g.clause);
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("text programs: {proven} goals proven, {refuted} refuted, {other} other");
+    assert!(proven > 20 && refuted > 10, "proven {proven}, refuted {refuted}: the set must exercise both");
     assert_eq!(other, 0, "undecided goals (listed above)");
 }
 

@@ -12,7 +12,7 @@ body
   STATEMENTS                     how; callers never read this
 ```
 
-- **Parameter types:** `Int`, `Account` and declared records. A record parameter `p:Point` is read by field,
+- **Parameter types:** `Int`, `Account`, `Text` and declared records. A record parameter `p:Point` is read by field,
   `p.x`, or passed whole to a definition taking a Point (`move p`); build one only as a call argument,
   `move (Point a b)`. In `eg` lines its fields are separate arguments, in order.
 - **`-> Int`** makes a function: it may read state and the clock but change nothing, it is
@@ -31,11 +31,13 @@ body
 
 ### Expressions
 
-- **Operands:** integers (literals fit in i64), names, and juxtaposition application `f a b`. Arguments are atoms,
+- **Operands:** integers (literals fit in i64), Text literals `"…"` (escape `\"` and `\\`), names, and
+  juxtaposition application `f a b`. Arguments are atoms,
   so parenthesise anything compound: `Insufficient (amount - have)`.
 - **Arithmetic:** `+ - * /`. `*` needs a literal on one side; `/` needs a positive literal
   on the right (floor division).
-- **Comparisons:** `= != < <= > >=`.
+- **Comparisons:** `= != < <= > >=` (Text: only `=` and `!=`).
+- **Text:** `length t` is its number of characters; `a + b` joins two Texts.
 - **Logic:** `and` binds tighter than `or`; `distinct a b c`.
 - **Sums:** `sum j from A to B of E [where C]` adds E for each j in [A, B) where C holds (bounds are
   atoms; E can't call definitions; no sum inside a sum). E runs to the next comparison; `where C` runs to the
@@ -56,8 +58,9 @@ body
 | declaration | gives you |
 |---|---|
 | `state NAME Int` or `state NAME Account` | a map to Int (default 0): `NAME.get k` (specs may read it), `NAME.set k v` |
+| `state NAME Int -> Text` (or `Account -> Text`) | a map to Text (default `""`) |
 | `invariant x:Type COND` | COND holds for every key, before and after every call. It may read state only at `x` |
-| `record Name f:Type …` | a record type: Int or Account fields. Views add its `record` line |
+| `record Name f:Type …` | a record type: Int, Account or Text fields. Views add its `record` line |
 | `const NAME N` | a named integer (N ≥ 0), usable wherever a literal is (`amount * rate` stays linear). Views add a `const NAME N` line |
 | `channel NAME` | another output stream: `NAME.emit (Ev …)` |
 | `handler a.b p:Int -> Int`, then `need` and `ensure` lines (no body) | an observation inside a call, such as `rand.below n`. Its spec is *assumed*: it may read only its arguments and `result`. Its `need`s are preconditions every call must meet. The host provides the value and checks the spec at runtime |
@@ -90,9 +93,9 @@ A refusal undoes the whole call, so guarantees only have to hold on success. Eff
 
 ### `eg` lines
 
-- **WORLD:** `A:500@u1` (account, balance, owner), `now:5`, and state such as `hold.7:100` or
-  `limit.A:300`.
-- **ARGS:** integers and account names.
+- **WORLD:** `A:500@u1` (account, balance, owner), `now:5`, and state such as `hold.7:100`,
+  `limit.A:300` or `title.1:"a b"`.
+- **ARGS:** integers, account names and Text literals.
 - **OUTCOME:** `ok`, or `Ctor ints` (for example `Insufficient 50`).
 - **AFTER:** only the items listed are compared, such as `A:400 hold.7:0`.
 

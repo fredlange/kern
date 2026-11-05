@@ -45,16 +45,13 @@ fn key_text(k: &Key) -> String {
     }
 }
 
-fn args_text(args: &[Value]) -> String {
-    args.iter().map(Value::str).collect::<Vec<_>>().join(" ")
-}
 
 /// d's `eg` lines, run in one interpreter (as Python does: its provider stream carries over).
 pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash> {
     let mut interp = Interp::new(defs);
     let mut out = vec![];
     for ex in &d.examples {
-        let mut w = World::from_example(&ex.world, ex.now, &ex.maps);
+        let mut w = World::from_example(&ex.world, ex.now, &ex.maps).with_texts(&ex.texts);
         let args: Vec<Value> = ex.call.1.iter().map(key_value).collect();
         let res = interp.run(&ex.call.0, &args, &mut w);
         let outcome = match res {
@@ -94,7 +91,8 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
             continue;
         }
         ok = ok
-            && ex.after_maps.iter().all(|(x, kv)| kv.iter().all(|(k, v)| w.maps.get(x).and_then(|m| m.get(k)).copied().unwrap_or(0) == *v));
+            && ex.after_maps.iter().all(|(x, kv)| kv.iter().all(|(k, v)| w.maps.get(x).and_then(|m| m.get(k)).copied().unwrap_or(0) == *v))
+            && ex.after_texts.iter().all(|(x, kv)| kv.iter().all(|(k, v)| w.text_get(x, k) == *v));
         let mut got = outcome.text();
         if same && !ok {
             // the outcome matched and the after-state didn't: say what the listed items were
@@ -103,6 +101,11 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
             for (x, kv) in &ex.after_maps {
                 for k in kv.keys() {
                     items.push(format!("{}.{}:{}", x, key_text(k), w.maps.get(x).and_then(|m| m.get(k)).copied().unwrap_or(0)));
+                }
+            }
+            for (x, kv) in &ex.after_texts {
+                for k in kv.keys() {
+                    items.push(format!("{}.{}:{}", x, key_text(k), crate::syntax::quote(&w.text_get(x, k))));
                 }
             }
             got = format!("{} | {}", got, items.join(" "));
@@ -122,11 +125,28 @@ fn same_args(xs: &[Value], ys: &[Int]) -> bool {
         })
 }
 
+/// The Text values random tests draw from (DECISIONS.md, Text): empty, short, with a space, non-ASCII.
+const TEXT_POOL: [&str; 6] = ["", "", "a", "ab", "hello world", "Ω"];
+
+/// An `eg` line's arguments: Text quoted, so the line parses back to the same call.
+fn call_text(d: &Def, args: &[Value]) -> String {
+    args.iter()
+        .zip(&d.params)
+        .map(|(a, (_, t))| match a {
+            Value::Str(v) if t == "Text" => crate::syntax::quote(v),
+            a => a.str(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn rand_args(d: &Def, accts: &[&str], rnd: &mut Random) -> Vec<Value> {
     let mut args = vec![];
     for (_, t) in &d.params {
         if t == "Account" {
             args.push(Value::Str(rnd.choice(accts).to_string()));
+        } else if t == "Text" {
+            args.push(Value::Str(rnd.choice(&TEXT_POOL).to_string()));
         } else {
             let opts = [rnd.randint(-5, 5), rnd.randint(0, 200), rnd.randint(0, 1200)];
             args.push(Value::Int(*rnd.choice(&opts) as Int));
@@ -163,6 +183,11 @@ pub fn proptest(defs: &Module, d: &Def, n: u64, seed: i128) -> Result<Props, Cra
                 (-5..6).map(|k| Key::Int(k)).collect()
             };
             let r = per_state.entry(x.clone()).or_insert_with(|| Random::from_str(&format!("{seed}:{x}")));
+            if defs.text_states.contains(x) {
+                let m: IndexMap<Key, String> = keys.into_iter().map(|k| (k, r.choice(&TEXT_POOL).to_string())).collect();
+                w.texts.insert(x.clone(), m);
+                continue;
+            }
             let mut m = IndexMap::new();
             for k in keys {
                 let big = r.randint(0, 300) as Int; // the list [0, 0, 1, randint] is built before the choice
@@ -210,9 +235,16 @@ pub fn proptest(defs: &Module, d: &Def, n: u64, seed: i128) -> Result<Props, Cra
                                 }
                             }
                         }
+                        for (x, kv) in &before.texts {
+                            for (k, v) in kv {
+                                if !v.is_empty() {
+                                    world += &format!(" {}.{}:{}", x, key_text(k), crate::syntax::quote(v));
+                                }
+                            }
+                        }
                         stats.violations.push(Violation::Clause {
                             clause: format!("{kind} {c}"),
-                            eg: format!("eg {} | {} {}", world, d.name, args_text(&args)),
+                            eg: format!("eg {} | {} {}", world, d.name, call_text(d, &args)),
                         });
                     }
                 }
@@ -223,7 +255,7 @@ pub fn proptest(defs: &Module, d: &Def, n: u64, seed: i128) -> Result<Props, Cra
                     let world = world_text(&before, &accts);
                     stats.violations.push(Violation::Clause {
                         clause: "ok otherwise".into(),
-                        eg: format!("eg {} | {} {} -> {}", world, d.name, args_text(&args), outcome.text()),
+                        eg: format!("eg {} | {} {} -> {}", world, d.name, call_text(d, &args), outcome.text()),
                     });
                 }
             }

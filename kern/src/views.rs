@@ -277,6 +277,7 @@ pub type Lets = IndexMap<String, Expr>;
 pub fn en(e: &Expr, lets: &Lets, tense: bool) -> String {
     match e {
         Expr::Int(n) => n.to_string(),
+        Expr::Text(t) => format!("<code>{}</code>", crate::render::escape(&crate::syntax::quote(t))),
         Expr::All(j, a, b, body) => format!(
             "for every <code>{}</code> from {} to {} (not included): {}",
             j,

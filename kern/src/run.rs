@@ -180,6 +180,10 @@ pub trait Store {
     fn total(&self) -> Int;
     /// a stored `state` cell (None: never written, which reads as 0)
     fn cell(&self, state: &str, key: &Key) -> Option<Int>;
+    /// a stored Text `state` cell (None: never written, which reads as ""); a store without Text keeps none
+    fn text_cell(&self, _state: &str, _key: &Key) -> Option<String> {
+        None
+    }
 }
 
 /// A shared handle on a Store; copies of a world (the call's snapshot) share it.
@@ -211,6 +215,8 @@ pub struct World {
     pub maps: IndexMap<String, IndexMap<Key, Int>>,
     /// declared channel -> events (`audit` stays in .audit)
     pub out: IndexMap<String, Vec<Value>>,
+    /// declared Text state -> {key: text}; missing keys are ""
+    pub texts: IndexMap<String, IndexMap<Key, String>>,
     pub backing: Option<Backing>,
 }
 
@@ -232,6 +238,23 @@ impl World {
             maps: maps.clone(),
             ..Default::default()
         }
+    }
+
+    /// The world with these Text state entries (an `eg` world's `title.1:"…"` items).
+    pub fn with_texts(mut self, texts: &crate::syntax::Texts) -> World {
+        self.texts = texts.clone();
+        self
+    }
+
+    pub fn text_get(&self, x: &str, k: &Key) -> String {
+        if let Some(v) = self.texts.get(x).and_then(|m| m.get(k)) {
+            return v.clone();
+        }
+        self.backing.as_ref().and_then(|b| b.0.text_cell(x, k)).unwrap_or_default()
+    }
+
+    pub fn text_set(&mut self, x: &str, k: Key, v: String) {
+        self.texts.entry(x.to_string()).or_default().insert(k, v);
     }
 
     pub fn events(&self, channel: &str) -> &[Value] {
@@ -311,6 +334,11 @@ impl World {
         keys.insert("Account".into(), self.bal.keys().map(|a| Key::Str(a.clone())).collect());
         keys.insert("Int".into(), IndexSet::new());
         for (x, m) in &self.maps {
+            if let Some(t) = states.get(x) {
+                keys.entry(t.clone()).or_default().extend(m.keys().cloned());
+            }
+        }
+        for (x, m) in &self.texts {
             if let Some(t) = states.get(x) {
                 keys.entry(t.clone()).or_default().extend(m.keys().cloned());
             }
@@ -497,6 +525,7 @@ impl<'m, 'p> Interp<'m, 'p> {
     pub fn ev(&mut self, e: &Expr, env: &Env, pre: &mut World, mut post: Option<&mut World>) -> SResult<Value> {
         match e {
             Expr::Int(n) => Ok(Value::Int(*n)),
+            Expr::Text(t) => Ok(Value::Str(t.clone())),
             Expr::All(j, a, b, body) => {
                 let lo = self.ev(a, env, pre, post.as_deref_mut())?;
                 let hi = self.ev(b, env, pre, post.as_deref_mut())?;
@@ -668,12 +697,18 @@ impl<'m, 'p> Interp<'m, 'p> {
                 world.acct(first)?;
             }
             let key = first.as_key().ok_or_else(|| RunError::Type(format!("unhashable type: '{}'", first.type_name())))?;
+            let text = defs.text_states.iter().any(|t| t == x);
             if op == "get" {
-                return Ok(Value::Int(world.map_get(x, &key)));
+                return Ok(if text { Value::Str(world.text_get(x, &key)) } else { Value::Int(world.map_get(x, &key)) });
             }
             let Some(v) = args.get(1) else {
                 return Err(RunError::Other("IndexError".into(), "list index out of range".into()).into());
             };
+            if text {
+                let Value::Str(t) = v else { return Err(RunError::Type(format!("state {} holds Text, got {}", x, v.repr())).into()) };
+                world.text_set(x, key, t.clone());
+                return Ok(Value::None);
+            }
             let v = v.num().ok_or_else(|| RunError::Type(format!("state {} holds Int, got {}", x, v.repr())))?;
             world.map_set(x, key, v);
             return Ok(Value::None);
@@ -683,6 +718,12 @@ impl<'m, 'p> Interp<'m, 'p> {
         }
         if name.chars().next().map_or(false, |c| c.is_uppercase()) {
             return Ok(Value::Ctor(name.to_string(), args)); // constructor value
+        }
+        if name == "length" {
+            return match args.first() {
+                Some(Value::Str(t)) => Ok(Value::Int(t.chars().count() as Int)),
+                other => Err(RunError::Type(format!("length of {}", other.map(Value::repr).unwrap_or_default())).into()),
+            };
         }
         if name == "distinct" {
             let mut uniq: Vec<&Value> = vec![];
@@ -853,6 +894,9 @@ impl<'m, 'p> Interp<'m, 'p> {
             }
             if t == "Int" && !matches!(a, Value::Int(_)) {
                 return kern(format!("bad call: `{}` must be an Int, got {}", p, a.repr()));
+            }
+            if t == "Text" && !matches!(a, Value::Str(_)) {
+                return kern(format!("bad call: `{}` must be a Text, got {}", p, a.repr()));
             }
         }
         let snap = world.clone();
@@ -1052,6 +1096,9 @@ fn floordiv(a: Int, b: Int) -> RResult<Int> {
 }
 
 fn binop(op: &str, a: &Value, b: &Value) -> RResult<Value> {
+    if let ("+", Value::Str(s), Value::Str(t)) = (op, a, b) {
+        return Ok(Value::Str(format!("{s}{t}"))); // Text + Text joins them
+    }
     let (x, y) = (a.num(), b.num());
     match op {
         "=" => return Ok(Value::Bool(a == b)),

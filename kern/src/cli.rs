@@ -169,6 +169,10 @@ pub fn run_line(outcome: &Outcome, after: &World) -> String {
         let maps = dict_repr(after.maps.iter(), |x| repr_str(x), |kv| dict_repr(kv.iter(), |k| key_repr(k), |v| v.to_string()));
         line.push_str(&format!(" state: {}", maps));
     }
+    if !after.texts.is_empty() {
+        let texts = dict_repr(after.texts.iter(), |x| repr_str(x), |kv| dict_repr(kv.iter(), |k| key_repr(k), |v| repr_str(v)));
+        line.push_str(&format!(" text: {}", texts));
+    }
     line
 }
 
@@ -245,29 +249,44 @@ pub fn main_with(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
                 let _ = writeln!(err, "error: `run` needs --world \"A:500@u1 ...\"");
                 return 2;
             };
-            let parsed = split_now(world)
-                .and_then(|(rest, now)| split_maps(&rest).map(|(rest, maps)| (rest, now, maps)))
-                .and_then(|(rest, now, maps)| parse_world(&rest, None).map(|w| (w, now, maps)));
-            let (w, now, maps) = match parsed {
-                Ok(x) => x,
-                Err(e) => {
-                    let _ = writeln!(err, "error: {}", e);
-                    return 2;
-                }
-            };
-            let mut world = World::from_example(&w, now, &maps);
             let call = a.name.clone().unwrap_or_default();
-            let mut parts = call.split_whitespace();
-            let name = parts.next().unwrap_or("").to_string();
-            let args: Vec<Value> = parts
-                .map(|x| {
-                    let digits = x.trim_start_matches('-');
-                    match x.parse::<crate::Int>() {
-                        Ok(n) if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) => Value::Int(n),
-                        _ => Value::Str(x.to_string()),
+            // Text in the call or the world: parse both as an `eg` line does (quote-aware)
+            let (mut world, name, args): (World, String, Vec<Value>) = if call.contains('"') || world.contains('"') {
+                match crate::syntax::parse_call(world, &call) {
+                    Ok(ex) => (
+                        World::from_example(&ex.world, ex.now, &ex.maps).with_texts(&ex.texts),
+                        ex.call.0.clone(),
+                        ex.call.1.iter().map(key_value).collect(),
+                    ),
+                    Err(e) => {
+                        let _ = writeln!(err, "error: {}", e);
+                        return 2;
                     }
-                })
-                .collect();
+                }
+            } else {
+                let parsed = split_now(world)
+                    .and_then(|(rest, now)| split_maps(&rest).map(|(rest, maps)| (rest, now, maps)))
+                    .and_then(|(rest, now, maps)| parse_world(&rest, None).map(|w| (w, now, maps)));
+                let (w, now, maps) = match parsed {
+                    Ok(x) => x,
+                    Err(e) => {
+                        let _ = writeln!(err, "error: {}", e);
+                        return 2;
+                    }
+                };
+                let mut parts = call.split_whitespace();
+                let name = parts.next().unwrap_or("").to_string();
+                let args: Vec<Value> = parts
+                    .map(|x| {
+                        let digits = x.trim_start_matches('-');
+                        match x.parse::<crate::Int>() {
+                            Ok(n) if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) => Value::Int(n),
+                            _ => Value::Str(x.to_string()),
+                        }
+                    })
+                    .collect();
+                (World::from_example(&w, now, &maps), name, args)
+            };
             let mut interp = Interp::new(&defs);
             match interp.run(&name, &args, &mut world) {
                 Ok(outcome) => {
@@ -404,4 +423,11 @@ fn check_view_baseline(a: &Args, defs: &crate::syntax::Module, whys: &IndexMap<S
 pub fn main(argv: &[String]) -> i32 {
     let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
     main_with(argv, &mut out, &mut err)
+}
+
+fn key_value(k: &Key) -> Value {
+    match k {
+        Key::Int(n) => Value::Int(*n),
+        Key::Str(s) => Value::Str(s.clone()),
+    }
 }

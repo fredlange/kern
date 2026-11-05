@@ -506,21 +506,31 @@ fn value_json(v: &V) -> Value {
 pub fn kern_run(file: &str, call: &str, world: &str) -> T<Value> {
     let (_, defs) = load(file)?;
     let pe = |e: crate::syntax::ParseError| ToolError("ParseError", e.0);
-    let (rest, now) = split_now(world).map_err(pe)?;
-    let (rest, maps) = split_maps(&rest).map_err(pe)?;
-    let mut w = World::from_example(&parse_world(&rest, None).map_err(pe)?, now, &maps);
-    let mut parts = call.split_whitespace();
-    let name = parts.next().unwrap_or("");
-    need_def(&defs, name)?;
-    let args: Vec<V> = parts
-        .map(|x| {
-            let digits = x.trim_start_matches('-');
-            match x.parse::<crate::Int>() {
-                Ok(n) if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) => V::Int(n),
-                _ => V::Str(x.to_string()),
-            }
-        })
-        .collect();
+    // Text in the call or the world: parse both as an `eg` line does (quote-aware)
+    let (mut w, name, args): (World, String, Vec<V>) = if call.contains('"') || world.contains('"') {
+        let ex = crate::syntax::parse_call(world, call).map_err(pe)?;
+        need_def(&defs, &ex.call.0)?;
+        let args: Vec<V> = ex.call.1.iter().map(|k| match k { Key::Int(n) => V::Int(*n), Key::Str(s) => V::Str(s.clone()) }).collect();
+        (World::from_example(&ex.world, ex.now, &ex.maps).with_texts(&ex.texts), ex.call.0.clone(), args)
+    } else {
+        let (rest, now) = split_now(world).map_err(pe)?;
+        let (rest, maps) = split_maps(&rest).map_err(pe)?;
+        let w = World::from_example(&parse_world(&rest, None).map_err(pe)?, now, &maps);
+        let mut parts = call.split_whitespace();
+        let name = parts.next().unwrap_or("");
+        need_def(&defs, name)?;
+        let args: Vec<V> = parts
+            .map(|x| {
+                let digits = x.trim_start_matches('-');
+                match x.parse::<crate::Int>() {
+                    Ok(n) if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) => V::Int(n),
+                    _ => V::Str(x.to_string()),
+                }
+            })
+            .collect();
+        (w, name.to_string(), args)
+    };
+    let name = name.as_str();
     let outcome = Interp::new(&defs).run(name, &args, &mut w).map_err(|e| ToolError("KernError", e.to_string()))?;
     let state: Map<String, Value> = w
         .maps
@@ -532,6 +542,11 @@ pub fn kern_run(file: &str, call: &str, world: &str) -> T<Value> {
                 .collect();
             (s.clone(), Value::Object(kv))
         })
+        .chain(w.texts.iter().map(|(s, m)| {
+            let kv: Map<String, Value> =
+                m.iter().map(|(k, v)| (match k { Key::Int(n) => n.to_string(), Key::Str(s) => s.clone() }, json!(v))).collect();
+            (s.clone(), Value::Object(kv))
+        }))
         .collect();
     Ok(json!({
         "outcome": match &outcome { Outcome::Ok => "ok".to_string(), o => o.text() },

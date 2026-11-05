@@ -23,6 +23,8 @@ use crate::Int;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Expr {
     Int(Int),
+    /// a Text literal `"…"`
+    Text(String),
     Name(String, bool),
     Bin(&'static str, Box<Expr>, Box<Expr>),
     App(String, bool, Vec<Expr>),
@@ -78,6 +80,9 @@ pub struct Example {
     pub now: Int,
     pub maps: IndexMap<String, IndexMap<Key, Int>>,
     pub after_maps: IndexMap<String, IndexMap<Key, Int>>,
+    /// Text state entries (`title.1:"hi"`), before and after
+    pub texts: Texts,
+    pub after_texts: Texts,
 }
 
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -124,6 +129,8 @@ pub struct Module {
     pub consts: IndexMap<String, Int>,
     /// `record NAME f:Type ...`: record-typed parameters are flattened to their fields at load time (`flatten_records`)
     pub records: IndexMap<String, Vec<(String, String)>>,
+    /// declared states whose values are Text (`state NAME KEY -> Text`); the others hold Int
+    pub text_states: Vec<String>,
     /// set by the package loader (kern/package.py's `defs.package`)
     pub package: Option<crate::package::Package>,
 }
@@ -169,6 +176,7 @@ impl Expr {
     pub fn to_py(&self) -> Py {
         match self {
             Expr::Int(n) => Py::Tuple(vec![Py::s("int"), Py::Int(*n)]),
+            Expr::Text(t) => Py::Tuple(vec![Py::s("text"), Py::s(t)]),
             Expr::Name(s, p) => Py::Tuple(vec![Py::s("name"), Py::s(s), Py::Bool(*p)]),
             Expr::Bin(op, l, r) => Py::Tuple(vec![Py::s("bin"), Py::s(op), l.to_py(), r.to_py()]),
             Expr::App(h, p, args) => Py::Tuple(vec![
@@ -306,6 +314,7 @@ impl Def {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tok {
     Int(Int),
+    Text(String),
     Name(String),
     Op(&'static str),
 }
@@ -328,6 +337,7 @@ fn tok_repr(t: Option<&Tok>) -> String {
     match t {
         None => "None".into(),
         Some(Tok::Int(n)) => n.to_string(),
+        Some(Tok::Text(t)) => quote(t),
         Some(Tok::Name(s)) => repr_str(s),
         Some(Tok::Op(s)) => repr_str(s),
     }
@@ -350,6 +360,25 @@ pub fn lex(s: &str, line: Option<usize>) -> PResult<Vec<Tok>> {
             p += 1;
         }
         let c = chars[p];
+        if c == HOLE {
+            // a literal the module parser took out of the line (`lift_texts`)
+            let start = p + 1;
+            p = start;
+            while p < chars.len() && chars[p] != HOLE {
+                p += 1;
+            }
+            let i: usize = chars[start..p].iter().collect::<String>().parse().unwrap_or(usize::MAX);
+            let t = LIFTED.with(|l| l.borrow().get(i).cloned());
+            toks.push(Tok::Text(t.ok_or_else(|| ParseError::at("bad text literal", line))?));
+            pos = p + 1;
+            continue;
+        }
+        if c == '"' {
+            let (t, end) = read_quoted(&chars, p).ok_or_else(|| ParseError::at("unterminated text literal", line))?;
+            toks.push(Tok::Text(t));
+            pos = end;
+            continue;
+        }
         if c.is_ascii_digit() {
             let start = p;
             while p < chars.len() && chars[p].is_ascii_digit() {
@@ -391,6 +420,89 @@ pub fn lex(s: &str, line: Option<usize>) -> PResult<Vec<Tok>> {
         pos = p;
     }
     Ok(toks)
+}
+
+/// Marks a lifted text literal inside a line: HOLE index HOLE (a character no source line contains).
+const HOLE: char = '\u{1}';
+
+thread_local! {
+    /// The text literals lift_texts took out of the lines of the module being parsed, by index.
+    static LIFTED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// `"…"` starting at chars[p]: its content (escapes `\"` and `\\`) and the index after the closing quote.
+fn read_quoted(chars: &[char], p: usize) -> Option<(String, usize)> {
+    let (mut out, mut i) = (String::new(), p + 1);
+    while i < chars.len() {
+        match chars[i] {
+            '"' => return Some((out, i + 1)),
+            '\\' if i + 1 < chars.len() && (chars[i + 1] == '"' || chars[i + 1] == '\\') => {
+                out.push(chars[i + 1]);
+                i += 2;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    None
+}
+
+/// A Text value as Kern source: quoted, with `"` and `\` escaped.
+pub fn quote(t: &str) -> String {
+    format!("\"{}\"", t.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Take every `"…"` out of a line, leaving a space-free placeholder, so the line-level splits (`else`, `when`, `|`,
+/// `->`, whitespace in `eg` lines) never look inside a literal. The lexer and the `eg` parser put them back.
+fn lift_texts(line: &str, no: Option<usize>) -> PResult<String> {
+    if !line.contains('"') {
+        return Ok(line.to_string());
+    }
+    let chars: Vec<char> = line.chars().collect();
+    let (mut out, mut p) = (String::new(), 0);
+    while p < chars.len() {
+        if chars[p] == '"' {
+            let (t, end) = read_quoted(&chars, p).ok_or_else(|| ParseError::at("unterminated text literal", no))?;
+            let i = LIFTED.with(|l| {
+                let mut l = l.borrow_mut();
+                l.push(t);
+                l.len() - 1
+            });
+            out.push(HOLE);
+            out.push_str(&i.to_string());
+            out.push(HOLE);
+            p = end;
+        } else {
+            out.push(chars[p]);
+            p += 1;
+        }
+    }
+    Ok(out)
+}
+
+/// A line (or part of one) with its lifted literals written back as source.
+pub fn restore(s: &str) -> String {
+    if !s.contains(HOLE) {
+        return s.to_string();
+    }
+    let mut out = String::new();
+    let mut parts = s.split(HOLE);
+    out.push_str(parts.next().unwrap_or(""));
+    while let (Some(i), Some(rest)) = (parts.next(), parts.next()) {
+        let t = LIFTED.with(|l| i.parse::<usize>().ok().and_then(|i| l.borrow().get(i).cloned())).unwrap_or_default();
+        out.push_str(&quote(&t));
+        out.push_str(rest);
+    }
+    out
+}
+
+/// A lifted literal standing alone (`eg` arguments and values): its text.
+fn lifted(s: &str) -> Option<String> {
+    let inner = s.strip_prefix(HOLE)?.strip_suffix(HOLE)?;
+    let i: usize = inner.parse().ok()?;
+    LIFTED.with(|l| l.borrow().get(i).cloned())
 }
 
 // ---------------------------------------------------------------- expressions
@@ -540,7 +652,7 @@ impl ExprParser {
     }
     fn starts_atom(&self) -> bool {
         match self.peek() {
-            Some(Tok::Int(_)) => true,
+            Some(Tok::Int(_)) | Some(Tok::Text(_)) => true,
             Some(Tok::Name(v)) => !KEYWORDS.contains(&v.as_str()),
             Some(Tok::Op("(")) => true,
             _ => false,
@@ -553,6 +665,7 @@ impl ExprParser {
         let tok = self.take();
         match tok {
             Some(Tok::Int(n)) => Ok(Expr::Int(n)),
+            Some(Tok::Text(t)) => Ok(Expr::Text(t)),
             Some(Tok::Name(v)) => {
                 let (name, primed) = split_prime(&v);
                 Ok(Expr::Name(name, primed))
@@ -734,6 +847,30 @@ fn int(s: &str, line: Option<usize>) -> PResult<Int> {
 }
 
 pub type Maps = IndexMap<String, IndexMap<Key, Int>>;
+/// Text state entries: state -> {key: text}
+pub type Texts = IndexMap<String, IndexMap<Key, String>>;
+
+fn text_item() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    re(&R, r"^([a-z]\w*)\.([A-Z]\w*|-?\d+):(\x01\d+\x01)$")
+}
+
+/// Take `state.key:"text"` items out of an `eg` world or after-state: (rest, {state: {key: text}}).
+fn split_texts(src: &str, line: Option<usize>) -> PResult<(String, Texts)> {
+    let (mut items, mut texts) = (Vec::new(), Texts::new());
+    for item in src.split_whitespace() {
+        if let Some(m) = text_item().captures(item) {
+            let k = &m[2];
+            let key = if k.chars().next().unwrap().is_alphabetic() { Key::Str(k.into()) } else { Key::Int(int(k, line)?) };
+            texts.entry(m[1].to_string()).or_default().insert(key, lifted(&m[3]).unwrap_or_default());
+        } else if item.contains(HOLE) {
+            return Err(ParseError::at(format!("bad world item {} (a text entry is state.key:\"…\")", restore(item)), line));
+        } else {
+            items.push(item);
+        }
+    }
+    Ok((items.join(" "), texts))
+}
 
 /// Take `state.key:value` items out of a world: (rest, {state: {key: value}}).
 pub fn split_maps(src: &str) -> PResult<(String, Maps)> {
@@ -797,13 +934,19 @@ fn bad_world(item: &str, line: Option<usize>) -> ParseError {
 
 pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
     let usage = || ParseError::at("eg WORLD | call args -> outcome [| AFTER]", line);
-    let parts: Vec<&str> = src.split('|').map(str::trim).collect();
+    // literals out first (a no-op for a line parse_module already lifted), so `|`, `->` and spaces inside one
+    // don't split it; `src` keeps the source text
+    let mark = LIFTED.with(|l| l.borrow().len());
+    let lifted_src = lift_texts(src, line)?;
+    let src_text = restore(&lifted_src);
+    let parts: Vec<&str> = lifted_src.split('|').map(str::trim).collect();
     if !(parts.len() == 2 || parts.len() == 3) || !parts[1].contains("->") {
         return Err(usage());
     }
     // split_now / split_maps are line-free (the host parses worlds too): put the eg's line on their errors
     let at = |e: ParseError| ParseError::at(e.0, line);
-    let (world_src, now) = split_now(parts[0]).map_err(at)?;
+    let (world_src, texts) = split_texts(parts[0], line)?;
+    let (world_src, now) = split_now(&world_src).map_err(at)?;
     let (world_src, maps) = split_maps(&world_src).map_err(at)?;
     let world = parse_world(&world_src, line)?;
     let sides: Vec<&str> = parts[1].split("->").map(str::trim).collect();
@@ -816,6 +959,10 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
     }
     let mut args = Vec::new();
     for a in &call[1..] {
+        if let Some(t) = lifted(a) {
+            args.push(Key::Str(t));
+            continue;
+        }
         let digits = a.trim_start_matches('-');
         if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
             let n: Int = a.parse().map_err(|_| usage())?;
@@ -832,24 +979,38 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
         Outcome::Ok
     } else {
         let Some((ctor, rest)) = out.split_first() else { return Err(usage()) };
+        if rest.iter().any(|x| x.contains(HOLE)) {
+            return Err(ParseError::at("a refusal's payload is Int only (no Text in an `eg` outcome)", line));
+        }
         let vals: Result<Vec<Int>, _> = rest.iter().map(|x| x.parse::<Int>()).collect();
         if let Some(x) = vals.as_ref().ok().and_then(|v| v.iter().zip(rest).find(|(n, _)| !in_range(**n))) {
             return Err(ParseError::at(out_of_range(x.1), line));
         }
         Outcome::Fail(ctor.to_string(), vals.map_err(|_| usage())?)
     };
-    let (after_src, after_maps) = if parts.len() == 3 { split_maps(parts[2]).map_err(at)? } else { (String::new(), Maps::new()) };
+    let (after_src, after_texts) = if parts.len() == 3 { split_texts(parts[2], line)? } else { (String::new(), Texts::new()) };
+    let (after_src, after_maps) = if parts.len() == 3 { split_maps(&after_src).map_err(at)? } else { (String::new(), Maps::new()) };
     let after = parse_balances(&after_src, line)?;
+    // what this call lifted is copied out by now (a module's own lines stay lifted for its body parse)
+    LIFTED.with(|l| l.borrow_mut().truncate(mark));
     Ok(Example {
         world,
         call: (call[0].to_string(), args),
         outcome,
         after,
-        src: src.to_string(),
+        src: src_text,
         now,
         maps,
         after_maps,
+        texts,
+        after_texts,
     })
+}
+
+/// A call and a world written as an `eg` line would have them (`kern run`, MCP `kern_run`), for input with Text in
+/// it: quote-aware, so `name_it 1 "a b"` is two arguments.
+pub fn parse_call(world: &str, call: &str) -> PResult<Example> {
+    parse_example(&format!("{} | {} -> ok", world, call), None)
 }
 
 // ---------------------------------------------------------------- modules
@@ -860,7 +1021,7 @@ fn header() -> &'static Regex {
 }
 fn state_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    re(&R, r"^state ([a-z]\w*) (Int|Account)$")
+    re(&R, r"^state ([a-z]\w*) (Int|Account)(?: -> (Int|Text))?$")
 }
 fn channel_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
@@ -926,11 +1087,14 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
         Ok(())
     }
 
+    LIFTED.with(|l| l.borrow_mut().clear());
     for (idx, raw) in lines.iter().enumerate() {
         let no = Some(idx + 1);
         if raw.trim().is_empty() {
             continue;
         }
+        let lifted_raw = lift_texts(raw, no)?;
+        let raw = lifted_raw.as_str();
         let line = raw.trim();
         if !raw.chars().next().unwrap().is_whitespace() {
             if line.starts_with("import ") {
@@ -991,12 +1155,15 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
                     defs.channels.push(ch[1].to_string());
                 } else if let Some(m) = state_re().captures(line) {
                     defs.states.insert(m[1].to_string(), m[2].to_string());
+                    if m.get(3).is_some_and(|v| v.as_str() == "Text") {
+                        defs.text_states.push(m[1].to_string());
+                    }
                 } else if let Some(inv) = invariant_re().captures(line) {
                     let e = parse_expr(&inv[3], no)?;
                     defs.invariants.push((inv[1].to_string(), inv[2].to_string(), e));
                 } else {
                     return Err(ParseError::at(
-                        "want `state NAME Int|Account`, `invariant x:Type COND` or `channel NAME`",
+                        "want `state NAME Int|Account [-> Text]`, `invariant x:Type COND` or `channel NAME`",
                         no,
                     ));
                 }
@@ -1040,7 +1207,7 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
             d.raw.push((indent, line.to_string(), idx + 1));
             continue;
         }
-        d.src_lines.get_mut("spec").unwrap().push(line.to_string());
+        d.src_lines.get_mut("spec").unwrap().push(restore(line));
         if word == "need" && rest.starts_with("as ") {
             let (callee, args) = ref_(&rest[3..], no)?;
             d.needs.push(Need::As(callee, args, idx + 1));
@@ -1124,10 +1291,10 @@ pub fn subst(e: &Expr, m: &IndexMap<String, Expr>) -> Expr {
 }
 
 /// Words that can't name a constant: they are keywords, or a constant would hide them.
-const RESERVED: [&str; 31] = [
+const RESERVED: [&str; 32] = [
     "and", "or", "else", "when", "as", "result", "body", "need", "keep", "ensure", "emit", "eg", "ok", "if", "for",
     "from", "to", "distinct", "sum", "of", "where", "const", "import", "state", "record", "channel", "invariant",
-    "handler", "ledger", "clock", "audit",
+    "handler", "ledger", "clock", "audit", "length",
 ];
 
 /// Substitutes named constants into a definition, collecting what it used.
@@ -1153,7 +1320,7 @@ impl Consts<'_> {
     }
     fn expr(&self, e: &Expr, used: &mut Vec<(String, Int)>) -> PResult<Expr> {
         Ok(match e {
-            Expr::Int(_) => e.clone(),
+            Expr::Int(_) | Expr::Text(_) => e.clone(),
             Expr::Name(n, primed) | Expr::App(n, primed, _) if self.is_const(n) => {
                 if let Some(m) = self.hidden.get(n) {
                     return Err(self.err(format!("uses const {}, which {} declares: add `import {}`", n, m, m)));
@@ -1373,7 +1540,7 @@ impl Records<'_> {
     }
     fn expr(&mut self, e: &Expr) -> PResult<Expr> {
         Ok(match e {
-            Expr::Int(_) => e.clone(),
+            Expr::Int(_) | Expr::Text(_) => e.clone(),
             Expr::Name(n, _) | Expr::App(n, _, _) if self.records.contains_key(n) => {
                 return Err(self.err(format!(
                     "`{}` builds a {} only as the argument of a call that takes one",
@@ -1479,8 +1646,8 @@ pub fn flatten_records(defs: &mut Module) -> PResult<IndexMap<String, Vec<String
             if fields[..i].iter().any(|(g, _)| g == f) {
                 return Err(ParseError(format!("record {}: field {} appears twice", r, f)));
             }
-            if t != "Int" && t != "Account" {
-                return Err(ParseError(format!("record {}: field {} must be Int or Account, not {}", r, f, t)));
+            if t != "Int" && t != "Account" && t != "Text" {
+                return Err(ParseError(format!("record {}: field {} must be Int, Account or Text, not {}", r, f, t)));
             }
         }
     }
@@ -1630,7 +1797,7 @@ fn finish(d: &mut Def) -> PResult<()> {
         "body".to_string(),
         raw.iter()
             .map(|(ind, line, _)| {
-                if *ind == base { line.clone() } else { " ".repeat(ind.saturating_sub(base)) + line }
+                if *ind == base { restore(line) } else { " ".repeat(ind.saturating_sub(base)) + &restore(line) }
             })
             .collect(),
     );
@@ -1748,6 +1915,7 @@ pub fn prec(op: &str) -> u8 {
 pub fn code(e: &Expr) -> String {
     match e {
         Expr::Int(n) => n.to_string(),
+        Expr::Text(t) => quote(t),
         Expr::Name(n, p) => format!("{}{}", n, if *p { "'" } else { "" }),
         Expr::App(h, p, args) => {
             let mut parts = vec![format!("{}{}", h, if *p { "'" } else { "" })];
@@ -1830,7 +1998,7 @@ pub fn flat(stmts: &[Stmt]) -> Vec<&Stmt> {
 
 pub fn atom_code(e: &Expr) -> String {
     match e {
-        Expr::Int(_) | Expr::Name(..) => code(e),
+        Expr::Int(_) | Expr::Text(_) | Expr::Name(..) => code(e),
         _ => format!("({})", code(e)),
     }
 }

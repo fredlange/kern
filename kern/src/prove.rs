@@ -14,7 +14,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::rc::Rc;
 
 use indexmap::IndexMap;
-use z3::ast::{Array, Bool, Dynamic, Int as ZInt};
+use z3::ast::{Array, Bool, Dynamic, Int as ZInt, String as ZStr};
 use z3::Model;
 
 use crate::infer::{callees, fails, ledger_writes, lifted, names, relevant_states, state_writes, uses, writes, ANY_ACCOUNT};
@@ -112,6 +112,8 @@ fn shared<T>(x: T) -> Shared<T> {
 enum SV {
     I(ZInt),
     B(Bool),
+    /// a Text
+    S(ZStr),
     Ev(String, Vec<SV>),
     Unit,
 }
@@ -127,6 +129,21 @@ impl SV {
         match self {
             SV::B(x) => x,
             other => panic!("prover: expected a Bool term, got {other:?}"),
+        }
+    }
+    fn s(&self) -> &ZStr {
+        match self {
+            SV::S(x) => x,
+            other => panic!("prover: expected a Text term, got {other:?}"),
+        }
+    }
+    /// As a function argument, whatever its sort.
+    fn dynamic(&self) -> Dynamic {
+        match self {
+            SV::I(x) => Dynamic::from(x.clone()),
+            SV::B(x) => Dynamic::from(x.clone()),
+            SV::S(x) => Dynamic::from(x.clone()),
+            other => panic!("prover: {other:?} is not a value"),
         }
     }
 }
@@ -180,6 +197,7 @@ fn ev_eq(x: &SV, y: &SV) -> Bool {
         (SV::Ev(..), _) | (_, SV::Ev(..)) => zz::bval(false),
         (SV::I(a), SV::I(b)) => zz::eq_int(a, b),
         (SV::B(a), SV::B(b)) => zz::eq_bool(a, b),
+        (SV::S(a), SV::S(b)) => zz::eq_text(a, b),
         _ => panic!("prover: can't compare {x:?} and {y:?}"),
     }
 }
@@ -285,6 +303,8 @@ pub struct Prover<'m> {
     pub witness_draws: IndexMap<String, Vec<Int>>,
     /// one recursive function per distinct sum (its text, the names it reads, whether it sees an after-state)
     sums: IndexMap<String, (z3::RecFuncDecl, Option<Int>, Option<Int>)>,
+    /// the definition's Text parameters, as String constants (counterexamples read them from the model)
+    text_params: IndexMap<String, ZStr>,
 }
 
 /// Bounds [lo, hi] (None = unbounded) of an Int term over every environment and state: interval arithmetic on its
@@ -333,6 +353,12 @@ fn state_args(s: &Sym) -> Vec<Dynamic> {
     out
 }
 
+/// Whether a state map's array holds Text.
+fn is_text_array(a: &Array) -> bool {
+    use z3::ast::Ast;
+    a.get_sort().array_range().is_some_and(|r| r.kind() == z3::SortKind::Seq)
+}
+
 /// A state of fresh constants named after `p`, with `s`'s maps.
 fn formal_state(s: &Sym, p: &str) -> Sym {
     Sym {
@@ -341,7 +367,7 @@ fn formal_state(s: &Sym, p: &str) -> Sym {
         total: zz::int(&format!("{p}_total")),
         audit: vec![],
         now: zz::int(&format!("{p}_now")),
-        maps: s.maps.keys().map(|x| (x.clone(), zz::array(&format!("{p}_map_{x}")))).collect(),
+        maps: s.maps.iter().map(|(x, a)| (x.clone(), zz::map_array(&format!("{p}_map_{x}"), is_text_array(a)))).collect(),
         out: IndexMap::new(),
     }
 }
@@ -369,6 +395,7 @@ impl<'m> Prover<'m> {
             replay_draws: vec![],
             witness_draws: IndexMap::new(),
             sums: IndexMap::new(),
+            text_params: IndexMap::new(),
         }
     }
 
@@ -382,6 +409,7 @@ impl<'m> Prover<'m> {
     fn sev(&mut self, e: &Expr, env: &Env, cur: &Sym, post: Option<&Sym>) -> SV {
         match e {
             Expr::Int(n) => SV::I(zz::val(*n)),
+            Expr::Text(t) => SV::S(zz::text(t)),
             Expr::All(v, a, b, body) => {
                 let j = zz::int(&format!("{}_{}", v, fresh()));
                 let lo = self.sev(a, env, cur, post);
@@ -398,6 +426,14 @@ impl<'m> Prover<'m> {
             Expr::Bin(op, l, r) => {
                 let l = self.sev(l, env, cur, post);
                 let r = self.sev(r, env, cur, post);
+                if let (SV::S(a), SV::S(b)) = (&l, &r) {
+                    match *op {
+                        "+" => return SV::S(zz::text_join(a, b)),
+                        "=" => return SV::B(zz::eq_text(a, b)),
+                        "!=" => return SV::B(zz::ne_text(a, b)),
+                        other => panic!("prover: {other} on Text"),
+                    }
+                }
                 SV::B(match *op {
                     "+" => return SV::I(zz::add(l.i(), r.i())),
                     "-" => return SV::I(zz::sub(l.i(), r.i())),
@@ -460,13 +496,7 @@ impl<'m> Prover<'m> {
         let post = if primed { post } else { None };
         // the bounds are arguments, not part of the function: `sum j from lo to k` and `… to hi` must be one function
         let key = format!("{}|{}|{}|{}|{}", j, code(body), cond.map(code).unwrap_or_default(), free.join(","), post.is_some());
-        let value = |v: &SV| -> Dynamic {
-            match v {
-                SV::I(x) => Dynamic::from(x.clone()),
-                SV::B(b) => Dynamic::from(b.clone()),
-                other => panic!("prover: a sum reads a non-numeric value {other:?}"),
-            }
-        };
+        let value = |v: &SV| -> Dynamic { v.dynamic() };
         if !self.sums.contains_key(&key) {
             let n = fresh();
             let p = format!("sum{n}");
@@ -476,6 +506,7 @@ impl<'m> Prover<'m> {
                     let name = format!("{p}_v_{v}"); // apart from the bounds' formals below
                     let f = match &env[v] {
                         SV::B(_) => SV::B(Bool::new_const(name)),
+                        SV::S(_) => SV::S(zz::text_const(&name)),
                         _ => SV::I(zz::int(&name)),
                     };
                     (v.clone(), f)
@@ -567,6 +598,7 @@ impl<'m> Prover<'m> {
             "ledger.owner" => return SV::I(zz::select(&s.own, a[0].i())),
             "ledger.total" => return SV::I(s.total.clone()),
             "clock.now" => return SV::I(s.now.clone()),
+            "length" => return SV::I(zz::text_len(a[0].s())),
             _ => {}
         }
         if let Some(h) = assumed_op(self.defs, name) {
@@ -574,6 +606,9 @@ impl<'m> Prover<'m> {
         }
         if let Some((x, op, _)) = state_op(self.defs, name) {
             assert_eq!(op, "get", "prover: a state write in an expression");
+            if is_text_array(&s.maps[x]) {
+                return SV::S(zz::select_text(&s.maps[x], a[0].i()));
+            }
             return SV::I(zz::select(&s.maps[x], a[0].i()));
         }
         if let Some(d) = self.defs.defs.get(name) {
@@ -617,7 +652,10 @@ impl<'m> Prover<'m> {
             return SV::Unit;
         }
         if let Some((x, "set", _)) = state_op(self.defs, name) {
-            let m = zz::store(&s.maps[x], a[0].i(), a[1].i());
+            let m = match &a[1] {
+                SV::S(t) => zz::store_text(&s.maps[x], a[0].i(), t),
+                v => zz::store(&s.maps[x], a[0].i(), v.i()),
+            };
             s.maps.insert(x.to_string(), m);
             return SV::Unit;
         }
@@ -686,7 +724,8 @@ impl<'m> Prover<'m> {
         sw.sort();
         for (x, ps) in sw {
             if ps.contains(ANY_ACCOUNT) {
-                s.maps.insert(x.clone(), zz::array(&format!("{}{}", x, fresh())));
+                let text = is_text_array(&s.maps[&x]);
+                s.maps.insert(x.clone(), zz::map_array(&format!("{}{}", x, fresh()), text));
                 continue;
             }
             for p in &ps {
@@ -704,10 +743,10 @@ impl<'m> Prover<'m> {
                     let (lo, hi) = (bound(lo_s), bound(hi_s));
                     let old = s.maps[&x].clone();
                     let j = zz::int(&format!("j_{}", fresh()));
-                    let new = zz::array(&format!("{}_call{}", x, fresh()));
+                    let new = zz::map_array(&format!("{}_call{}", x, fresh()), is_text_array(&old));
                     s.maps.insert(x.clone(), new.clone());
                     let outside = zz::or(&[zz::lt(&j, &lo), zz::ge(&j, &hi)]);
-                    let same = zz::eq_int(&zz::select(&new, &j), &zz::select(&old, &j));
+                    let same = zz::same_at(&new, &old, &j);
                     self.pc.borrow_mut().push(zz::forall(&[&j], &zz::implies(&outside, &same)));
                     let stores: BTreeSet<String> = [x.clone()].into();
                     for (_, g) in self.module_invs_over(&stores, s) {
@@ -716,8 +755,13 @@ impl<'m> Prover<'m> {
                     }
                     continue;
                 }
-                let v = fresh_int(&format!("{x}_{p}_"));
-                let m = zz::store(&s.maps[&x], env[p.as_str()].i(), &v);
+                let m = if is_text_array(&s.maps[&x]) {
+                    let v = zz::text_const(&format!("{x}_{p}_{}", fresh()));
+                    zz::store_text(&s.maps[&x], env[p.as_str()].i(), &v)
+                } else {
+                    let v = fresh_int(&format!("{x}_{p}_"));
+                    zz::store(&s.maps[&x], env[p.as_str()].i(), &v)
+                };
                 s.maps.insert(x.clone(), m);
             }
         }
@@ -767,14 +811,17 @@ impl<'m> Prover<'m> {
     /// A pure function, modularly: an uninterpreted function whose result satisfies its ensures.
     fn function_call(&mut self, f: &Def, args: &[SV], s: &Sym) -> ZInt {
         self.relied_on.insert(f.name.clone());
-        let xs: Vec<ZInt> = args.iter().map(|a| a.i().clone()).collect();
         // a function that reads state is a function of that state too, so a write in between gives another value;
-        // one that reads nothing keeps its Int-only symbol
-        let r = if uses(self.defs, f).is_empty() {
+        // one that reads nothing and takes only Ints keeps its Int-only symbol
+        let all_int = args.iter().all(|a| matches!(a, SV::I(_)));
+        let r = if uses(self.defs, f).is_empty() && all_int {
+            let xs: Vec<ZInt> = args.iter().map(|a| a.i().clone()).collect();
             zz::apply_fn(&format!("fn_{}", f.name), &xs)
         } else {
-            let mut ds: Vec<Dynamic> = xs.iter().map(|x| Dynamic::from(x.clone())).collect();
-            ds.extend(state_args(s));
+            let mut ds: Vec<Dynamic> = args.iter().map(SV::dynamic).collect();
+            if !uses(self.defs, f).is_empty() {
+                ds.extend(state_args(s));
+            }
             zz::apply_fn_dyn(&format!("fn_{}", f.name), &ds)
         };
         let mut env: Env = f.params.iter().zip(args).map(|((p, _), v)| (p.clone(), v.clone())).collect();
@@ -1089,12 +1136,12 @@ impl<'m> Prover<'m> {
         let mut xs: BTreeSet<String> = ranged.keys().cloned().collect();
         xs.extend(full.iter().cloned());
         for x in &xs {
-            let arr = zz::array(&format!("{}_loop{}", x, fresh()));
+            let arr = zz::map_array(&format!("{}_loop{}", x, fresh()), is_text_array(&s.maps[x.as_str()]));
             h.maps.insert(x.clone(), arr.clone());
             if let Some(c) = ranged.get(x) {
                 let j = zz::int(&format!("j_{}", fresh()));
                 let outside = zz::or(&[zz::lt(&j, &zz::add(lo, &zz::val(*c))), zz::ge(&j, &zz::add(k, &zz::val(*c)))]);
-                let same = zz::eq_int(&zz::select(&arr, &j), &zz::select(&s.maps[x.as_str()], &j));
+                let same = zz::same_at(&arr, &s.maps[x.as_str()], &j);
                 ax.push(zz::forall(&[&j], &zz::implies(&outside, &same)));
             }
         }
@@ -1235,10 +1282,23 @@ impl<'m> Prover<'m> {
         self.relied_on = BTreeSet::new();
         self.sums = IndexMap::new();
         let (bal, own, total) = (zz::array("bal"), zz::array("own"), zz::int("total"));
-        let maps: IndexMap<String, Array> = self.defs.states.keys().map(|x| (x.clone(), zz::array(&format!("map_{x}")))).collect();
+        let maps: IndexMap<String, Array> = self
+            .defs
+            .states
+            .keys()
+            .map(|x| (x.clone(), zz::map_array(&format!("map_{x}"), self.defs.text_states.contains(x))))
+            .collect();
         let pre = Sym { bal, own, total, audit: vec![], now: zz::int("now"), maps, out: IndexMap::new() };
-        let env: Env = d.params.iter().map(|(p, _)| (p.clone(), SV::I(zz::int(p)))).collect();
-        let params: IndexMap<String, ZInt> = env.iter().map(|(p, v)| (p.clone(), v.i().clone())).collect();
+        let env: Env = d
+            .params
+            .iter()
+            .map(|(p, t)| (p.clone(), if t == "Text" { SV::S(zz::text_const(p)) } else { SV::I(zz::int(p)) }))
+            .collect();
+        // Int and Account parameters; Text ones are kept apart (a model gives them as strings)
+        let params: IndexMap<String, ZInt> =
+            env.iter().filter_map(|(p, v)| if let SV::I(x) = v { Some((p.clone(), x.clone())) } else { None }).collect();
+        self.text_params =
+            env.iter().filter_map(|(p, v)| if let SV::S(x) = v { Some((p.clone(), x.clone())) } else { None }).collect();
         let mut start = Path {
             pc: shared(vec![]),
             s: pre.clone(),
@@ -1424,6 +1484,9 @@ impl<'m> Prover<'m> {
             nice.assert(&zz::ge_n(&pre.now, 0));
             nice.assert(&zz::le_n(&pre.now, 1000));
             for (p, t) in &d.params {
+                if t == "Text" {
+                    continue;
+                }
                 let v = &params[p.as_str()];
                 if t == "Int" {
                     nice.assert(&zz::ge_n(v, 0));
@@ -1439,7 +1502,7 @@ impl<'m> Prover<'m> {
                     nice.assert(&zz::le_n(&zz::select(&pre.own, v), 1));
                 }
                 for (x, arr) in &pre.maps {
-                    if self.defs.states[x.as_str()] == *t {
+                    if self.defs.states[x.as_str()] == *t && !is_text_array(arr) {
                         nice.assert(&zz::ge_n(&zz::select(arr, v), 0));
                         nice.assert(&zz::le_n(&zz::select(arr, v), 1000));
                     }
@@ -1501,7 +1564,11 @@ impl<'m> Prover<'m> {
             let mut m = nice.get_model().expect("a model");
             for _ in 0..8 {
                 let differ: Vec<Bool> =
-                    d.params.iter().map(|(p, _)| zz::ne_int(&params[p.as_str()], &m.eval(&params[p.as_str()], true).expect("a value"))).collect();
+                    d.params
+                        .iter()
+                        .filter(|(_, t)| t != "Text")
+                        .map(|(p, _)| zz::ne_int(&params[p.as_str()], &m.eval(&params[p.as_str()], true).expect("a value")))
+                        .collect();
                 nice.assert(&zz::or(&differ));
                 if zz::check(nice) != zz::Check::Sat {
                     break;
@@ -1526,7 +1593,7 @@ impl<'m> Prover<'m> {
                 } else {
                     opt.maximize(&b);
                 }
-            } else {
+            } else if t != "Text" {
                 opt.minimize(&params[p.as_str()]);
             }
         }
@@ -1546,6 +1613,10 @@ impl<'m> Prover<'m> {
         let mut world: IndexMap<String, (Int, String)> = IndexMap::new();
         let mut args: Vec<Value> = vec![];
         for (p, t) in &d.params {
+            if t == "Text" {
+                args.push(Value::Str(zz::text_value(m, &self.text_params[p.as_str()]).unwrap_or_default()));
+                continue;
+            }
             let v = long(&params[p.as_str()]);
             if t == "Account" {
                 if !letters.contains_key(&v) {
@@ -1565,9 +1636,28 @@ impl<'m> Prover<'m> {
         let now = long(&pre.now);
         let mut maps: IndexMap<String, IndexMap<Key, Int>> = IndexMap::new();
         let mut keys: Vec<(String, Key)> = vec![];
+        let mut texts: crate::syntax::Texts = IndexMap::new();
+        let mut text_keys: Vec<(String, Key)> = vec![];
         let shown = relevant_states(self.defs, d);
         for (x, arr) in &pre.maps {
             if !shown.contains_key(x) {
+                continue;
+            }
+            if is_text_array(arr) {
+                // a Text state: its entries at the parameters' keys
+                let st = &self.defs.states[x.as_str()];
+                for (p, t) in d.params.iter().filter(|(_, t)| t == st) {
+                    let zk = long(&params[p.as_str()]);
+                    let key = if t == "Account" { Key::Str(letters[&zk].clone()) } else { Key::Int(zk) };
+                    if text_keys.contains(&(x.clone(), key.clone())) {
+                        continue;
+                    }
+                    text_keys.push((x.clone(), key.clone()));
+                    let val = zz::text_value(m, &zz::select_text(arr, &params[p.as_str()])).unwrap_or_default();
+                    if !val.is_empty() {
+                        texts.entry(x.clone()).or_default().insert(key, val);
+                    }
+                }
                 continue;
             }
             let st = &self.defs.states[x.as_str()];
@@ -1611,8 +1701,18 @@ impl<'m> Prover<'m> {
                 world_src += &format!(" {}.{}:{}", x, key_text(k), v);
             }
         }
-        let call = std::iter::once(d.name.clone()).chain(args.iter().map(Value::str)).collect::<Vec<_>>().join(" ");
-        let mut w = World::from_example(&world, now, &maps);
+        for (x, kv) in &texts {
+            for (k, v) in kv {
+                world_src += &format!(" {}.{}:{}", x, key_text(k), crate::syntax::quote(v));
+            }
+        }
+        // a Text argument is quoted (an account name isn't): the line must parse back to the same call
+        let shown_args = args.iter().zip(&d.params).map(|(a, (_, t))| match a {
+            Value::Str(v) if t == "Text" => crate::syntax::quote(v),
+            a => a.str(),
+        });
+        let call = std::iter::once(d.name.clone()).chain(shown_args).collect::<Vec<_>>().join(" ");
+        let mut w = World::from_example(&world, now, &maps).with_texts(&texts);
         let draws: VecDeque<Int> = self.replay_draws.iter().map(|(_, t)| long(t)).collect();
         let drawn: Vec<Int> = draws.iter().copied().collect();
         let queue = Rc::new(RefCell::new(draws));
@@ -1655,6 +1755,13 @@ impl<'m> Prover<'m> {
             let was = maps.get(x).and_then(|kv| kv.get(k)).copied().unwrap_or(0);
             if got != was {
                 after_src += &format!(" {}.{}:{}", x, key_text(k), got);
+            }
+        }
+        for (x, k) in &text_keys {
+            let got = after.text_get(x, k);
+            let was = texts.get(x).and_then(|kv| kv.get(k)).cloned().unwrap_or_default();
+            if got != was {
+                after_src += &format!(" {}.{}:{}", x, key_text(k), crate::syntax::quote(&got));
             }
         }
         let out_src = outcome.text();

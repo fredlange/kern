@@ -9,7 +9,7 @@
 
 use std::ffi::CString;
 
-use z3::ast::{Array, Ast, Bool, Dynamic, Int as ZInt};
+use z3::ast::{Array, Ast, Bool, Dynamic, Int as ZInt, String as ZStr};
 use z3::{Context, FuncDecl, Model, Optimize, Params, RecFuncDecl, SatResult, Solver, Sort};
 
 /// Python's `RLIMIT` (kern/prove.py): Z3 steps per check.
@@ -42,6 +42,75 @@ pub fn bval(b: bool) -> Bool {
 /// z3.Array(name, IntSort(), IntSort())
 pub fn array(name: &str) -> Array {
     Array::new_const(name, &Sort::int(), &Sort::int())
+}
+
+// ---- Text (Z3 strings), by code point: no escape parsing either way
+
+/// A Text constant (Z3_mk_u32string: every char is itself, `\\u{41}` stays six characters).
+pub fn text(t: &str) -> ZStr {
+    let cps: Vec<u32> = t.chars().map(|c| c as u32).collect();
+    unsafe {
+        let a = z3_sys::Z3_mk_u32string(ctx().get_z3_context(), cps.len() as u32, cps.as_ptr()).expect("Z3 string");
+        ZStr::wrap(&ctx(), a)
+    }
+}
+
+pub fn text_const(name: &str) -> ZStr {
+    ZStr::new_const(name)
+}
+
+/// A Text value from a model (None if the term isn't a string constant).
+pub fn text_value(m: &Model, t: &ZStr) -> Option<String> {
+    let v = m.eval(t, true)?;
+    unsafe {
+        let (c, a) = (ctx().get_z3_context(), v.get_z3_ast());
+        if !z3_sys::Z3_is_string(c, a) {
+            return None;
+        }
+        let n = z3_sys::Z3_get_string_length(c, a);
+        let mut cps = vec![0u32; n as usize];
+        z3_sys::Z3_get_string_contents(c, a, n, cps.as_mut_ptr());
+        Some(cps.into_iter().filter_map(char::from_u32).collect())
+    }
+}
+
+pub fn text_len(t: &ZStr) -> ZInt {
+    t.length()
+}
+
+pub fn text_join(a: &ZStr, b: &ZStr) -> ZStr {
+    ZStr::concat(&[a, b])
+}
+
+pub fn eq_text(a: &ZStr, b: &ZStr) -> Bool {
+    a.eq(b)
+}
+
+/// `!=` as z3py builds it: a distinct of two.
+pub fn ne_text(a: &ZStr, b: &ZStr) -> Bool {
+    ZStr::distinct(&[a, b])
+}
+
+/// A state map's array: Int -> Int, or Int -> String for a Text state.
+pub fn map_array(name: &str, text: bool) -> Array {
+    if text {
+        Array::new_const(name, &Sort::int(), &Sort::string())
+    } else {
+        array(name)
+    }
+}
+
+pub fn select_text(a: &Array, i: &ZInt) -> ZStr {
+    a.select(i).as_string().expect("an Int -> String array")
+}
+
+pub fn store_text(a: &Array, i: &ZInt, v: &ZStr) -> Array {
+    a.store(i, v)
+}
+
+/// a[i] = b[i], whatever the arrays' range.
+pub fn same_at(a: &Array, b: &Array, i: &ZInt) -> Bool {
+    a.select(i).eq(&b.select(i))
 }
 
 pub fn select(a: &Array, i: &ZInt) -> ZInt {
