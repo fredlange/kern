@@ -32,8 +32,9 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   runtime error writes only the log entry. Calls are serialised with a lock (the proofs
   assume one top-level call at a time).
 - **HTTP:** `POST /NAME` with a JSON object of exactly the def's parameters; a record parameter `p:Point` is
-  one object with exactly its fields, `{"p": {"x": 1, "y": 2}}` (the host decodes it into the flattened
-  `p.x p.y`; `repl` and `.host` reply ARGS stay positional). `ok` → 200
+  one object with exactly its fields, `{"p": {"x": 1, "y": 2}}`, and a nested one (`l:Line`, `record Line
+  a:Point b:Point`) an object inside it, `{"l": {"a": {"x": 1, "y": 2}, "b": {...}}}` (the host decodes it into the
+  flattened `p.x p.y`, `l.a.x l.a.y l.b.x l.b.y`; `repl` and `.host` reply ARGS stay positional). `ok` → 200
   (with the emitted events), declared refusal → 409 `{"refused": Ctor, "args": [...]}`,
   bad call (wrong type, unknown account, a number that isn't an i64 such as `1.5`) → 400, not proven → 403,
   runtime invariant broken (only possible with `--no-gate`) or an Int out of range (below) → 500.
