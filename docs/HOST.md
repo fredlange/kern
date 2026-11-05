@@ -43,7 +43,8 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   (`post 1 "hello world"`), HTTP takes JSON strings for Text parameters, and `GET /state` shows Text maps with
   string values. `replay` compares Text state too. A `.host` reply `$.field` for a Text parameter of the reply
   definition takes a JSON string (an Int parameter still takes an integer; anything else is the `fail` call), and
-  a Text in a request URL is %-encoded.
+  a Text in a request URL is %-encoded. `repl` prints a reply's Text arguments quoted the same way, with line
+  breaks escaped (`\n`, `\r`), so each reply is one line: `reply answer 3 "why?" "because" -> ok`.
 - **Recursion (2026-11-05).** A recursive definition runs once its `decreases` measure is proven; calls nest at
   most 200 deep in one call, the top-level one included (the interpreter's `MAX_CALL_DEPTH`; kern-rt's is the same
   number). Deeper is a resource error, like the iteration limit: undone, logged, skipped by replay.

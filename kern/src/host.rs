@@ -1571,6 +1571,12 @@ fn said(r: &CallResult) -> String {
     }
 }
 
+/// A Text as the console reads it (`"…"`, `\\` and `\"` escaped), with line breaks escaped too (`\n`, `\r`): a
+/// reply's Text may come from anywhere, and a reply line must stay one line.
+fn line_quote(t: &str) -> String {
+    crate::syntax::quote(t).replace('\n', "\\n").replace('\r', "\\r")
+}
+
 /// Run network replies as new calls (after the request's call has committed and its events went out), and report
 /// each one. A reply to an unproven definition is skipped, as any call is.
 pub fn run_replies(host: &mut Host, out: &mut dyn FnMut(String)) -> Result<(), HostError> {
@@ -1582,8 +1588,13 @@ pub fn run_replies(host: &mut Host, out: &mut dyn FnMut(String)) -> Result<(), H
         Err(e) => Err(e),
         Ok(results) => {
             for (name, args, r) in results {
+                // a Text argument quoted as the console reads it, newlines escaped, so one reply is one line
+                let tys: Vec<String> = host.defs.defs.get(&name).map(|d| d.params.iter().map(|(_, t)| t.clone()).collect()).unwrap_or_default();
                 let mut call = vec![name];
-                call.extend(args.iter().map(Value::str));
+                call.extend(args.iter().enumerate().map(|(j, a)| match (a, tys.get(j).map(String::as_str)) {
+                    (Value::Str(t), Some("Text")) => line_quote(t),
+                    _ => a.str(),
+                }));
                 let how = if r.contains_key("timeout") { "timeout" } else { "reply" };
                 out(format!("{} {} -> {}", how, call.join(" "), said(&r)));
             }
@@ -2449,7 +2460,9 @@ body
             let lines = ["post 1 \"hello world\"", "post 2 \"\"", "ask 3 \"why?\""].iter().map(|l| l.to_string());
             q.borrow_mut().push(("answer".into(), vec![Value::Int(3), Value::Str("why?".into()), Value::Str("because".into())]));
             repl(&mut h, lines, &mut |l| out.push(l)).unwrap();
-            assert_eq!(out, ["ok", "refused Empty", "ok", "reply answer 3 why? because -> ok"]);
+            assert_eq!(out, ["ok", "refused Empty", "ok", "reply answer 3 \"why?\" \"because\" -> ok"]);
+            // a Text from the network may hold a line break: the reply still prints as one line
+            assert_eq!(line_quote("a \"b\" \\n\nc\r"), r#""a \"b\" \\n\nc\r""#);
         }
         // a new process on the same database
         let mut h = open(&q);
