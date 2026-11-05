@@ -111,3 +111,45 @@ fn unsupported_is_loud_never_wrong() {
     let e = kern::emit_rust::emit(&p.to_string_lossy(), Some(&d.join("out").to_string_lossy())).unwrap_err();
     assert!(matches!(e, kern::emit_rust::BuildError::Unsupported(_)), "{e}");
 }
+
+#[test]
+fn compiled_sums_give_the_hand_computed_values() {
+    // c4eb9a1 (#2W5YSA6QFQ), runtime's probe with its by-hand values: a sum in a need, in a function, in an event,
+    // a filtered sum reading the clock, `of k * 2 where k > lo`, and a reversed range (0)
+    if !have_cargo() {
+        return eprintln!("SKIP: needs cargo");
+    }
+    let src = "state score Int\nstate due Int\nstate flag Account\n\n\
+total lo:Int hi:Int -> Int\nbody\n  result = sum k from lo to hi of score.get k\n\n\
+overdue lo:Int hi:Int -> Int\nbody\n  result = sum k from lo to hi of 1 where due.get k < clock.now and score.get k > 0\n\n\
+record_total lo:Int hi:Int\n  need hi - lo <= 20 else TooWide\n  need (sum k from lo to hi of score.get k) >= 0 else Negative\n  ok otherwise\nbody\n  score.set 0 (total lo hi)\n  audit.emit (Counted (overdue lo hi) (sum k from lo to hi of k * 2 where k > lo))\n\n\
+bump a:Account n:Int\n  need n > 0 else Bad\nbody\n  flag.set a (sum j from 0 to n of j)\n  score.set n (sum j from n to 0 of 5)\n";
+    let p = tmp("compiled-sums").join("sums_rt.k");
+    std::fs::write(&p, src).unwrap();
+    let binary = build(p.to_str().unwrap());
+    let world = "world A:0@u1 score.1:3 score.2:4 due.1:1 due.2:9 now:5";
+    let out = run(&binary, &[world, "call record_total 1 3", "call total 1 3", "call overdue 1 3", "call bump A 4",
+                              "call record_total 0 30", "dump"]);
+    assert!(out[0].starts_with("ok") && out[0].contains("Counted 1 4"), "{out:?}");
+    assert!(out[1].starts_with("ok result=7"), "{out:?}");
+    assert!(out[2].starts_with("ok result=1"), "{out:?}");
+    assert!(out[3].starts_with("ok"), "{out:?}");
+    assert!(out[4].starts_with("refused TooWide"), "{out:?}");
+    assert!(out[5].contains("flag.A:6") && out[5].contains("score.0:7"), "{out:?}");
+    // the interpreter agrees on every line
+    let defs = kern::package::load(p.to_str().unwrap(), &IndexMap::new()).unwrap();
+    let r = interpreter_total_and_overdue(&defs);
+    assert_eq!(r, (7, 1));
+}
+
+/// total 1 3 and overdue 1 3 in the interpreter, on the same world.
+fn interpreter_total_and_overdue(defs: &kern::syntax::Module) -> (i128, i128) {
+    let (rest, maps) = kern::syntax::split_maps("A:0@u1 score.1:3 score.2:4 due.1:1 due.2:9").unwrap();
+    let mut w = World::from_example(&kern::syntax::parse_world(&rest, None).unwrap(), 5, &maps);
+    let mut it = Interp::new(defs);
+    let mut get = |name: &str| {
+        assert!(matches!(it.run(name, &[Value::Int(1), Value::Int(3)], &mut w).unwrap(), Outcome::Ok));
+        it.last_result.clone().unwrap().num().unwrap()
+    };
+    (get("total"), get("overdue"))
+}
