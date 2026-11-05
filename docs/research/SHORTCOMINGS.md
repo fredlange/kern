@@ -249,15 +249,19 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   4. Skipping random tests on prover-killed mutants would change the page's per-layer counts. That
      makes it a decision, not an optimisation.
 
-### S17. Lifting still stops after a callee that writes
+### S19. Lifting stops at callees whose ensures don't pin what they write, and at loops
 - **Kind:** code gap.
-- **Evidence:** a caller that does `transfer a b x` and then `need …` still hides that need from its
-  own callers. The callee's after-state is havoc plus its ensures, not an exact write, so S7's write
-  log can't absorb it. This is probably the common case in real code. Loops with effects and `if`s
-  whose branches wrote also still stop it (`s7_lifting_still_stops_where_the_after_state_is_not_exact`
-  pins all three).
-- **Next:** a design: use a callee's ensures as equations where they pin a value (transfer's
-  `ensure ledger.balance' from = ledger.balance from - amount` does). That needs a proposal first.
+- **Evidence:** after S17, lifting continues past a writing callee only when its ensures pin every
+  written key exactly (`ensure R' = E`, with no `when` or `for`, or `keep R`). It still stops at:
+  - a callee with a `>=`, `when`-guarded or `for`-quantified ensure on something it writes;
+  - a loop with effects;
+  - an `if` whose branches wrote.
+
+  The total stays exact only with `keep ledger.total`. All of these are pinned by
+  `s17_lifting_stops_after_a_callee_that_does_not_pin_what_it_writes` and
+  `s7_lifting_still_stops_where_the_after_state_is_not_exact`.
+- **Next:** none planned. Each needs a merge of after-states, which is the same machinery as S16's
+  path merging.
 
 ### S18. The page shows a body need's source text even when it reads post-write state
 - **Kind:** code gap (page wording; needs a decision).
@@ -271,6 +275,30 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   and so a proposal.
 
 ## Closed
+
+### S17. Lifting stopped after a callee that writes
+- **Kind:** code gap. **Closed** 2026-11-05 (by kern-44).
+- **Now:** a call to a callee whose ensures pin every written key (`ensure ledger.balance' a = …`,
+  `keep ledger.total`) becomes exact writes in the log, so a later need lifts. ledger_v3's page now
+  lists payout's second refusal, `balance of from − amount < fee → Insufficient`, which it used to
+  leave out.
+- **Trust:** a lifted condition that rests on a callee's ensures records that callee:
+  - the prover adds it to `relied_on`, so callers are downgraded when the callee isn't clean;
+  - views and the page show the line only while every callee it rests on is clean.
+
+  `s17_a_claim_resting_on_a_wrong_pinned_spec_is_at_most_conditional_and_hidden_from_views` showed
+  the hole first: without the prover line, a false claim was ✔ and the interpreter found the run
+  that breaks it.
+- **Evidence:**
+  - `lifted_conditions_past_writing_callees_agree_with_the_interpreter`: 200 programs, 0
+    contradictions, 330 proven against 234 before.
+  - The fuzzer at seeds 1–3 is clean, and both digests are unchanged.
+  - The goldens change only where explained: escrow_s2's "Relies on" lines name the transitive
+    callee, and ledger_v3 gains the fee row.
+- **Why entries:** payout's interface changed, so its why went stale in 5 files. Fredrik confirmed the
+  entry still holds on 2026-11-05, and it was re-anchored.
+- **What remains:** S19. A marker form for lines that rest on an unproven callee, instead of hiding
+  them, is part of S18.
 
 ### S7. Refusal conditions were lifted only up to the first ledger write
 - **Kind:** code gap. **Closed** 2026-11-05 (the commit that adds `validation/tests/lifted.rs`; by kern-44).

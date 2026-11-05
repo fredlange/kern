@@ -715,6 +715,12 @@ pub fn analyse(
         r.mutation_note = note;
         r.clean = is_clean;
     }
+    // a lifted condition rewritten through a callee's spec is shown (views, page) only if that spec is clean: an
+    // unmarked line must never rest on something unproven (F5). The prover relies on them through `relied_on`.
+    let clean: BTreeSet<String> = reports.iter().filter(|(_, r)| r.clean).map(|(n, _)| n.clone()).collect();
+    for r in reports.values_mut() {
+        r.lifted.retain(|l| l.rests_on.iter().all(|x| clean.contains(x)));
+    }
     for r in reports.values_mut() {
         r.regression = vec![];
     }

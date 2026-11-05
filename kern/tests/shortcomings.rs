@@ -373,6 +373,93 @@ body
 }
 
 // =====================================================================================
+// S17. Lifting past a writing callee whose spec pins what it writes
+// =====================================================================================
+
+const S17_MOVE: &str = "move a:Account b:Account n:Int
+  need a != b else Same
+  keep ledger.total
+  ensure ledger.balance' a = ledger.balance a - n
+  ensure ledger.balance' b = ledger.balance b + n
+body
+  ledger.debit a n
+  ledger.credit b n
+";
+
+const S17_REST: &str = "
+step a:Account b:Account n:Int
+body
+  move a b n
+  need ledger.balance a <= 10 else Big
+  need ledger.total >= 0 else Neg
+
+outer x:Account y:Account m:Int
+  ensure ledger.balance x - m <= 10
+body
+  step x y m
+";
+
+fn s17_status(src: &str, def: &str) -> (&'static str, String) {
+    let reps = reports(&parse(src));
+    let g = reps[def].guarantees.iter().find(|g| g.kind == "ensure").unwrap();
+    (g.status.as_str(), format!("{:?}", g.blocked_by))
+}
+
+#[test]
+fn s17_a_need_after_a_pinned_call_is_lifted_and_proves_the_callers_claim() {
+    let src = format!("{S17_MOVE}{S17_REST}");
+    let defs = parse(&src);
+    let l: Vec<(String, Vec<String>)> =
+        kern::infer::lifted(&defs, &defs.defs["step"]).iter().map(|l| (kern::syntax::code(&l.cond), l.rests_on.clone())).collect();
+    // move's spec pins a and b (and keeps the total); its `a != b` prunes the aliasing case
+    assert!(l.contains(&("ledger.balance a - n <= 10".to_string(), vec!["move".to_string()])), "{l:?}");
+    assert!(l.contains(&("ledger.total >= 0".to_string(), vec!["move".to_string()])), "{l:?}");
+    assert_eq!(s17_status(&src, "outer").0, "proven");
+    let view = views::spec(&reports(&defs)["step"], &why::Status::default());
+    assert!(view.contains("body need ledger.balance a - n <= 10 else Big"), "{view}");
+}
+
+#[test]
+fn s17_a_claim_resting_on_a_wrong_pinned_spec_is_at_most_conditional_and_hidden_from_views() {
+    // move pins a wrong value for a. step has no guarantees, so it is clean; outer's claim rests on move's spec
+    // through step's lifted need, and must come out `!` blocked by move, never ✔. The claim is in fact false:
+    let wrong = S17_MOVE.replace("ledger.balance a - n\n", "ledger.balance a - n + 1\n");
+    let src = format!("{wrong}{S17_REST}").replace("ensure ledger.balance x - m <= 10", "ensure ledger.balance x - m + 1 <= 10");
+    let (status, blocked) = s17_status(&src, "outer");
+    assert_eq!(status, "conditional");
+    assert!(blocked.contains("move"), "{blocked}");
+    let defs = parse(&src);
+    let mut w = kern::run::World::new(
+        [("X".to_string(), 10), ("Y".to_string(), 0)].into_iter().collect(),
+        [("X".to_string(), "u1".to_string()), ("Y".to_string(), "u1".to_string())].into_iter().collect(),
+        0,
+    );
+    let args = [Value::Str("X".into()), Value::Str("Y".into()), Value::Int(0)];
+    // outer X Y 0 with X at 10 succeeds, and the claim says 10 - 0 + 1 <= 10
+    assert_eq!(kern::run::Interp::new(&defs).run("outer", &args, &mut w).unwrap(), kern::run::Outcome::Ok);
+    // (b): the line is not shown, since what it rests on isn't clean
+    let reps = reports(&defs);
+    assert!(!reps["move"].clean);
+    let view = views::spec(&reps["step"], &why::Status::default());
+    assert!(!view.contains("body need"), "{view}");
+    // the prover still knows the condition exists: it is in the inferred interface (anchors), only not displayed
+    assert!(kern::infer::lifted(&defs, &defs.defs["step"]).iter().any(|l| l.ctor == "Big"));
+}
+
+#[test]
+fn s17_lifting_stops_after_a_callee_that_does_not_pin_what_it_writes() {
+    let loose = S17_MOVE.replace("ensure ledger.balance' b = ledger.balance b + n", "ensure ledger.balance' b >= ledger.balance b");
+    let defs = parse(&format!("{loose}{S17_REST}"));
+    let ctors: Vec<String> = kern::infer::lifted(&defs, &defs.defs["step"]).iter().map(|l| l.ctor.clone()).collect();
+    assert_eq!(ctors, ["Same"], "only move's own need is lifted: b's new balance isn't pinned");
+    // pinned balances without `keep ledger.total`: balances lift, the total doesn't
+    let unkept = S17_MOVE.replace("  keep ledger.total\n", "");
+    let defs = parse(&format!("{unkept}{S17_REST}"));
+    let ctors: Vec<String> = kern::infer::lifted(&defs, &defs.defs["step"]).iter().map(|l| l.ctor.clone()).collect();
+    assert_eq!(ctors, ["Same", "Big"]);
+}
+
+// =====================================================================================
 // S8. Mutants are body-only
 // =====================================================================================
 

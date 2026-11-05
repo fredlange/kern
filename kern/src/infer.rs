@@ -330,17 +330,22 @@ pub struct Lifted {
     pub payload: Option<Vec<Expr>>,
     /// "" for d's own body, else the callee it came from
     pub origin: String,
+    /// callees whose `ensure`/`keep` clauses the rewrite used (it read state after their writes), transitively: the
+    /// condition is exact only if their specs hold, so whoever assumes it relies on them
+    pub rests_on: Vec<String>,
 }
 
 /// Conditions the call needs in order to succeed, stated in the caller's pre-state.
 ///
 /// Spec needs are already in the interface; this adds the *body-level* ones (own `need`s and, transitively,
 /// callees' needs), so callers and the prover can see when a call refuses. A condition is lifted only when it can be
-/// stated exactly in the pre-state: it doesn't read state, or every write before it is a direct one (`ledger.debit`,
-/// `ledger.credit`, `x.set`) whose after-values can be written in pre-state terms. A read after such a write is
-/// rewritten through the writes, splitting on aliasing (`ledger.balance x` after `ledger.debit a n` is
-/// `ledger.balance x - n` if x = a, else unchanged). A callee that writes, a loop with effects, or an `if` whose
-/// branches write still ends lifting for state-reading conditions: the after-state is no longer exact there.
+/// stated exactly in the pre-state: it doesn't read state, or every write before it has after-values that can be
+/// written in pre-state terms. Those are direct writes (`ledger.debit`, `ledger.credit`, `x.set`) and calls whose
+/// spec pins every entry they write (`ensure ledger.balance' p = E`, `ensure x.get' p = E`, `keep R`; the total only
+/// with `keep ledger.total`). A read after such a write is rewritten through the writes, splitting on aliasing
+/// (`ledger.balance x` after `ledger.debit a n` is `ledger.balance x - n` if x = a, else unchanged). A condition
+/// rewritten through a callee's spec rests on that spec (`rests_on`). A callee that writes something its spec
+/// doesn't pin, a loop with effects, or an `if` whose branches write ends lifting for state-reading conditions.
 pub fn lifted(defs: &Module, d: &Def) -> Vec<Lifted> {
     lifted_seen(defs, d, &BTreeSet::new())
 }
@@ -350,8 +355,12 @@ pub fn lifted(defs: &Module, d: &Def) -> Vec<Lifted> {
 enum Write {
     /// `ledger.debit a n` (op "-") or `ledger.credit a n` (op "+")
     Bal(Expr, &'static str, Expr),
-    /// `x.set k v`
+    /// `x.set k v`, or a callee's pinned map entry
     Map(String, Expr, Expr),
+    /// a callee's pinned balance: set to the value (the total is covered by the callee's `keep`, or TotalUnknown)
+    BalSet(Expr, Expr),
+    /// a callee wrote balances without keeping the total: the total is no longer known
+    TotalUnknown,
 }
 
 /// The most case combinations a rewritten condition may have; beyond it the condition isn't lifted.
@@ -367,6 +376,8 @@ struct Lifter<'a> {
     log: Option<Vec<Write>>,
     /// pairs that differ on every path reaching this point: `a != b` refusal points already passed
     distinct: Vec<(Expr, Expr)>,
+    /// callees whose pinned writes are in the log: a state-reading condition lifted from here rests on their specs
+    rests: Vec<String>,
 }
 
 fn bin(op: &'static str, l: Expr, r: Expr) -> Expr {
@@ -427,8 +438,10 @@ impl<'a> Lifter<'a> {
             let mut cases: Vec<(Vec<Expr>, Expr)> = vec![(vec![], t.clone())];
             if is_total(&t) {
                 for w in log {
-                    if let Write::Bal(_, op, n) = w {
-                        cases[0].1 = bin(op, cases[0].1.clone(), n.clone());
+                    match w {
+                        Write::Bal(_, op, n) => cases[0].1 = bin(op, cases[0].1.clone(), n.clone()),
+                        Write::TotalUnknown => return None,
+                        _ => {}
                     }
                 }
                 out.push((t, cases));
@@ -446,6 +459,10 @@ impl<'a> Lifter<'a> {
                     (Write::Map(x, k, v), Some(m)) if x == m => {
                         let v = v.clone();
                         Some((k.clone(), Box::new(move |_: &Expr| v.clone())))
+                    }
+                    (Write::BalSet(a, v), None) => {
+                        let v = v.clone();
+                        Some((a.clone(), Box::new(move |_: &Expr| v.clone())))
                     }
                     _ => None,
                 }
@@ -556,8 +573,18 @@ impl<'a> Lifter<'a> {
         }
     }
 
-    fn add(&mut self, cond: &Expr, ctor: &str, payload: &[Expr], origin: &str, guards: &[Option<Expr>]) {
+    fn add(&mut self, cond: &Expr, ctor: &str, payload: &[Expr], origin: &str, guards: &[Option<Expr>], inherited: &[String]) {
         let lifted = self.pre_cond(cond);
+        // what the rewrite may have read through: the specs of the callees whose writes are logged
+        let reads = |e: &Expr| self.with_lets(e).is_some_and(|e| reads_state(&e));
+        let mut rests_on: Vec<String> = inherited.to_vec();
+        if reads(cond) || payload.iter().any(reads) || guards.iter().flatten().any(reads) {
+            for r in &self.rests {
+                if !rests_on.contains(r) {
+                    rests_on.push(r.clone());
+                }
+            }
+        }
         // the call refuses unless cond holds here, so later reads may use it (even when it can't be lifted)
         let learn_from = cond.clone();
         if let Some(mut c) = lifted {
@@ -575,7 +602,7 @@ impl<'a> Lifter<'a> {
                     let p: Vec<Option<Expr>> = payload.iter().map(|a| self.pre_value(a)).collect();
                     let payload = if p.iter().any(|x| x.is_none()) { None } else { Some(p.into_iter().map(Option::unwrap).collect()) };
                     if self.out.iter().all(|o| !(o.cond == c && o.ctor == ctor)) {
-                        self.out.push(Lifted { cond: c, ctor: ctor.to_string(), payload, origin: origin.to_string() });
+                        self.out.push(Lifted { cond: c, ctor: ctor.to_string(), payload, origin: origin.to_string(), rests_on });
                     }
                 }
             }
@@ -591,7 +618,7 @@ impl<'a> Lifter<'a> {
                     let usable = v.is_some();
                     self.lets.insert(x.clone(), (v.unwrap_or_else(|| e.clone()), usable));
                 }
-                Stmt::Need(c, ctor, args) => self.add(c, ctor, args, "", guards),
+                Stmt::Need(c, ctor, args) => self.add(c, ctor, args, "", guards, &[]),
                 Stmt::Inv(_) => continue,
                 Stmt::For(_, _, _, _, body) => {
                     // a loop's refusals depend on earlier iterations: never lifted; any effect ends lifting
@@ -602,12 +629,13 @@ impl<'a> Lifter<'a> {
                 Stmt::If(c, t, o) => {
                     let g = self.pre_cond(c);
                     let ng = g.as_ref().and_then(negate);
-                    let (log0, distinct0) = (self.log.clone(), self.distinct.clone());
+                    let (log0, distinct0, rests0) = (self.log.clone(), self.distinct.clone(), self.rests.clone());
                     let mut g1 = guards.to_vec();
                     g1.push(g);
                     self.walk(t, &g1);
                     let log_then = std::mem::replace(&mut self.log, log0.clone());
                     self.distinct = distinct0.clone();
+                    let rests_then = std::mem::replace(&mut self.rests, rests0.clone());
                     let mut g2 = guards.to_vec();
                     g2.push(ng);
                     self.walk(o, &g2);
@@ -616,6 +644,9 @@ impl<'a> Lifter<'a> {
                         self.log = None;
                     }
                     self.distinct = distinct0;
+                    if rests_then != rests0 || self.rests != rests0 {
+                        self.rests = rests0; // the log is gone anyway: nothing more reads through these writes
+                    }
                 }
                 Stmt::Do(Expr::App(name, _, args)) => {
                     if let Some(callee) = self.defs.defs.get(name) {
@@ -627,16 +658,24 @@ impl<'a> Lifter<'a> {
                         for n in &callee.needs {
                             if let Need::Need(c, ctor, a) = n {
                                 let a: Vec<Expr> = a.iter().map(|x| subst(x, &m)).collect();
-                                self.add(&subst(c, &m), ctor, &a, name, guards);
+                                self.add(&subst(c, &m), ctor, &a, name, guards, &[]);
                             }
                         }
                         for l in lifted_seen(self.defs, callee, &self.seen) {
                             let a: Vec<Expr> = l.payload.map(|p| p.iter().map(|x| subst(x, &m)).collect()).unwrap_or_default();
                             let origin = if l.origin.is_empty() { name.clone() } else { l.origin };
-                            self.add(&subst(&l.cond, &m), &l.ctor, &a, &origin, guards);
+                            self.add(&subst(&l.cond, &m), &l.ctor, &a, &origin, guards, &l.rests_on);
                         }
                         if !writes(self.defs, callee).is_empty() {
-                            self.log = None;
+                            match self.pinned_writes(callee, &m) {
+                                Some(ws) if self.log.is_some() => {
+                                    self.log.as_mut().unwrap().extend(ws);
+                                    if !self.rests.contains(name) {
+                                        self.rests.push(name.clone());
+                                    }
+                                }
+                                _ => self.log = None,
+                            }
                         }
                     } else if WRITERS.contains(&name.as_str()) {
                         let op = if name == "ledger.debit" { "-" } else { "+" };
@@ -658,6 +697,71 @@ impl<'a> Lifter<'a> {
         }
     }
 
+    /// A writing call as exact writes, when the callee's spec pins every entry it writes: `ensure R' = E` (no
+    /// `when`, no `for`, nothing primed in E) or `keep R`, R being `ledger.balance p` or `x.get p` at a written
+    /// parameter p. Values are in the caller's pre-call terms (all read before any of them is applied). None if an
+    /// entry isn't pinned, or a value can't be stated without a case split.
+    fn pinned_writes(&self, callee: &Def, m: &IndexMap<String, Expr>) -> Option<Vec<Write>> {
+        let ws = writes(self.defs, callee);
+        // (read, value) pairs the spec states, in the callee's own terms
+        let mut pins: Vec<(Expr, Expr)> = vec![];
+        let primed = |e: &Expr| walk(e).iter().any(|x| matches!(x, Expr::Name(_, true) | Expr::App(_, true, _)));
+        let unprime = |e: &Expr| match e {
+            Expr::App(n, true, a) => Some(Expr::App(n.clone(), false, a.clone())),
+            Expr::Name(n, true) => Some(Expr::Name(n.clone(), false)),
+            _ => None,
+        };
+        fn conjuncts(e: &Expr) -> Vec<&Expr> {
+            match e {
+                Expr::Bin("and", l, r) => conjuncts(l).into_iter().chain(conjuncts(r)).collect(),
+                _ => vec![e],
+            }
+        }
+        for e in callee.ensures.iter().flat_map(conjuncts) {
+            if let Expr::Bin("=", l, r) = e {
+                for (lhs, rhs) in [(l, r), (r, l)] {
+                    if let Some(read) = unprime(lhs) {
+                        if !primed(rhs) {
+                            pins.push((read, (**rhs).clone()));
+                        }
+                    }
+                }
+            }
+        }
+        for k in &callee.keeps {
+            if !primed(k) {
+                pins.push((k.clone(), k.clone()));
+            }
+        }
+        let pinned = |read: &Expr| pins.iter().find(|(r, _)| r == read).map(|(_, v)| v.clone());
+        let mut out = vec![];
+        let total_kept = pins.iter().any(|(r, v)| is_total(r) && is_total(v));
+        let mut wrote_balances = false;
+        for w in &ws {
+            let (read, write): (Expr, Box<dyn Fn(Expr, Expr) -> Write>) = match w.rsplit_once('.') {
+                None if w != ANY_ACCOUNT => {
+                    wrote_balances = true;
+                    (Expr::App("ledger.balance".into(), false, vec![Expr::Name(w.clone(), false)]), Box::new(Write::BalSet))
+                }
+                Some((x, p)) if p != ANY_ACCOUNT && !p.starts_with('[') => {
+                    let x = x.to_string();
+                    (Expr::App(format!("{x}.get"), false, vec![Expr::Name(p.to_string(), false)]), Box::new(move |k, v| Write::Map(x.clone(), k, v)))
+                }
+                _ => return None,
+            };
+            let value = pinned(&read)?;
+            let Expr::App(_, _, args) = &read else { unreachable!() };
+            // into the caller's terms: the callee's parameters become the arguments, then the caller's log applies
+            let key = self.pre_value(&subst(&args[0], m))?;
+            let value = self.pre_value(&subst(&value, m))?;
+            out.push(write(key, value));
+        }
+        if wrote_balances && !total_kept {
+            out.push(Write::TotalUnknown);
+        }
+        Some(out)
+    }
+
     fn push_write(&mut self, w: Option<Write>) {
         match (w, self.log.as_mut()) {
             (Some(w), Some(log)) => log.push(w),
@@ -667,7 +771,7 @@ impl<'a> Lifter<'a> {
 }
 
 fn lifted_seen(defs: &Module, d: &Def, seen: &BTreeSet<String>) -> Vec<Lifted> {
-    let mut l = Lifter { defs, seen: with_seen(seen, &d.name), out: vec![], lets: IndexMap::new(), log: Some(vec![]), distinct: vec![] };
+    let mut l = Lifter { defs, seen: with_seen(seen, &d.name), out: vec![], lets: IndexMap::new(), log: Some(vec![]), distinct: vec![], rests: vec![] };
     // spec needs are refusal points before the body
     for n in &d.needs {
         if let Need::Need(c, _, _) = n {

@@ -55,5 +55,5 @@ eg A:561@u1 B:623@u2 C:980@u1 now:32 | payout C C A 14 409   # breaks: ensure le
 eg A:816@u2 B:639@u2 C:189@u1 now:85 | payout A A B 558 116   # breaks: ensure ledger.balance&#x27; from = ledger.balance from - amount - fee</pre>
 <h3>Spec strength</h3><p class='muted'>Not measured until every guarantee holds.</p>
 <h3>Relies on</h3><p><code>transfer</code> — through their specs only, not their code.</p>
-<details><summary>Why (1)</summary><p class='failc'>Written for ac5c63bb; the definition or its inferred interface has changed since (now a15ed3b2). Confirm or update.</p><ul><li>the fee is a second transfer so it appears as its own ledger line in the customer&#x27;s statement</li></ul></details>
+<details><summary>Why (1)</summary><p class='failc'>Written for ace256d4; the definition or its inferred interface has changed since (now 227390f8). Confirm or update.</p><ul><li>the fee is a second transfer so it appears as its own ledger line in the customer&#x27;s statement</li></ul></details>
 </section></main></body></html>

@@ -109,3 +109,102 @@ fn lifted_conditions_past_writes_agree_with_the_interpreter() {
     assert!(proven >= 40 && refuted >= 40, "{ens}");
 }
 
+
+/// S17: `step` calls a writing callee first, then refuses on a read of what it wrote. The callee's spec pins its
+/// writes (rightly or wrongly) or doesn't. `step` has no guarantees of its own, so it is clean even when the callee
+/// isn't: a caller's ✔ that rests on a wrong callee spec must still come out `!` (via `rests_on`).
+fn gen_callee(rnd: &mut Random) -> String {
+    let callee = match pick(rnd, &["move", "move", "move_wrong", "move_alias", "move_loose", "stash", "stash_wrong"]) {
+        "move" => "move a:Account b:Account n:Int
+  need a != b else Same
+  keep ledger.total
+  ensure ledger.balance' a = ledger.balance a - n
+  ensure ledger.balance' b = ledger.balance b + n
+body
+  ledger.debit a n
+  ledger.credit b n",
+        // pins a wrong value: refuted, so whatever rests on it is at most `!`
+        "move_wrong" => "move a:Account b:Account n:Int
+  need a != b else Same
+  keep ledger.total
+  ensure ledger.balance' a = ledger.balance a - n + 1
+  ensure ledger.balance' b = ledger.balance b + n
+body
+  ledger.debit a n
+  ledger.credit b n",
+        // no `a != b`: the ensures are false when a = b and n != 0
+        "move_alias" => "move a:Account b:Account n:Int
+  keep ledger.total
+  ensure ledger.balance' a = ledger.balance a - n
+  ensure ledger.balance' b = ledger.balance b + n
+body
+  ledger.debit a n
+  ledger.credit b n",
+        // doesn't pin b: lifting must stop after the call
+        "move_loose" => "move a:Account b:Account n:Int
+  need a != b else Same
+  need n >= 0 else Neg
+  keep ledger.total
+  ensure ledger.balance' a = ledger.balance a - n
+  ensure ledger.balance' b >= ledger.balance b
+body
+  ledger.debit a n
+  ledger.credit b n",
+        "stash" => "move a:Account b:Account n:Int
+  ensure hold.get' n = ledger.balance a
+body
+  hold.set n (ledger.balance a)",
+        _ => "move a:Account b:Account n:Int
+  ensure hold.get' n = ledger.balance a + 1
+body
+  hold.set n (ledger.balance a)",
+    };
+    let call = pick(rnd, &["move a b n", "move b a 2", "move a b 1"]);
+    let reads = ["ledger.balance a", "ledger.balance b", "ledger.total", "hold.get n", "hold.get 0", "ledger.balance a + ledger.balance b"];
+    let mut needs = vec![];
+    let mut step = vec!["step a:Account b:Account n:Int".to_string(), "body".into(), format!("  {call}")];
+    for ctor in ["Big", "Big2"].iter().take(*rnd.choice(&[1usize, 1, 2])) {
+        let (r, op, k) = (pick(rnd, &reads), pick(rnd, &[">=", "<=", "<"]), *rnd.choice(&[0i64, 5, 10, 30]));
+        needs.push((r, op, k));
+        step.push(format!("  need {r} {op} {k} else {ctor}"));
+    }
+    let args = pick(rnd, &["x y m", "x x m", "y x 3", "x z m"]);
+    let a: Vec<&str> = args.split(' ').collect();
+    let mut claims: Vec<String> = vec![];
+    for (r, op, k) in &needs {
+        let r = r.replace("ledger.balance a", &format!("ledger.balance {}", a[0])).replace("ledger.balance b", &format!("ledger.balance {}", a[1])).replace("hold.get n", &format!("hold.get {}", a[2]));
+        for d in ["", " + N", " - N", " - 2", " + 2", " - 1", " + 1", " - N + 1", " - N - 1", " + N + 1", " + N - 1"] {
+            let d = d.replace('N', a[2]);
+            let looser = if *op == ">=" { format!("{k} - 20") } else { format!("{k} + 20") };
+            claims.push(format!("{r}{d} {op} {k}"));
+            claims.push(format!("{r}{d} {op} {looser}"));
+        }
+    }
+    let mut outer = vec!["outer x:Account y:Account z:Account m:Int".to_string()];
+    let k = *rnd.choice(&[2usize, 3, 4]);
+    for c in rnd.sample(&claims, k) {
+        outer.push(format!("  ensure {c}"));
+    }
+    outer.extend(["body".into(), format!("  step {args}")]);
+    format!("state hold Int\n\n{callee}\n\n{}\n\n{}\n", step.join("\n"), outer.join("\n"))
+}
+
+#[test]
+fn lifted_conditions_past_writing_callees_agree_with_the_interpreter() {
+    let mut rnd = Random::from_int(2);
+    let jobs: Vec<Job> = (0..200)
+        .map(|i| {
+            let src = gen_callee(&mut rnd);
+            Job { label: format!("callee#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs: 200 }
+        })
+        .collect();
+    let results: Vec<_> = jobs.iter().map(check_program).collect();
+    let s = summarise(&results);
+    let ens = &s["tiers"]["ensure"];
+    eprintln!("ensure tiers: {ens}");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    assert_eq!(s["well_formed"], s["programs"], "every generated program is well-formed");
+    let (proven, conditional) = (ens["proven"].as_u64().unwrap_or(0), ens["conditional"].as_u64().unwrap_or(0));
+    assert!(proven >= 40 && conditional >= 20, "{ens}");
+}

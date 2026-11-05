@@ -493,6 +493,10 @@ impl<'m> Prover<'m> {
         for l in lifted(self.defs, callee) {
             let c = self.sev(&l.cond, &env, s, None).b().clone();
             self.pc.borrow_mut().push(c);
+            // a condition rewritten through other callees' specs is exact only if those specs hold
+            for r in &l.rests_on {
+                self.relied_on.insert(r.clone());
+            }
         }
         let pre = s.clone();
         let all_written = writes(self.defs, callee);
