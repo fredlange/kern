@@ -99,6 +99,8 @@ fn names_that_meet_in_rust_compile_apart() {
         ("ident_reserved_let_shadows", "state hold Int\n\ng k:Int\n  ok otherwise\n  ensure hold.get' 1 = k\nbody\n  w_ = 7\n  hold.set 1 k\n  hold.set 2 w_\n\nf w:Int\n  ok otherwise\n  ensure hold.get' 1 = w\nbody\n  w_ = 99\n  hold.set 1 w\n  hold.set 2 w_\n"),
         ("ident_reserved_param_collides", "state hold Int\n\nf tx:Int tx_:Int\n  ok otherwise\n  ensure hold.get' 1 = tx\n  ensure hold.get' 2 = tx_\nbody\n  hold.set 1 tx\n  hold.set 2 tx_\n"),
         ("ident_def_named_like_check_fn", "state hold Int\ninvariant o:Int hold.get o >= 0\n\nput k:Int v:Int\nbody\n  hold.set (k + 1) (v - 5)\n\ninv__put k:Int\n  ok otherwise\n  ensure hold.get' 9 = 1\nbody\n  hold.set 9 1\n"),
+        ("ctor_self", "state hold Int\n\nf k:Int\n  need k > 0 else Self k\n  need k < 9 else Self_\n  ok otherwise\n  emit Self k\n  emit Self_ k\nbody\n  hold.set k 1\n  audit.emit (Self k)\n  audit.emit (Self_ k)\n"),
+        ("ctor_underscore", "state hold Int\n\nf k:Int\n  need k > 0 else Too_Small k\n  ok otherwise\n  emit Too_Big k\nbody\n  hold.set k 1\n  audit.emit (Too_Big k)\n"),
     ] {
         let p = dir.join(format!("{name}.k"));
         std::fs::write(&p, src).unwrap();
