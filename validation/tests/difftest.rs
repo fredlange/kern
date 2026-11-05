@@ -80,3 +80,28 @@ fn compiled_invariant_checks_are_exercised_and_a_binary_without_them_is_caught()
     assert_eq!(got, without.expected, "the unchecked binary should match the unchecked reference");
     assert_ne!(got, with.expected);
 }
+
+#[test]
+fn names_that_meet_in_rust_compile_apart() {
+    // found 2026-11-05 (#AGIZXR4NG6, #V7NI3YJFGQ): `p.x` and `p_x`, a reserved `w` and a `let w_`, `tx` and `tx_`, a
+    // definition named like a generated helper, a callee writing at a record-field key. Each must build and agree
+    // with the interpreter (the shadowing ones silently broke a proven guarantee before 381bfcb/804f7a7).
+    if !have_cargo() {
+        return eprintln!("SKIP: needs cargo");
+    }
+    let dir = std::env::temp_dir().join(format!("kern-names-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, src) in [
+        ("record_let_shadows_field", "state hold Int\n\nrecord Point x:Int y:Int\n\nshadow p:Point\n  ok otherwise\n  ensure hold.get' 1 = p.x\n  eg | shadow 5 6 -> ok | hold.1:5 hold.3:99\nbody\n  p_x = 99\n  hold.set 1 p.x\n  hold.set 3 p_x\n"),
+        ("record_param_collides_with_field", "state hold Int\n\nrecord Point x:Int y:Int\n\nshift p:Point p_x:Int\n  ok otherwise\n  ensure hold.get' 1 = p.x\n  ensure hold.get' 2 = p_x\nbody\n  hold.set 1 p.x\n  hold.set 2 p_x\n\nshadow p:Point\n  ok otherwise\n  ensure hold.get' 1 = p.x\nbody\n  p_x = 99\n  hold.set 1 p.x\n  hold.set 3 p_x\n"),
+        ("record_callee_key_crash", "state hold Int\n\nrecord Point x:Int y:Int\n\nput p:Point\n  ok otherwise\n  ensure hold.get' p.x = p.y\nbody\n  hold.set p.x p.y\n\nc a:Int b:Int\n  ok otherwise\nbody\n  put (Point a b)\n"),
+        ("ident_reserved_let_shadows", "state hold Int\n\ng k:Int\n  ok otherwise\n  ensure hold.get' 1 = k\nbody\n  w_ = 7\n  hold.set 1 k\n  hold.set 2 w_\n\nf w:Int\n  ok otherwise\n  ensure hold.get' 1 = w\nbody\n  w_ = 99\n  hold.set 1 w\n  hold.set 2 w_\n"),
+        ("ident_reserved_param_collides", "state hold Int\n\nf tx:Int tx_:Int\n  ok otherwise\n  ensure hold.get' 1 = tx\n  ensure hold.get' 2 = tx_\nbody\n  hold.set 1 tx\n  hold.set 2 tx_\n"),
+        ("ident_def_named_like_check_fn", "state hold Int\ninvariant o:Int hold.get o >= 0\n\nput k:Int v:Int\nbody\n  hold.set (k + 1) (v - 5)\n\ninv__put k:Int\n  ok otherwise\n  ensure hold.get' 9 = 1\nbody\n  hold.set 9 1\n"),
+    ] {
+        let p = dir.join(format!("{name}.k"));
+        std::fs::write(&p, src).unwrap();
+        let r = run_module(p.to_str().unwrap(), 200, 1, 5).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(r.eg_failures.is_empty() && r.n_divergences == 0, "{name}: {r:?}");
+    }
+}

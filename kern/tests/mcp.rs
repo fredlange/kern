@@ -410,6 +410,18 @@ fn s5_structural_edits_keep_the_file_constants() {
     assert!(text.starts_with("const fee 5\nconst cap 3\nconst lim 100\nconst two 2\nconst unused 7\n"), "{text}");
     let c = tool("kern_check", json!({"file": m})).unwrap();
     assert_eq!(c["status"]["fine"], "All guarantees proven", "{c}");
-    // a constant is a declaration, not a definition: kern_add refuses it rather than mis-filing it
-    assert!(tool("kern_add", json!({"file": m, "source": "const extra 3\n"})).is_err());
+    // since 9cac022 kern_add takes one declaration line: the constant is usable at once; a duplicate, a reserved
+    // name or a malformed line is refused and leaves the file as it was
+    let r = tool("kern_add", json!({"file": m, "source": "const extra 3\n"})).unwrap();
+    assert_eq!(r["ok"], true, "{r}");
+    let uses = "tip a:Account\n  need ledger.balance a >= extra else Insufficient extra\n  ok otherwise\n  ensure ledger.balance' a = ledger.balance a - extra\nbody\n  ledger.debit a extra\n";
+    assert_eq!(tool("kern_add", json!({"file": m, "source": uses})).unwrap()["ok"], true);
+    let before = std::fs::read_to_string(&m).unwrap();
+    for bad in ["const extra 4\n", "const fee 9\n", "const ledger 1\n", "const state 1\n", "const big -1\n"] {
+        let r = tool("kern_add", json!({"file": m, "source": bad}));
+        assert!(r.as_ref().map_or(true, |v| v["ok"] != true), "{bad:?} accepted: {r:?}");
+        assert_eq!(std::fs::read_to_string(&m).unwrap(), before, "{bad:?} changed the file");
+    }
+    let c = tool("kern_check", json!({"file": m})).unwrap();
+    assert_eq!(c["status"]["tip"], "All guarantees proven", "{c}");
 }
