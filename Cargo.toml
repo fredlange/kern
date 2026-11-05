@@ -1,7 +1,7 @@
 # The Rust workspace: toolchain/ is the Kern toolchain (crate `kern`, binary `kern`; docs/research/RUST_PORT_PLAN.md),
-# runtime/ is kern-rt, linked into every compiled Kern program. build/ holds generated crates that path-depend on
-# runtime/, so it stays out of the workspace.
+# runtime/ is kern-rt, linked into every compiled Kern program; validation/ holds the tools that check the toolchain
+# (kern-validation). build/ holds generated crates that path-depend on runtime/, so it stays out of the workspace.
 [workspace]
-members = ["toolchain", "runtime"]
+members = ["toolchain", "runtime", "validation"]
 exclude = ["build"]
 resolver = "2"

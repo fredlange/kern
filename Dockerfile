@@ -19,6 +19,7 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY toolchain toolchain
 COPY runtime runtime
+COPY validation validation
 RUN cargo build --release --locked -p kern --features static-z3
 
 FROM debian:bookworm-slim AS kern

@@ -137,14 +137,14 @@ examples/         one standalone project per directory, each with a README and p
                   sizes, docs/research/SCALE.md), limits/ (host net demo), batch/ (loops), raffle/ (assumed
                   handler), shop/ library/ lottery/ (packages)
 
-tests/test_fundamentals.py  adversarial audit tests, one section per fundamental
-tests/test_host.py        host = interpreter (random equivalence), atomicity, at-least-once, replay
-tests/test_mcp.py         the MCP server
-tests/test_package.py     loader errors, tools across files, MCP edits per file, the host serving packages
+tests/test_fundamentals.py  adversarial audit tests, one section per fundamental (being ported; front-end half
+                          in toolchain/tests/fundamentals_front.rs)
 tests/test_fuzz.py        small fuzz run is clean and deterministic; an injected prover fault is found
-tests/test_runtime.py     the compiled Rust program against run.py (skipped without cargo)
-tests/test_docs.py        keeps REFERENCE/GUIDE (and validation/README) in step with the code
 tests/probes/             small modules the tests and validation tools use
+toolchain/tests/          cargo tests of the Rust port (docs/research/RUST_PORT_PLAN.md): host.rs, mcp.rs,
+                          package.rs, runtime.rs (compiled program vs interpreter), docs.rs (REFERENCE/GUIDE in step
+                          with the code); *_oracle.rs compare each module with the Python oracle's JSON
+validation/tests/difftest.rs  random differential test: compiled program vs interpreter on every example
 
 validation/fuzz.py        soundness fuzzer: random loop/handler programs + template mutants, interpreter as oracle
 validation/digest.py      results digests (S2 and --loops): the floor for prover changes
