@@ -1338,7 +1338,7 @@ fn py_float(x: f64) -> String {
     }
 }
 
-pub const ASSUMPTIONS: [&str; 4] = [
+pub const ASSUMPTIONS: [&str; 5] = [
     "Calls run one at a time (a lock in this process; `begin immediate` across processes). The proofs assume serial \
      top-level calls.",
     "Every event is delivered at least once, after its call commits. A crash between delivering and marking an event \
@@ -1346,6 +1346,8 @@ pub const ASSUMPTIONS: [&str; 4] = [
     "The order of events across channels is audit first, then channels in declaration order. Specs fix the order \
      within a channel only.",
     "`clock.now` is the wall clock in seconds, read once per call and recorded for replay.",
+    "An Int is an i64 here (the proofs use unbounded integers): a call that would store, emit or return an Int \
+     outside i64 is undone as a host fault, and input outside i64 is refused.",
 ];
 pub const NET_ASSUMPTIONS: [&str; 2] = [
     "A network reply becomes a new top-level call. The host decodes each `$.field` as an Int; a timeout, a non-2xx \
@@ -1355,6 +1357,19 @@ pub const NET_ASSUMPTIONS: [&str; 2] = [
      is in seconds of the recorded clock (below), checked after each call's replies, so an idle host fires it at its \
      next call. A reply that arrives later is an ordinary call the module may refuse.",
 ];
+
+/// 10000000 -> "10,000,000" (the page's wording)
+fn format_num(n: Int) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
 
 /// The data for render::host_html: effects the module uses, endpoints, assumptions.
 pub fn host_facts(host: &Host) -> HostInfo {
@@ -1366,6 +1381,11 @@ pub fn host_facts(host: &Host) -> HostInfo {
     let mut eps: Vec<(&String, &Endpoint)> = host.endpoints.iter().collect();
     eps.sort_by(|a, b| a.0.cmp(b.0));
     let mut assumptions: Vec<String> = ASSUMPTIONS.iter().map(|s| s.to_string()).collect();
+    assumptions.push(format!(
+        "A call may run at most {} loop and sum iterations (`hi - lo` is counted when a loop or sum starts); past \
+         that it is undone as a host fault. The proofs say a call succeeds, not how long it takes.",
+        format_num(ITERATION_LIMIT)
+    ));
     if !host.endpoints.is_empty() {
         assumptions.extend(NET_ASSUMPTIONS.iter().map(|s| s.to_string()));
         // the effective values, not the default: the page says what this host will do
@@ -2202,6 +2222,7 @@ nope x:Int k:Int
         assert_eq!(h.load().unwrap().maps["hold"][&Key::Int(0)], ITERATION_LIMIT);
         assert!(h.replay().unwrap().is_empty());
         assert!(manifest_text(&h).contains("iteration limit: 10000000 loop and sum iterations per call"));
+        assert!(host_facts(&h).assumptions.iter().any(|a| a.contains(&format_num(ITERATION_LIMIT))));
         // the compiled program stops at the same number
         let rt = include_str!("../../runtime/src/lib.rs");
         assert!(rt.contains(&format!("pub const ITERATION_LIMIT: i64 = {};", "10_000_000")) && ITERATION_LIMIT == 10_000_000);
