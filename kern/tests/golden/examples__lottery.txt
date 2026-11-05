@@ -84,7 +84,7 @@ loyalty_bonus [2be98d3c]  All guarantees proven
   ✔ invariant p:Int tickets.get p >= 0
   writes tickets.[lo,hi)
   examples 1/1   random tests 500/500 reached success, 0 violations
-  spec strength: guarantees 12/14 (prover 11, random tests 10); examples 11/14; together 12/14
+  spec strength: guarantees 12/14 (prover 12, random tests 10); examples 11/14; together 12/14
       survived: `lo` → `lo - 1` in `for k from lo to hi`
       survived: `hi` → `hi + 1` in `for k from lo to hi`
 

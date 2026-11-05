@@ -347,6 +347,33 @@ fn term_bounds(e: &Expr) -> (Option<Int>, Option<Int>) {
     }
 }
 
+/// The integer literals in a definition's spec and body (keys a counterexample may need, `hold.0`).
+fn literals(d: &Def) -> Vec<i128> {
+    let mut exprs: Vec<&Expr> = d.ensures.iter().chain(d.keeps.iter()).collect();
+    for n in &d.needs {
+        exprs.push(need_cond(n));
+    }
+    for s in flat(&d.body) {
+        match s {
+            Stmt::Let(_, e) | Stmt::Do(e) | Stmt::If(e, _, _) | Stmt::Inv(e) => exprs.push(e),
+            Stmt::Need(c, _, a) => {
+                exprs.push(c);
+                exprs.extend(a.iter());
+            }
+            Stmt::For(_, lo, hi, invs, _) => {
+                exprs.extend([lo, hi]);
+                exprs.extend(invs.iter());
+            }
+        }
+    }
+    let mut out: Vec<i128> =
+        exprs.into_iter().flat_map(crate::infer::walk).filter_map(|e| if let Expr::Int(n) = e { Some(*n) } else { None }).collect();
+    out.sort();
+    out.dedup();
+    out.truncate(20);
+    out
+}
+
 /// Whether `from` can call `to` (itself included): a call from `to`'s body to `from` is then recursive.
 fn reaches(defs: &Module, from: &str, to: &str) -> bool {
     let (mut seen, mut todo) = (BTreeSet::new(), vec![from.to_string()]);
@@ -1723,6 +1750,33 @@ impl<'m> Prover<'m> {
 
     /// Turn a Z3 model into an `eg` line, then replay it in the interpreter to confirm.
     fn render_cex(&mut self, d: &Def, m: &Model, params: &IndexMap<String, ZInt>, pre: &Sym, kind: &str) -> Counterexample {
+        let cx = self.render_cex_once(d, m, params, pre, kind, &[]);
+        if cx.confirmed_by_interpreter {
+            return cx;
+        }
+        // the model's array may not list a key computed from a parameter (`lo - 1`): read it at likely keys, the
+        // parameters' values give or take 2 and the definition's integer literals, and try once more
+        let mut keys: Vec<i128> = vec![];
+        for (p, t) in &d.params {
+            if t == "Int" {
+                if let Some(v) = zz::eval_long(m, &params[p.as_str()]) {
+                    keys.extend((-2..=2).map(|o| v + o));
+                }
+            }
+        }
+        keys.extend(literals(d));
+        keys.sort();
+        keys.dedup();
+        let cx2 = self.render_cex_once(d, m, params, pre, kind, &keys);
+        if cx2.confirmed_by_interpreter {
+            cx2
+        } else {
+            cx
+        }
+    }
+
+    fn render_cex_once(&mut self, d: &Def, m: &Model, params: &IndexMap<String, ZInt>, pre: &Sym, kind: &str, probe: &[i128])
+        -> Counterexample {
         let long = |x: &ZInt| zz::eval_long(m, x).expect("a numeral in the model");
         let (mut letters, mut owners): (IndexMap<i128, String>, IndexMap<i128, String>) = (IndexMap::new(), IndexMap::new());
         let mut world: IndexMap<String, (Int, String)> = IndexMap::new();
@@ -1773,6 +1827,27 @@ impl<'m> Prover<'m> {
                         texts.entry(x.clone()).or_default().insert(key, val);
                     }
                 }
+                // and every entry the model gives, as for Int maps (a key computed from a parameter: `k + 1`)
+                if st == "Int" {
+                    let whole = m.eval(arr, true).expect("an array value");
+                    for (zk, val) in zz::text_array_entries(m, &whole, 50) {
+                        if !text_keys.contains(&(x.clone(), Key::Int(zk))) && zk.abs() <= 1_000_000 {
+                            text_keys.push((x.clone(), Key::Int(zk)));
+                            if !val.is_empty() {
+                                texts.entry(x.clone()).or_default().insert(Key::Int(zk), val);
+                            }
+                        }
+                    }
+                    for zk in probe {
+                        if !text_keys.contains(&(x.clone(), Key::Int(*zk))) {
+                            text_keys.push((x.clone(), Key::Int(*zk)));
+                            let val = zz::text_value(m, &zz::select_text(arr, &zz::val(*zk))).unwrap_or_default();
+                            if !val.is_empty() {
+                                texts.entry(x.clone()).or_default().insert(Key::Int(*zk), val);
+                            }
+                        }
+                    }
+                }
                 continue;
             }
             let st = &self.defs.states[x.as_str()];
@@ -1798,6 +1873,14 @@ impl<'m> Prover<'m> {
                         keys.push((x.clone(), Key::Int(zk)));
                         if val != 0 {
                             maps.entry(x.clone()).or_default().insert(Key::Int(zk), val);
+                        }
+                    }
+                }
+                for zk in probe {
+                    if !keys.contains(&(x.clone(), Key::Int(*zk))) {
+                        keys.push((x.clone(), Key::Int(*zk)));
+                        if let Some(val) = zz::eval_long(m, &zz::select(arr, &zz::val(*zk))).filter(|v| *v != 0) {
+                            maps.entry(x.clone()).or_default().insert(Key::Int(*zk), val);
                         }
                     }
                 }

@@ -177,6 +177,25 @@ body
 }
 
 #[test]
+fn s5_counterexamples_carry_text_entries_and_keys_computed_from_fields() {
+    // tester's findings: a refutable claim over a Text map, and over a key computed from a record field
+    // (`s.lo - 1`), showed `?` because the counterexample world left those entries out (F8: a lost ✗)
+    use kern::report::Status;
+    let text = "state title Int -> Text\nstate mark Int\n\ng k:Int\n  ensure title.get' (k + 2) = title.get (k + 1)\nbody\n  mark.set k 1\n";
+    let field = "state hold Int\nrecord Span lo:Int hi:Int\n\nagg s:Span -> Int\n  ensure result = (sum j from s.lo to s.hi of 2 * hold.get j)\nbody\n  result = (sum j from (s.lo - 1) to s.hi of 2 * hold.get j)\n";
+    for (src, name) in [(text, "g"), (field, "agg")] {
+        let defs = parse(src);
+        let reps = reports(&defs);
+        let g = reps[name].guarantees.iter().find(|g| g.kind == "ensure").unwrap();
+        assert_eq!(g.status, Status::Refuted, "{name}: {:?}", g.counterexample);
+        let cx = g.counterexample.clone().unwrap();
+        let mut d = defs.defs[name].clone();
+        d.examples = vec![kern::syntax::parse_example(cx.eg.trim_start_matches("eg").trim(), None).unwrap()];
+        assert!(kern::check::run_examples(&defs, &d).unwrap()[0].pass, "{}", cx.eg);
+    }
+}
+
+#[test]
 fn s5_a_record_is_read_by_field_or_passed_whole() {
     let cases = [
         ("g q:Pair\n  ensure 1 = 1\nbody\n  f q\n", "passes q (Pair) where a Point is wanted"),

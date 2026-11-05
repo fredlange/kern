@@ -445,6 +445,54 @@ pub fn array_entries(m: &Model, v: &Array, limit: usize) -> Vec<(i128, i128)> {
     out
 }
 
+/// A string constant's text (by code point), or None.
+fn string_of(a: &Dynamic) -> Option<String> {
+    unsafe {
+        let (c, x) = (ctx().get_z3_context(), a.get_z3_ast());
+        if !z3_sys::Z3_is_string(c, x) {
+            return None;
+        }
+        let n = z3_sys::Z3_get_string_length(c, x);
+        let mut cps = vec![0u32; n as usize];
+        z3_sys::Z3_get_string_contents(c, x, n, cps.as_mut_ptr());
+        Some(cps.into_iter().filter_map(char::from_u32).collect())
+    }
+}
+
+/// The explicit entries of an Int -> String array value in a model (as `array_entries`, for Text maps).
+pub fn text_array_entries(m: &Model, v: &Array, limit: usize) -> Vec<(i128, String)> {
+    let mut out = vec![];
+    let mut v = v.clone();
+    loop {
+        if out.len() >= limit {
+            break;
+        }
+        let Ok(d) = v.safe_decl() else { break };
+        if d.kind() != z3::DeclKind::Store {
+            break;
+        }
+        let ch = v.children();
+        let (Some(k), Some(x)) = (ch[1].as_int().and_then(|i| numeral(&i)), string_of(&ch[2])) else { return out };
+        out.push((k, x));
+        v = match ch[0].as_array() {
+            Some(a) => a,
+            None => return out,
+        };
+    }
+    if v.is_as_array() {
+        let Some(f) = v.as_array_func_decl() else { return out };
+        let Some(fi) = m.get_func_interp(&f) else { return out };
+        for e in fi.get_entries().into_iter().take(limit) {
+            let args = e.get_args();
+            let (Some(k), Some(x)) = (args[0].as_int().and_then(|i| numeral(&i)), string_of(&e.get_value())) else {
+                return out;
+            };
+            out.push((k, x));
+        }
+    }
+    out
+}
+
 /// The s-expression of an assertion (find_cex checks for "forall").
 pub fn sexpr(b: &Bool) -> String {
     b.to_string()
