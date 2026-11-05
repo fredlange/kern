@@ -2,8 +2,8 @@
 #   build   the Rust toolchain, with Z3 5.3.3 compiled from source and linked statically (`static-z3`):
 #           distribution libz3 packages aren't 5.3.3, and the proofs must run on the version the oracle used
 #   kern    the image to use: just the binary
-#   check   the acceptance test: the Python oracle and the diff harness, run against the binary inside the
-#           container (`docker build --target check .` fails unless every module agrees)
+#   check   the acceptance test: the whole workspace test suite, run inside the container
+#           (`docker build --target check .` fails unless every test passes)
 #
 #   docker build -t kern .
 #   docker run --rm -v "$PWD:/work" kern check examples/shop --quick
@@ -29,13 +29,11 @@ COPY --from=build /src/target/release/kern /usr/local/bin/kern
 WORKDIR /work
 ENTRYPOINT ["kern"]
 
-FROM python:3.9-slim-trixie AS check
-RUN pip install --no-cache-dir z3-solver==5.3.3.0
-COPY --from=build /src/target/release/kern /usr/local/bin/kern
-WORKDIR /repo
-COPY kern kern
-COPY validation validation
+FROM build AS check
+# the acceptance test, inside the container: every workspace test (golden output, ported test suites, the fuzzer's
+# small run and fault check, both results digests, determinism), with the same statically linked Z3
 COPY examples examples
-COPY tests/probes tests/probes
+COPY tests tests
 COPY docs docs
-RUN python validation/oracle_analyse.py diff --rust /usr/local/bin/kern
+COPY README.md AGENTS.md CLAUDE.md ./
+RUN cargo test --release --locked --workspace --features kern/static-z3

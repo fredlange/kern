@@ -1,24 +1,26 @@
 # Validation: checking the toolchain itself
 
 These tools check that Kern's prover, checker and Rust runtime tell the truth. They aren't part of
-the distribution (`toolchain/` and `runtime/`), and they aren't unit tests (`tests/`). The Rust ports
-live in this directory's crate `kern-validation` (`src/`, one binary per tool). They run longer,
-are run by hand after changes to the prover or the runtime, and report numbers into
-[docs/research/](../docs/research/). `tests/` runs small, fast versions of some of them.
+the distribution (`toolchain/` and `runtime/`), and they aren't unit tests. They live in this
+directory's crate `kern-validation` (`src/`, one binary per tool). They run longer, are run by hand
+after changes to the prover or the runtime, and report numbers into
+[docs/research/](../docs/research/). `validation/tests/` runs small, fast versions of some of them with
+every `cargo test`.
+
+Until 2026-11-05 each tool also had a Python original, and the Rust toolchain was checked against the
+Python one by oracle scripts. Both went with the Python toolchain; the last record of what the oracles
+said is in docs/research/RUST_PORT_PLAN.md. The JSON fixtures recorded from CPython 3.9.6
+(`toolchain/tests/pyrandom_vectors.json`, `validation/tests/fuzz_generators.json`) stay.
 
 Run everything from the repository root.
 
 | Tool | Checks | Run |
 |---|---|---|
-| `fuzz` (Rust; `fuzz.py` is the Python original) | the prover against the interpreter on random loop and handler programs (below): the same programs, worlds and statistics as `fuzz.py` for the same seed | `cargo run -p kern-validation --release --bin fuzz -- [options]` |
-| `digest` (Rust; `digest.py` is the Python original) | one hash over every result on a fixed set of modules, the floor for prover changes: S2 (10 modules, full mutation testing, `3cb0e5efa3b63fb8`, unchanged from Python) and `--loops` (loops, handlers, packages, `e7234c3d8ea6a48e` since 2026-11-05; see below). `validation/tests/digest.rs` asserts both | `cargo run -p kern-validation --release --bin digest -- [--loops] [--dump FILE.json]` |
-| `difftest` (Rust; `difftest.py` is the Python original) | the compiled Rust program against the interpreter: every `eg` line, plus random worlds and calls; the same scripts as the Python tool (same per-module counts). A generated crate that doesn't build counts as a failure (`FAILED`, exit 1); only what the emitter doesn't support is skipped (`UNSUPPORTED`) | `cargo run -p kern-validation --release --bin difftest -- [--per-def N] [--seed S] [MODULE.k ...]` |
-| `fuzzdiff` (Rust; `fuzzdiff.py` is the Python original) | the same comparison on every program `fuzz` generates, template mutants included, all in one crate; the same programs and counts as the Python tool. Full size, 2026-11-05: 677 programs, 79,898 calls, 0 divergences (150 s) | `cargo run -p kern-validation --release --bin fuzzdiff -- [--seed 1] [--loops 300] [--handlers 200] [--no-mutants] [--per-def 100]` |
-| `sensitivity` (Rust; `sensitivity.py` is the Python original) | that `difftest` notices a wrong runtime: plants 13 known bugs in `runtime/` and the emitter, one at a time, and expects each to fail. The plants go into a copy of the workspace (`--dir`, default `$TMPDIR/kern-sensitivity`, own target and build directories), never into the checkout, because each emitter plant means rebuilding the tool | `cargo run -p kern-validation --release --bin sensitivity -- [--per-def N] [--dir DIR]` |
-| `oracle_syntax.py` | Rust port, parser: the AST, `code`, hashes and parse errors for every source, as JSON that `toolchain/tests/syntax_oracle.rs` checks | `.venv/bin/python validation/oracle_syntax.py build/oracle_syntax.json` |
-| `oracle_run.py` | Rust port, interpreter: outcomes, worlds and invariant checks for every `eg` and random calls, checked by `toolchain/tests/run_oracle.rs` | `.venv/bin/python validation/oracle_run.py build/oracle_run.json` |
-| `oracle_analyse.py` | Rust port, everything after parsing: inferred interfaces, guarantees, examples, property tests, mutation, views, `check` output; one module per fresh process; witnesses compared by replay | `.venv/bin/python validation/oracle_analyse.py diff --rust BIN` (`--rust self` checks the harness itself) |
-| `pyrandom_vectors.py` | Rust port: CPython 3.9.6's `random.Random` call sequences for `toolchain/tests/pyrandom_parity.rs` | `.venv/bin/python validation/pyrandom_vectors.py` |
+| `fuzz` | the prover against the interpreter on random loop and handler programs (below): the same programs, worlds and statistics as the Python original made for the same seed | `cargo run -p kern-validation --release --bin fuzz -- [options]` |
+| `digest` | one hash over every result on a fixed set of modules, the floor for prover changes: S2 (10 modules, full mutation testing, `3cb0e5efa3b63fb8`, unchanged from Python) and `--loops` (loops, handlers, packages, `e7234c3d8ea6a48e` since 2026-11-05; see below). `validation/tests/digest.rs` asserts both | `cargo run -p kern-validation --release --bin digest -- [--loops] [--dump FILE.json]` |
+| `difftest` | the compiled Rust program against the interpreter: every `eg` line, plus random worlds and calls; A generated crate that doesn't build counts as a failure (`FAILED`, exit 1); only what the emitter doesn't support is skipped (`UNSUPPORTED`) | `cargo run -p kern-validation --release --bin difftest -- [--per-def N] [--seed S] [MODULE.k ...]` |
+| `fuzzdiff` | the same comparison on every program `fuzz` generates, template mutants included, all in one crate. Full size, 2026-11-05: 677 programs, 79,898 calls, 0 divergences (150 s) | `cargo run -p kern-validation --release --bin fuzzdiff -- [--seed 1] [--loops 300] [--handlers 200] [--no-mutants] [--per-def 100]` |
+| `sensitivity` | that `difftest` notices a wrong runtime: plants 13 known bugs in `runtime/` and the emitter, one at a time, and expects each to fail. The plants go into a copy of the workspace (`--dir`, default `$TMPDIR/kern-sensitivity`, own target and build directories), never into the checkout, because each emitter plant means rebuilding the tool | `cargo run -p kern-validation --release --bin sensitivity -- [--per-def N] [--dir DIR]` |
 
 A digest that changes after a prover change is a finding: compare `--dump` outputs before and
 after to see which results moved. The digests are a regression floor, not a fault detector: of the
@@ -55,6 +57,5 @@ deterministic version, and the fault (b) check, with every `cargo test`.
 **Results, 2026-11-05, seed 1, full size** (300 loop and 200 handler programs, every template mutant,
 300 runs each): 677/677 well-formed, 228,300 runs, 0 contradictions, 0 crashes, 12 s. The faults:
 (a) 9,428 contradictions in 66 programs, (b) 15,048 in 92, (c) 3,248 in 26. These are exactly
-`fuzz.py`'s FZ2 numbers. The Python options are the same (`python -m validation.fuzz`), until the
-Python toolchain goes.
+`fuzz.py`'s FZ2 numbers.
 
