@@ -76,28 +76,28 @@ fn rust_type(t: &str) -> Option<&'static str> {
 }
 
 pub fn ident(name: &str) -> String {
-    if name.contains('.') {
-        // a flattened record field (`p.x`) or a handler (`rand.below`): `_`, then `_` as `__` and `.` as `_0`, a
-        // prefix-free code, so it is injective; and no usable Kern name starts with `_`, so it never meets one
-        // (`p.x` -> `_p_0x`, while a Kern `p_x` stays `p_x`)
-        let mut out = String::from("_");
-        for c in name.chars() {
-            match c {
-                '_' => out.push_str("__"),
-                '.' => out.push_str("_0"),
-                c => out.push(c),
-            }
-        }
-        return out;
-    }
-    let name = name.to_string();
+    // Injective, and disjoint from the generator's own names (tx, rt, w, exec, prov, args, __a0, __d0, __r, __h…,
+    // __inv_…): a usable Kern name is kept as it is unless it is a Rust keyword or one of those; anything else
+    // (keyword, internal name, dotted record field `p.x`, handler `rand.below`) becomes `_` + a prefix-free code
+    // (`_` -> `__`, `.` -> `_0`). No kept name starts with `_`; a coded one starts with `_` then a letter, a digit
+    // or `__`/`_0`, never `_a`/`_d`/`_h`/`_i`/`_r` (`_` + a letter isn't a code), so the two never meet:
+    // `p.x` -> `_p_0x`, `w` -> `_w`, while a Kern `p_x` or `w_` stays as it is.
     let reserved = RUST_KEYWORDS.split_whitespace().any(|k| k == name)
-        || ["tx", "rt", "w", "exec", "prov", "args"].contains(&name.as_str());
-    if reserved {
-        format!("{}_", name)
-    } else {
-        name
+        || ["tx", "rt", "w", "exec", "prov", "args"].contains(&name)
+        || name.starts_with('_')
+        || name.contains('.');
+    if !reserved {
+        return name.to_string();
     }
+    let mut out = String::from("_");
+    for c in name.chars() {
+        match c {
+            '_' => out.push_str("__"),
+            '.' => out.push_str("_0"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Python's json.dumps of a string (ensure_ascii: non-ASCII as \uXXXX, surrogate pairs above the BMP).
@@ -187,14 +187,14 @@ impl<'a> Gen<'a> {
         self
     }
 
-    /// `inv__NAME`: the module invariants NAME doesn't prove, at each key the call wrote; the first broken one is a
+    /// `__inv_NAME`: the module invariants NAME doesn't prove, at each key the call wrote; the first broken one is a
     /// fault, which undoes the call (as `kern host` does; sound because wf::invariant_problems keeps an invariant to
     /// its own key).
     fn invariant_check(&mut self, name: &str, which: &[usize]) -> G<Vec<String>> {
         let defs = self.defs;
         let mut out = vec![
             format!("/// {}: the module invariants it doesn't prove, at the keys the call wrote", name),
-            format!("fn inv__{}(tx: &mut Tx<Event>) -> R<()> {{", ident(name)),
+            format!("fn __inv_{}(tx: &mut Tx<Event>) -> R<()> {{", ident(name)),
         ];
         for (var, t, cond) in which.iter().map(|i| &defs.invariants[*i]) {
             let sc: Scope = IndexMap::from([(var.clone(), t.clone())]);
@@ -310,7 +310,7 @@ impl<'a> Gen<'a> {
             return Ok((Self::hoist(fmt, &vals), sig(name).unwrap().1.to_string()));
         }
         if assumed_op(self.defs, name).is_some() {
-            let fmt = format!("h__{}(tx{}{})?", ident(name), sep, ph);
+            let fmt = format!("__h{}(tx{}{})?", ident(name), sep, ph);
             return Ok((Self::hoist(&fmt, &vals), "Int".into()));
         }
         if let Some(ch) = channel_op(self.defs, name) {
@@ -417,10 +417,6 @@ impl<'a> Gen<'a> {
     }
 
     fn definition(&mut self, d: &Def) -> G<Vec<String>> {
-        if let Some((p, _)) = d.params.iter().find(|(p, _)| p.starts_with('_')) {
-            // `_…` is where ident puts dotted names; such a parameter can't be read in Kern anyway
-            return unsupported(format!("{}: parameter {} starts with `_`", d.name, p));
-        }
         let mut sc: Scope = d.params.iter().cloned().collect();
         let params: String = d.params.iter().map(|(p, t)| format!(", {}: {}", ident(p), rust_type(t).unwrap())).collect();
         let ret = if d.ret.is_some() { "i64" } else { "()" };
@@ -459,7 +455,7 @@ impl<'a> Gen<'a> {
         let vals = vals.join(", ");
         let mut out = vec![
             format!("/// {}", h.src_lines["header"][0]),
-            format!("fn h__{}(tx: &mut Tx<Event>{}) -> R<i64> {{", ident(&h.name), params),
+            format!("fn __h{}(tx: &mut Tx<Event>{}) -> R<i64> {{", ident(&h.name), params),
         ];
         for n in &h.needs {
             let Need::Need(c, _, _) = n else { continue };
@@ -612,7 +608,7 @@ impl<'a> Gen<'a> {
             let wrap = if d.ret.is_some() { ".map(Some)" } else { ".map(|_| None)" };
             let call = format!("{}(tx{}{})", ident(&d.name), if conv.is_empty() { "" } else { ", " }, conv.join(", "));
             let call = if self.check.contains_key(&d.name) {
-                format!("{{ let r = {}?; inv__{}(tx)?; Ok(r) }}", call, ident(&d.name))
+                format!("{{ let __r = {}?; __inv_{}(tx)?; Ok(__r) }}", call, ident(&d.name))
             } else {
                 call
             };
@@ -843,20 +839,27 @@ body
         let check = super::unproven_invariants(&defs).unwrap();
         assert_eq!(check, IndexMap::from([("put".to_string(), vec![0]), ("mark".to_string(), vec![1])]));
         let src = super::Gen::new(&defs, "holds").checking(check).module().unwrap();
-        assert!(src.contains("{ let r = put(tx, rt::int(args[0]), rt::int(args[1]))?; inv__put(tx)?; Ok(r) }"), "{src}");
+        assert!(src.contains("{ let __r = put(tx, rt::int(args[0]), rt::int(args[1]))?; __inv_put(tx)?; Ok(__r) }"), "{src}");
         assert!(src.contains("2 => exec.call(w, prov, |tx| safe(tx, rt::acct(args[0]))).map(|_| None),"));
         assert!(src.contains("3 => exec.call(w, prov, |tx| note(tx, rt::acct(args[0]))).map(|_| None),"));
         assert!(src.contains("for o in tx.written_ints() {") && src.contains("for a in tx.written_accts() {"));
-        assert!(!src.contains("fn inv__safe") && !src.contains("fn inv__note"));
+        assert!(!src.contains("fn __inv_safe") && !src.contains("fn __inv_note"));
     }
 
     #[test]
     fn identifiers_are_injective() {
-        let names = ["p.x", "p_x", "p__x", "p_.x", "p._x", "a_b.c", "a.b_c", "a.b.c", "rand.below", "rand_below", "tx", "move"];
+        let names = [
+            "p.x", "p_x", "p__x", "p_.x", "p._x", "a_b.c", "a.b_c", "a.b.c", "rand.below", "rand_below", "tx", "tx_", "w", "w_",
+            "move", "move_", "self", "r", "a0", "inv__put", "h__rand_below", "_w", "__a0",
+        ];
         let ids: Vec<String> = names.iter().map(|n| super::ident(n)).collect();
         let distinct: std::collections::BTreeSet<&String> = ids.iter().collect();
         assert_eq!(distinct.len(), names.len(), "{ids:?}");
-        assert_eq!((ids[0].as_str(), ids[1].as_str()), ("_p_0x", "p_x"));
+        assert_eq!((ids[0].as_str(), ids[1].as_str(), ids[12].as_str(), ids[13].as_str()), ("_p_0x", "p_x", "_w", "w_"));
+        // the generator's own names are never an identifier of a Kern name
+        for own in ["tx", "rt", "w", "exec", "prov", "args", "__a0", "__d1", "__r", "__h_rand_0below", "__inv_put"] {
+            assert!(!ids.contains(&own.to_string()), "{own}");
+        }
     }
 
     #[test]
