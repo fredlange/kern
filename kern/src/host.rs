@@ -103,13 +103,49 @@ pub fn json_value(j: &J) -> Value {
     match j {
         J::Null => Value::None,
         J::Bool(b) => Value::Bool(*b),
-        J::Number(n) => Value::Int(n.as_i64().map(|x| x as Int).unwrap_or(0)),
+        // an Int is an i64 at the host (S20); anything else (1.5, 2^63) stays text, which no Int parameter accepts
+        J::Number(n) => n.as_i64().map(|x| Value::Int(x as Int)).unwrap_or_else(|| Value::Str(n.to_string())),
         J::String(s) => Value::Str(s.clone()),
         J::Array(xs) => match xs.split_first() {
             Some((J::String(c), rest)) => Value::Ctor(c.clone(), rest.iter().map(json_value).collect()),
             _ => Value::Ctor(String::new(), xs.iter().map(json_value).collect()),
         },
         J::Object(_) => Value::None,
+    }
+}
+
+/// The host's one Int range (S20): i64, what SQLite stores and the compiled runtime computes in. The interpreter
+/// computes in i128; a call whose result leaves this range is a host fault, never a silently wrapped value.
+pub fn fits(n: Int) -> bool {
+    n >= i64::MIN as Int && n <= i64::MAX as Int
+}
+
+fn value_fits(v: &Value) -> bool {
+    match v {
+        Value::Int(n) => fits(*n),
+        Value::Ctor(_, a) => a.iter().all(value_fits),
+        _ => true,
+    }
+}
+
+/// The first Int a successful call would store, emit or return that leaves the host's range.
+fn out_of_range(world: &World, result: Option<&Value>) -> Option<String> {
+    if let Some((a, b)) = world.bal.iter().find(|(_, b)| !fits(**b)) {
+        return Some(format!("balance of {} = {}", a, b));
+    }
+    for (x, m) in &world.maps {
+        for (k, v) in m {
+            if matches!(k, Key::Int(n) if !fits(*n)) || !fits(*v) {
+                return Some(format!("{}.{} = {}", x, key_str(k), v));
+            }
+        }
+    }
+    if let Some(e) = world.audit.iter().chain(world.out.values().flatten()).find(|e| !value_fits(e)) {
+        return Some(format!("event {}", e.repr()));
+    }
+    match result {
+        Some(r) if !value_fits(r) => Some(format!("result {}", r.repr())),
+        _ => None,
     }
 }
 
@@ -710,6 +746,9 @@ impl<'m> Host<'m> {
         }
         let (rest, maps) = split_maps(world_src).map_err(|e| e.0)?;
         let mut w = World::from_example(&parse_world(&rest, None).map_err(|e| e.0)?, 0, &maps);
+        if let Some(what) = out_of_range(&w, None) {
+            return Err(format!("genesis world: Int out of the host's range (i64): {}", what));
+        }
         let broken = Interp::new(self.defs).broken_invariants(&mut w, None).map_err(|e| e.to_string())?;
         if let Some((text, key)) = broken.first() {
             return Err(format!("genesis world breaks invariant {} at {}", text, key.str()));
@@ -863,6 +902,18 @@ impl<'m> Host<'m> {
             Err(RunError::Key(m)) => return Err(HostError::Fault("KeyError".into(), m)),
             Err(RunError::Type(m)) => return Err(HostError::Fault("TypeError".into(), m)),
             Err(RunError::Other(t, m)) => return Err(HostError::Fault(t, m)),
+            Ok(Outcome::Ok) if out_of_range(&world, interp.last_result.as_ref().filter(|_| has_ret)).is_some() => {
+                let what = out_of_range(&world, interp.last_result.as_ref().filter(|_| has_ret)).unwrap();
+                res.insert("status".into(), json!("error"));
+                res.insert("fault".into(), json!("range"));
+                res.insert("error".into(), json!(format!("Int out of the host's range (i64): {}", what)));
+            }
+            Ok(Outcome::Fail(c, a)) if !a.iter().all(value_fits) => {
+                res.insert("status".into(), json!("error"));
+                res.insert("fault".into(), json!("range"));
+                let shown: Vec<String> = a.iter().map(Value::repr).collect();
+                res.insert("error".into(), json!(format!("Int out of the host's range (i64): refusal {} {}", c, shown.join(" "))));
+            }
             Ok(Outcome::Ok) => {
                 // tier ○, checked at runtime: at the keys this call wrote (sound: wf::invariant_problems)
                 let mut skip = self.skip_proven && self.invariant_proven.get(name).copied().unwrap_or(false);
@@ -1322,8 +1373,9 @@ fn parse_args(text: &[&str]) -> Vec<Value> {
     text.iter()
         .map(|x| {
             let digits = x.trim_start_matches('-');
-            match x.parse::<Int>() {
-                Ok(n) if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) => Value::Int(n),
+            // the host's Int is an i64 (S20): a longer number stays text, which no Int parameter accepts
+            match x.parse::<i64>() {
+                Ok(n) if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) => Value::Int(n as Int),
                 _ => Value::Str(x.to_string()),
             }
         })
@@ -1508,8 +1560,8 @@ pub fn handle_http(host: &mut Host, mut req: tiny_http::Request) -> Result<(), H
         }
         Err(e) => respond(req, 500, &json!({"error": format!("host: {}", e)})), // a host fault; the call rolled back
         Ok(r) => {
-            let code = if r.get("fault").and_then(|f| f.as_str()) == Some("module") {
-                500 // ○ tier fired
+            let code = if matches!(r.get("fault").and_then(|f| f.as_str()), Some("module") | Some("range")) {
+                500 // ○ tier fired, or an Int left the host's range (S20): not the caller's input
             } else {
                 match r["status"].as_str() {
                     Some("ok") => 200,
@@ -1988,6 +2040,89 @@ mod tests {
         assert_eq!((ok.0, refused.0, bad.0), (200, 409, 400), "{ok:?} {refused:?} {bad:?}");
         assert!(refused.1.contains("Neg"));
         assert_eq!(h.load().unwrap().maps["at"][&Key::Int(4)], 9);
+    }
+
+    const WIDE: &str = "state hold Int
+
+put x:Int k:Int
+  ok otherwise
+  ensure hold.get' (x + k) = 1
+body
+  hold.set (x + k) 1
+
+store x:Int k:Int
+  ok otherwise
+  ensure hold.get' 0 = x + k
+body
+  hold.set 0 (x + k)
+
+tell x:Int k:Int
+  ok otherwise
+  emit Sum (x + k)
+body
+  audit.emit (Sum (x + k))
+
+nope x:Int k:Int
+  need x < 0 else Big (x + k)
+  ok otherwise
+";
+
+    fn wide() -> Module {
+        let m = crate::syntax::parse_module(WIDE, true).unwrap();
+        crate::wf::check_module(&m).unwrap();
+        m
+    }
+
+    #[test]
+    fn an_int_past_i64_is_a_host_fault_not_a_wrapped_value() {
+        // S20: the interpreter computes in i128, the host stores i64
+        let defs = wide();
+        let mut h = Host::new(&defs, IndexMap::new(), Options { sinks: Some(vec![]), gate: false, ..Default::default() }).unwrap();
+        h.init("").unwrap();
+        let max = Value::Int(i64::MAX as Int);
+        for (name, what) in [("put", "hold.9223372036854775808 = 1"), ("store", "hold.0 = 9223372036854775808"), ("tell", "event"), ("nope", "refusal Big")] {
+            let r = h.call(name, &[max.clone(), Value::Int(1)]).unwrap();
+            assert_eq!((r["status"].as_str(), r["fault"].as_str()), (Some("error"), Some("range")), "{name}: {r:?}");
+            assert!(r["error"].as_str().unwrap().contains(what), "{name}: {r:?}");
+        }
+        // in range, the same definitions work
+        assert_eq!(h.call("put", &[max.clone(), Value::Int(0)]).unwrap()["status"], "ok");
+        assert_eq!(h.call("nope", &[max.clone(), Value::Int(-1)]).unwrap()["refused"], "Big");
+        assert_eq!(h.flush().unwrap(), 0, "nothing out of range reached the outbox");
+        assert_eq!(h.load().unwrap().maps["hold"], IndexMap::from([(Key::Int(i64::MAX as Int), 1)]));
+        assert!(h.replay().unwrap().is_empty(), "{:?}", h.replay());
+        // input: a number that isn't an i64 never becomes an Int
+        assert_eq!(json_value(&json!(1.5)), Value::Str("1.5".into()));
+        assert_eq!(json_value(&json!(9223372036854775808u64)), Value::Str("9223372036854775808".into()));
+        assert_eq!(parse_args(&["9223372036854775808", "-5"]), vec![Value::Str("9223372036854775808".into()), Value::Int(-5)]);
+        let e = Host::new(&defs, IndexMap::new(), Options { sinks: Some(vec![]), gate: false, ..Default::default() })
+            .unwrap()
+            .init("hold.1:9223372036854775808")
+            .unwrap_err();
+        assert!(e.contains("out of the host's range"), "{e}");
+    }
+
+    #[test]
+    fn a_fractional_int_over_http_is_a_bad_call() {
+        let defs = wide();
+        let mut h = Host::new(&defs, IndexMap::new(), Options { sinks: Some(vec![]), gate: false, ..Default::default() }).unwrap();
+        h.init("").unwrap();
+        let srv = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let base = format!("http://127.0.0.1:{}", srv.server_addr().to_ip().unwrap().port());
+        let client = std::thread::spawn(move || {
+            ["{\"x\": 1.5, \"k\": 1}", "{\"x\": 9223372036854775808, \"k\": 1}", "{\"x\": 9223372036854775807, \"k\": 1}"]
+                .map(|b| match ureq::post(&format!("{base}/store")).send_string(b) {
+                    Ok(r) => r.status(),
+                    Err(ureq::Error::Status(c, _)) => c,
+                    Err(e) => panic!("{e}"),
+                })
+        });
+        for _ in 0..3 {
+            handle_http(&mut h, srv.recv().unwrap()).unwrap();
+        }
+        // 1.5 and 2^63 are not Ints (400); i64::MAX + 1 computed inside is a host fault (500)
+        assert_eq!(client.join().unwrap(), [400, 400, 500]);
+        assert!(h.load().unwrap().maps.get("hold").map_or(true, |m| m.is_empty()));
     }
 
     #[test]

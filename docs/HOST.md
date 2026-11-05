@@ -35,8 +35,13 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   one object with exactly its fields, `{"p": {"x": 1, "y": 2}}` (the host decodes it into the flattened
   `p.x p.y`; `repl` and `.host` reply ARGS stay positional). `ok` → 200
   (with the emitted events), declared refusal → 409 `{"refused": Ctor, "args": [...]}`,
-  bad call (wrong type, unknown account) → 400, not proven → 403, runtime invariant broken
-  (only possible with `--no-gate`) → 500. The genesis world must satisfy the invariants. `GET /state`, `GET /manifest`.
+  bad call (wrong type, unknown account, a number that isn't an i64 such as `1.5`) → 400, not proven → 403,
+  runtime invariant broken (only possible with `--no-gate`) or an Int out of range (below) → 500.
+- **One Int range, i64 (S20, 2026-11-05).** SQLite stores i64 and the compiled runtime computes in i64; the
+  interpreter computes in i128. A successful call whose stored balance, map key or value, event or result, or a
+  refusal whose payload, leaves i64 is a host fault (`"fault": "range"`): rolled back, logged as an error, which
+  replay skips. Before, it was stored wrapped and `replay` reported "state differs". Input past i64 (HTTP, `repl`,
+  the genesis world) is refused, never wrapped or read as 0. Integer literals in Kern source are lang's side. The genesis world must satisfy the invariants. `GET /state`, `GET /manifest`.
 - **Console:** `repl` takes one call per line on stdin, prints the outcome and delivers the outbox
   to stdout. stdin is the event source and stdout is a sink.
 - **Permission manifest:** the inferred `uses` of every def, plus how the host realises each
