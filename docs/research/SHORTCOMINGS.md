@@ -23,7 +23,7 @@ When an entry closes, move it to "Closed" with the commit and the evidence. Don'
 
 **The gap tests** (`kern/tests/shortcomings.rs`) each assert the behaviour we want, with
 `#[should_panic(expected = "gap Sn …")]`, so an unrelated crash doesn't count as the gap. Some features
-have no syntax yet (records, text, `match`, `sum`, `clock.tick`, events in `eg`).
+have no syntax yet (text, `match`, `clock.tick`, events in `eg`).
 Their tests use a *placeholder* syntax. Whoever builds the feature must rewrite the test to the real
 syntax; otherwise it keeps panicking for the wrong reason. The other tests flip on their own.
 `every_test_and_path_the_register_names_exists` fails if this file names a test or a
@@ -123,7 +123,7 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
   | Missing | Gap test |
   |---|---|
-  | records (P) | `s5_records_check` |
+  | ~~records~~ first cut closed `b18367a` (Closed: "S5, records") | `s5_records_check` |
   | text (P) | `s5_text_checks` |
   | `match` (P) | `s5_match_checks` |
   | recursion (rejected: no termination measures) | `s5_recursion_is_accepted` |
@@ -276,6 +276,29 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
 
+### S5, records (first cut: record-typed parameters; one row of S5)
+- **Kind:** code gap. **Closed** 2026-11-05 in `b18367a`, under delegation (.party/DECISIONS.md, 2026-11-05,
+  lang, records). Fixes found in test: `c586f72` (prover panic on a callee keyed by a record field), `381bfcb`
+  (compiled identifiers made injective; a `let p_x` had shadowed `p.x`, so the binary broke a ✔ guarantee).
+  Host: a record parameter is one JSON object over HTTP (`38ceceb`).
+- **Was:** parameters were Int or Account only; a pair of values was two loose parameters.
+- **Decided by** F4/F7 (one meaning on every path): `record Point x:Int y:Int` at column 0; `p:Point` is
+  flattened at load time to `p.x:Int p.y:Int`, so run, infer, prove, mutants, the host and the compiled
+  program see Ints and Accounts. A header with `p:Point` is 12 tokens against 15 for two loose Ints. F8:
+  `eg` lines and counterexamples pass fields positionally, so the round trip holds. F1/F2: views add a
+  `record` line per record type in the header.
+- **Evidence:** `s5_records_check`, its placeholder the chosen syntax, passes as an ordinary test, with the
+  record tests in `kern/tests/shortcomings.rs`. Tester (retest at `6a6671b`): a record program gives the same
+  output as its hand-flattened twin; the 13 errors in the decision all fire; six identifier-collision repros
+  give 0 divergences and are now a difftest test. Floors at `6a6671b`: digests unchanged, fuzz seeds 1–3
+  0 contradictions, difftest 330,360 calls and fuzzdiff 0 divergences. REFERENCE.md 2,344 → 2,438 tokens.
+- **What remains:**
+  - Not built (decided): records as state values, `-> Point`, nested records, record equality, records in
+    `let`s and handler parameters, grouped `eg` arguments.
+  - A constructor named `Self` breaks `kern build` (rustc: a keyword as an enum variant). Loud, not wrong.
+  - Positional `eg` arguments that are too few, or grouped `(1 2)`, give a failing example with no reason
+    (pre-existing `eg` behaviour, not records-specific).
+
 ### S6, sum (one half of S6; the entry stays open for the stateable frame)
 - **Kind:** code gap. **Closed** 2026-11-05 in `72d2446`, under delegation (.party/DECISIONS.md, 2026-11-05,
   lang, aggregation; app's request #1). Fuzz generator `6a6671b`; sum bounds `80c3b26`.
@@ -322,6 +345,10 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   - An unparenthesised `for j from lo to lo + cap` with a constant gives "constant cap takes no arguments",
     a misleading message (the literal version is also rejected, with a different one).
   - MCP: `kern_add` refuses `const x 5`, so an agent working only through MCP can't declare a constant (F1/F2).
+  - *Resolved 2026-11-05 in `9cac022` (tests `2ddd4ec`):* `kern_add` takes one declaration line (const, record,
+    state, channel, invariant); handler roots and declaration words are rejected as constant names, as the
+    amended decision says; a compound `for` bound says to parenthesise it. Left: a compound `sum` bound
+    still says "expected `of`".
 
 ### S8. Mutants were body-only
 - **Kind:** code gap. **Closed** 2026-11-05, under delegation.
