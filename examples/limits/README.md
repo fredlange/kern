@@ -59,5 +59,6 @@ refused OverLimit 100
 
 ## Limits
 
-- There's no request timeout. A reply that never comes leaves the request pending.
+- A request that no reply answers within its deadline (`; timeout N` in limits.host, default 300 s of the host
+  clock) gets its `fail` call, `limit_failed`, once (docs/HOST.md, "Deadlines").
 - Delivery is at-least-once, which is why `got_limit` refuses stale replies.

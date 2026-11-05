@@ -5,6 +5,6 @@ request@5dc35465
 store@9ba1bdfe
   the reply carries src and slot back from the event, so one definition serves every source
 give_up@dd413476
-  a dropped reply would otherwise leave the source pending forever (the host has no request timeout)
+  frees a source whose reply didn't arrive; written before S12, when nothing else did that. Now the host also calls fetch_failed once no reply has come by the deadline (portal.host, default 300 s), so give_up is the earlier, manual way
 upvote@057c3699
   votes are anonymous: Kern has no identity for page visitors yet, so one person can vote many times

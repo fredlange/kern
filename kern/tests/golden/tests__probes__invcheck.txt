@@ -1,0 +1,263 @@
+$ kern check tests/probes/invcheck.k   (exit 1)
+put [ef2a453e]  Broken guarantees
+  ○ invariant o:Int hold.get o >= 0   (not proven; checked at run time after every call)
+      cannot be proven: it writes a computed key, so the invariant can't be checked key by key
+  writes hold.*   (no guarantee about the new value of hold.*)
+  examples 0/0   random tests 428/500 reached success, 3 violations
+
+restore [5c2cadb3]  Checked at run time only, not proven
+  ✔ ensure hold.get' (k + 1) = hold.get (k + 1)
+  ○ invariant o:Int hold.get o >= 0   (not proven; held in 500 random successes; checked at run time after every call)
+      cannot be proven: it writes a computed key, so the invariant can't be checked key by key
+  writes hold.*   (no guarantee about the new value of hold.*)
+  examples 0/0   random tests 500/500 reached success, 0 violations
+
+relay [767a6b24]  Broken guarantees
+  ○ invariant o:Int hold.get o >= 0   (not proven; checked at run time after every call)
+      cannot be proven: it writes a computed key, so the invariant can't be checked key by key
+  writes hold.*   (no guarantee about the new value of hold.*)
+  examples 0/0   random tests 428/500 reached success, 3 violations
+
+sweep [c46223ae]  Broken guarantees
+  ! loop module invariant o:Int hold.get o >= 0  (holds when the loop starts)   (relies on invariant on flag, invariant on hold, invariant on ledger, which is not proven)
+  ✗ loop module invariant o:Int hold.get o >= 0  (kept by every iteration)
+      counterexample: eg  hold.130:848 hold.-2997:14680 | sweep 128 130 -> ok |  hold.128:-1
+  ! invariant o:Int hold.get o >= 0   (relies on invariant on flag, invariant on hold, invariant on ledger, loop invariant module invariant o:Int hold.get o >= 0  (holds when the loop starts), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  writes hold.[lo,hi)   (no guarantee about the new value of hold.[lo,hi))
+  examples 0/0   random tests 500/500 reached success, 3 violations
+
+late [f74cef79]  Broken guarantees
+  ○ invariant o:Int hold.get o >= 0   (not proven; checked at run time after every call)
+      cannot be proven: it writes a computed key, so the invariant can't be checked key by key
+  writes hold.*   (no guarantee about the new value of hold.*)
+  examples 0/0   random tests 20/500 reached success, 3 violations
+
+mark [a3e9b9d9]  Broken guarantees
+  ✔ ensure flag.get' a = v
+  ✗ invariant a:Account flag.get a >= 0 and ledger.balance a >= 0
+      counterexample: eg A:0@u1 | mark A -1 -> ok | A:0 flag.A:-1
+  writes flag.a
+  examples 0/0   random tests 500/500 reached success, 3 violations
+
+safe [8ddd2c6b]  All guarantees proven
+  ✔ ensure flag.get' a = 1
+  ✔ invariant a:Account flag.get a >= 0 and ledger.balance a >= 0
+  writes flag.a
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 0/2; together 2/2
+
+note [3e351ea1]  All guarantees proven
+  ✔ ensure seen.get' a = 1
+  writes seen.a
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 0/2; together 2/2
+
+pay [cfb37d36]  Broken guarantees
+  ✗ invariant a:Account flag.get a >= 0 and ledger.balance a >= 0
+      counterexample: eg A:0@u1 B:357@u1 | pay A B 1 -> ok | A:-1 B:358
+  writes a b   (no guarantee about the new balance of a, b)
+  examples 0/0   random tests 287/500 reached success, 3 violations
+
+
+$ kern view tests/probes/invcheck.k put --as iface   (exit 0)
+put k:Int v:Int
+  uses hold.write
+  writes hold.*
+  fails Neg
+
+$ kern view tests/probes/invcheck.k put --as spec   (exit 0)
+put k:Int v:Int
+  uses hold.write
+  writes hold.*
+  fails Neg
+  need v >= 0 else Neg
+  proof 1 open
+
+$ kern view tests/probes/invcheck.k put --as editor   (exit 0)
+put k:Int v:Int
+  uses hold.write
+  writes hold.*
+  fails Neg
+  need v >= 0 else Neg
+body
+  hold.set (k + 1) (v - 5)
+
+$ kern view tests/probes/invcheck.k restore --as iface   (exit 0)
+restore k:Int
+  uses hold.write
+  writes hold.*
+
+$ kern view tests/probes/invcheck.k restore --as spec   (exit 0)
+restore k:Int
+  uses hold.write
+  writes hold.*
+  ensure hold.get' (k + 1) = hold.get (k + 1)
+  proof 1 open
+
+$ kern view tests/probes/invcheck.k restore --as editor   (exit 0)
+restore k:Int
+  uses hold.write
+  writes hold.*
+  ensure hold.get' (k + 1) = hold.get (k + 1)
+body
+  x = hold.get (k + 1)
+  hold.set (k + 1) (x + 1)
+  hold.set (k + 1) x
+
+$ kern view tests/probes/invcheck.k relay --as iface   (exit 0)
+relay k:Int v:Int
+  uses hold.write
+  writes hold.*
+  fails Neg
+
+$ kern view tests/probes/invcheck.k relay --as spec   (exit 0)
+relay k:Int v:Int
+  uses hold.write
+  writes hold.*
+  fails Neg
+  need v >= 0 else Neg
+  proof 1 open
+
+$ kern view tests/probes/invcheck.k relay --as editor   (exit 0)
+relay k:Int v:Int
+  uses hold.write
+  writes hold.*
+  fails Neg
+  need v >= 0 else Neg
+body
+  put k v
+
+put k:Int v:Int
+  uses hold.write
+  writes hold.*
+  fails Neg
+  need v >= 0 else Neg
+  proof 1 open
+
+$ kern view tests/probes/invcheck.k sweep --as iface   (exit 0)
+sweep lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+
+$ kern view tests/probes/invcheck.k sweep --as spec   (exit 0)
+sweep lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+  proof 3 open
+
+$ kern view tests/probes/invcheck.k sweep --as editor   (exit 0)
+sweep lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+body
+  for j from lo to hi
+    hold.set j (hold.get j - 1)
+
+$ kern view tests/probes/invcheck.k late --as iface   (exit 0)
+late k:Int
+  uses hold.write
+  writes hold.*
+  fails TooSmall
+
+$ kern view tests/probes/invcheck.k late --as spec   (exit 0)
+late k:Int
+  uses hold.write
+  writes hold.*
+  fails TooSmall
+  body need k > 1000 else TooSmall
+  proof 1 open
+
+$ kern view tests/probes/invcheck.k late --as editor   (exit 0)
+late k:Int
+  uses hold.write
+  writes hold.*
+  fails TooSmall
+body
+  hold.set (k + 1) (0 - 1)
+  need k > 1000 else TooSmall
+
+$ kern view tests/probes/invcheck.k mark --as iface   (exit 0)
+mark a:Account v:Int
+  uses flag.write
+  writes flag.a
+
+$ kern view tests/probes/invcheck.k mark --as spec   (exit 0)
+mark a:Account v:Int
+  uses flag.write
+  writes flag.a
+  ensure flag.get' a = v
+  proof 1 open
+
+$ kern view tests/probes/invcheck.k mark --as editor   (exit 0)
+mark a:Account v:Int
+  uses flag.write
+  writes flag.a
+  ensure flag.get' a = v
+body
+  flag.set a v
+
+$ kern view tests/probes/invcheck.k safe --as iface   (exit 0)
+safe a:Account
+  uses flag.write
+  writes flag.a
+
+$ kern view tests/probes/invcheck.k safe --as spec   (exit 0)
+safe a:Account
+  uses flag.write
+  writes flag.a
+  ensure flag.get' a = 1
+  proof ok
+
+$ kern view tests/probes/invcheck.k safe --as editor   (exit 0)
+safe a:Account
+  uses flag.write
+  writes flag.a
+  ensure flag.get' a = 1
+body
+  flag.set a 1
+
+$ kern view tests/probes/invcheck.k note --as iface   (exit 0)
+note a:Account
+  uses seen.write
+  writes seen.a
+
+$ kern view tests/probes/invcheck.k note --as spec   (exit 0)
+note a:Account
+  uses seen.write
+  writes seen.a
+  ensure seen.get' a = 1
+  proof ok
+
+$ kern view tests/probes/invcheck.k note --as editor   (exit 0)
+note a:Account
+  uses seen.write
+  writes seen.a
+  ensure seen.get' a = 1
+body
+  seen.set a 1
+
+$ kern view tests/probes/invcheck.k pay --as iface   (exit 0)
+pay a:Account b:Account n:Int
+  uses ledger.write
+  writes a b
+  fails Same BadAmount
+
+$ kern view tests/probes/invcheck.k pay --as spec   (exit 0)
+pay a:Account b:Account n:Int
+  uses ledger.write
+  writes a b
+  fails Same BadAmount
+  need a != b else Same
+  need n > 0 else BadAmount
+  proof 1 open
+
+$ kern view tests/probes/invcheck.k pay --as editor   (exit 0)
+pay a:Account b:Account n:Int
+  uses ledger.write
+  writes a b
+  fails Same BadAmount
+  need a != b else Same
+  need n > 0 else BadAmount
+body
+  ledger.debit a n
+  ledger.credit b n

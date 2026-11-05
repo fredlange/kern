@@ -216,7 +216,7 @@ Examples: `examples/shop/`, `examples/library/`, `examples/lottery/` (each with 
 |---|---|
 | `manifest FILE.k` | the effects and network endpoints the module can reach, and which definitions are served |
 | `repl FILE.k --db X.db --world "…"` | one call per line on stdin; events are delivered after commit |
-| `serve FILE.k --db X.db --port 8080` | HTTP: `POST /NAME` with a JSON object of the parameters, `GET /state`, `GET /manifest` |
+| `serve FILE.k --db X.db --port 8080` | HTTP: `POST /NAME` with a JSON object of the parameters (a record parameter as one object of its fields, `{"p": {"x": 1, "y": 2}}`), `GET /state`, `GET /manifest` |
 | `replay FILE.k --db X.db` | re-run the call log from genesis; it must match the database |
 | `page FILE.k --html OUT.html` | the proof page plus a Host section (everything marked *assumed*) |
 
@@ -292,7 +292,9 @@ is one whose own edit removed a line. A block with `body need` or expanded `need
 `kern build FILE.k` writes a Rust crate for the module (or the whole package) to `build/<module>/`,
 links it with the runtime crate `kern-rt` in `runtime/`, and runs `cargo build --release` (the
 target directory is `build/target`). `need`s compile to code. `keep`, `ensure` and
-`emit` are proven, so they compile to nothing. The interpreter (`kern/src/run.rs`) stays the
+`emit` are proven, so they compile to nothing. `kern build` runs the prover first (no mutation testing): a module
+invariant that isn't ✔ for a definition is compiled as a check after that definition's calls, at the keys the call
+wrote, and a broken one undoes the call as a fault (docs/HOST.md, key-scoped invariant check). The interpreter (`kern/src/run.rs`) stays the
 reference semantics: the runtime is wrong wherever the two disagree. The contract and the known divergences (for example,
 Int is i64 at run time, i128 in the interpreter and the prover's model is unbounded) are in
 [research/RUNTIME_PLAN.md](research/RUNTIME_PLAN.md). Needs `cargo`.
@@ -320,11 +322,13 @@ Int is i64 at run time, i128 in the interpreter and the prover's model is unboun
 - **`FILE.host`** (in a package, `<root>/kern.host`): one line per network request constructor:
 
   ```text
-  Fetch -> GET http://127.0.0.1:9/limit/{1}; reply got_limit {1} {2} $.value; fail limit_failed {1} {2}
+  Fetch -> GET http://127.0.0.1:9/limit/{1}; reply got_limit {1} {2} $.value; fail limit_failed {1} {2}; timeout 300
   ```
 
-  `{i}` is the event's i-th argument and `$.field` an Int from the JSON reply. A missing
-  endpoint, an unknown constructor or wrong reply types stop the host at startup.
+  `{i}` is the event's i-th argument and `$.field` an Int from the JSON reply (`reply` only: a failure has no
+  body). `timeout N` is optional: a request that no ok call to its reply or fail definition has answered within N
+  seconds of the host clock (default 300) gets its `fail` call, once. A missing endpoint, an unknown constructor,
+  wrong reply types, a `{i}` beyond the event's arguments or a `$.field` in `fail` stop the host at startup.
 
 ## Rust library API
 

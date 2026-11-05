@@ -168,7 +168,7 @@ experiments/compare/      Kern vs TS and Go (docs/research/COMPARE.md)
 experiments/bench/        runtime baselines (docs/research/RUNTIME_PLAN.md)
 experiments/scale/        the scale scorecard (was `kern score`)
 
-docs/REFERENCE.md         the language reference (≤ 2,500 tokens; C2's language tax)
+docs/REFERENCE.md         the language reference (≤ 3,500 tokens since 2026-11-05; C2's language tax)
 docs/GUIDE.md             how-to: install, tools, file formats, Rust library API, common errors
 docs/research/            AUDIT, FIXES, SCALE, COMPARE, CHALLENGE, ROADMAP_RUN, HOST_PLAN, RUNTIME_PLAN, RUST_PORT_PLAN
 AGENTS.md                 working rules for agents, including the docs-update rule
@@ -245,8 +245,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   replay, invariants checked at the keys a call wrote, after every call by default; `--skip-proven`
   removes the check for proven definitions, opt-in since Fredrik's decision of 2026-11-04). Output channels (`channel console`,
   `emit console Line x`) are exact per channel, unordered across channels. Network requests are
-  `net` events with endpoints in a `.host` file; replies arrive as new calls; no request timeout
-  (a lost reply leaves the request pending). Delivery is at-least-once. docs/HOST.md has the scorecard.
+  `net` events with endpoints in a `.host` file; replies arrive as new calls; a request no ok reply
+  answers within its deadline (`; timeout N`, default 300 s of the recorded clock, checked after each call) gets its
+  `fail` call once. Delivery is at-least-once. docs/HOST.md has the scorecard.
 - Packages (a proposal, roadmap run P): `import a.b` brings a module's names in unqualified; names are unique
   per package; imports reach within one package only (each example app copies its ledger). Missing for
   ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): Accounts as state values, iteration over

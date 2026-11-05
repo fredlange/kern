@@ -44,8 +44,8 @@ tests marked `// gap`, formerly pytest's strict xfails), and `kern check FILE.k`
 - a public function of the `kern` crate that GUIDE.md lists.
 
 Which file to update:
-- **docs/REFERENCE.md:** the language. Keep it within 2,500 tokens; it's the measured
-  "language tax" (docs/research/CHALLENGE.md, C2).
+- **docs/REFERENCE.md:** the language. Keep it within 3,500 tokens (raised from 2,500 on 2026-11-05, Fredrik's
+  decision; `kern/tests/docs.rs`); it's the measured "language tax" (docs/research/CHALLENGE.md, C2).
 - **docs/GUIDE.md:** tools, files, API, errors.
 - **CLAUDE.md's "Known limitations":** when a limit changes.
 

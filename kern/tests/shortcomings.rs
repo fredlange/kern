@@ -6,7 +6,7 @@
 //! The day a gap closes, its test fails. In the same commit it becomes an ordinary test (drop `should_panic`),
 //! and the entry moves to "Closed" in SHORTCOMINGS.md.
 //!
-//! Some gaps have no syntax yet (text, `match`, `sum`, `clock.tick`, events in `eg`).
+//! Some gaps have no syntax yet (text, `match`, `clock.tick`, events in `eg`).
 //! Those tests write a *placeholder* syntax, marked `placeholder:`. Whoever builds the feature adjusts the
 //! source to the syntax actually chosen, and the test must then pass. A test that still panics after a feature
 //! has landed means the placeholder was never updated, not that the gap is still open.
@@ -1051,12 +1051,9 @@ impl Net for Silent {
 }
 
 #[test]
-#[should_panic(expected = "gap S12 request timeout:")]
 fn s12_a_request_with_no_reply_times_out_into_a_call() {
-    // gap (S12): examples/limits asks for A's limit; the network never answers. An hour per call later, the
-    // request should have timed out into a new call (`limit_failed`, as a failed reply would), freeing
-    // `pending`. Today it stays pending. (HttpNet's 2 s transport timeout does become `fail`; this is about a
-    // reply that never reaches the host at all.)
+    // closed (S12, runtime's f79f085): examples/limits asks for A's limit; the network never answers. An hour per
+    // call later, the request has timed out into its `fail` call (`limit_failed`), once, freeing `pending`.
     let defs = parse(&read("examples/limits/limits.k"));
     kern::wf::check_module(&defs).unwrap();
     let eps = load_config(&read("examples/limits/limits.host"), &defs).unwrap();
@@ -1077,7 +1074,8 @@ fn s12_a_request_with_no_reply_times_out_into_a_call() {
         ran.extend(h.pump(vec![]).unwrap().into_iter().map(|(n, _, _)| n));
     }
     let pending = h.load().unwrap().maps["pending"].get(&Key::Str("A".into())).copied();
-    assert!(pending == Some(0), "gap S12 request timeout: after 24 hours pending.A = {pending:?}, reply calls run: {ran:?}");
+    assert!(pending == Some(0), "S12 request timeout: after 24 hours pending.A = {pending:?}, reply calls run: {ran:?}");
+    assert_eq!(ran, ["limit_failed"], "the timeout fires exactly once");
 }
 
 // =====================================================================================
