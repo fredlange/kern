@@ -220,6 +220,9 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **The next limit is Z3's:** more than 4 threads is *slower* (18 threads: 0.44 s on P1). Z3 5.3.3
   takes one global mutex (`gparams::get_module`) every time a rewriter is built, which happens in
   every solver's construction. `sample` shows most threads waiting there.
+- **Measured:** a proof builds about 47 solvers on P1 and about 190 at k=6, roughly one per path per
+  goal (P1: 18,294 solvers for 386 proofs). Serially, building them is about 12% of the samples and
+  solving (`Z3_solver_check`) about 43%. The 12% is the part that takes the lock.
 - **Next:**
   1. Build fewer solvers per proof, e.g. one solver per definition with push/pop. Z3's incremental
      mode may pick different models, so counterexample eg lines, and the digests, could change.
