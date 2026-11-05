@@ -85,6 +85,16 @@ in a verdict is a bug in the port.
   stays frozen (bug fixes only) until then.
 - O4 is still open (technical: kern-8b is testing the bundled z3 build in Docker).
 
+**Decided by Fredrik, 2026-11-05** (asked by kern-9b and kern-8b): the fresh-Z3-context proposal
+(each prove() call gets its own context; see "analyse" below) is accepted. In his words: "Python
+behaviour is not something we inherit. There are no expected behaviours that we must maintain."
+- R1's "kill counts byte-identical" and R2's unchanged digests are no longer pass conditions. Matching
+  Python stays useful as a way to find port bugs, but a difference is no longer a failure in itself.
+- What still binds is the fundamentals (docs/FUNDAMENTALS.md), not Python's output: no ✔ the
+  interpreter refutes, the fuzzer (R3) finds no contradictions, and the tests (R4) pass.
+- Expected effect: kill counts on the 6 loop modules may move away from Python's, and the digests are
+  re-baselined from the Rust toolchain with a dated note. R2 needs re-wording when that happens.
+
 - **O1. Int semantics.** `run.py` has unbounded integers, and the prover reasons about unbounded
   integers. kern-rt uses `i64`, where overflow is a fault: atomic, rolled back, no clock tick.
   That's a documented divergence. kern-9b proposes `i64` with checked overflow in the Rust
