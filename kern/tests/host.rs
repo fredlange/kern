@@ -803,3 +803,31 @@ fn s5_a_record_parameter_is_one_json_object_over_http() {
     assert_eq!((st["balances"]["A"].clone(), st["state"]["hold"]["4"].clone(), st["state"]["hold"]["1"].clone()), (json!(90), json!(2), json!(7)));
     assert!(h.replay().unwrap().is_empty());
 }
+
+#[test]
+fn s20_an_int_outside_i64_is_a_host_error_and_rolled_back() {
+    // 8e2f1b5 (S20 host side): a stored balance, an event, a state value or a result outside i64 is an error and
+    // the call is undone; an out-of-range or non-integer JSON number is a bad call; replay matches afterwards
+    let defs = module(
+        "state hold Int\n\ngive a:Account n:Int\n  need n > 0 else Bad\n  ok otherwise\nbody\n  ledger.credit a n\n\n\
+         shout n:Int\n  ok otherwise\n  emit Big (n + n)\nbody\n  audit.emit (Big (n + n))\n\n\
+         many n:Int\n  ok otherwise\nbody\n  hold.set 1 (sum j from 0 to 3 of n)\n\n\
+         twice n:Int -> Int\n  ensure result = n + n\nbody\n  result = n + n\n",
+    );
+    let mut h = host(&defs, "A:9223372036854775000@u1 B:0@u2", opts());
+    let lines = ["give A 1000", "give B 5", "shout 5000000000000000000", "shout 3", "many 4000000000000000000", "many 2",
+                 "twice 5000000000000000000", "twice 4", "state"];
+    let mut out = vec![];
+    kern::host::repl(&mut h, lines.iter().map(|l| l.to_string()), &mut |l| out.push(l)).unwrap();
+    let errors = out.iter().filter(|l| l.contains("out of the host's range (i64)")).count();
+    assert_eq!(errors, 4, "{out:?}");
+    let st: J = serde_json::from_str(out.last().unwrap()).unwrap();
+    assert_eq!((st["balances"]["A"].clone(), st["balances"]["B"].clone(), st["state"]["hold"]["1"].clone()),
+               (json!(9223372036854775000i64), json!(5), json!(6)));
+    assert!(h.replay().unwrap().is_empty());
+    let out = serve_requests(&mut h, 3, |base| {
+        [post(&base, "give", json!({"a": "B", "n": 1.5})).0, post(&base, "give", json!({"a": "B", "n": 2.0})).0,
+         post(&base, "give", json!({"a": "B", "n": 9223372036854775808u64})).0]
+    });
+    assert_eq!(out, [400, 400, 400]);
+}
