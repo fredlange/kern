@@ -1144,6 +1144,7 @@ fn s20_an_integer_literal_outside_i64_is_refused_where_it_is_written() {
             let src = body("1").replace("  ok otherwise\n", &format!("  ok otherwise\n  eg {eg}\n"));
             let e = parse_module(&src, true).unwrap_err();
             assert!(e.0.contains("outside Int's range"), "eg {eg}: {}", e.0);
+            assert!(e.0.starts_with("line 5: "), "the eg's line (reviewer): {}", e.0);
         }
     }
     // the largest i64 is a literal like any other

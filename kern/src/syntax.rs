@@ -801,8 +801,10 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
     if !(parts.len() == 2 || parts.len() == 3) || !parts[1].contains("->") {
         return Err(usage());
     }
-    let (world_src, now) = split_now(parts[0])?;
-    let (world_src, maps) = split_maps(&world_src)?;
+    // split_now / split_maps are line-free (the host parses worlds too): put the eg's line on their errors
+    let at = |e: ParseError| ParseError::at(e.0, line);
+    let (world_src, now) = split_now(parts[0]).map_err(at)?;
+    let (world_src, maps) = split_maps(&world_src).map_err(at)?;
     let world = parse_world(&world_src, line)?;
     let sides: Vec<&str> = parts[1].split("->").map(str::trim).collect();
     if sides.len() != 2 {
@@ -836,7 +838,7 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
         }
         Outcome::Fail(ctor.to_string(), vals.map_err(|_| usage())?)
     };
-    let (after_src, after_maps) = if parts.len() == 3 { split_maps(parts[2])? } else { (String::new(), Maps::new()) };
+    let (after_src, after_maps) = if parts.len() == 3 { split_maps(parts[2]).map_err(at)? } else { (String::new(), Maps::new()) };
     let after = parse_balances(&after_src, line)?;
     Ok(Example {
         world,
