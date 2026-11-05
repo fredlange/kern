@@ -1059,7 +1059,40 @@ fn s5_text_verdicts_agree_with_the_interpreter() {
     assert_eq!(other, 0, "undecided goals (listed above)");
 }
 
+#[test]
+fn random_tests_skip_worlds_that_break_a_module_invariant() {
+    // app's request 0 (shop): `cancel` relies on the invariant `phase.get o = 0 or item_of.get o > 0`; random
+    // worlds broke it, the call refused, and that counted as a violation of a proven `ok otherwise`
+    let src = "state phase Int
+state item_of Int
+state stock Int
+
+invariant o:Int phase.get o = 0 or item_of.get o > 0
+
+restock item:Int
+  need item > 0 else NoSuchItem
+  ok otherwise
+  ensure stock.get' item = stock.get item + 1
+body
+  stock.set item (stock.get item + 1)
+
+cancel order:Int
+  need phase.get order = 1 else CannotCancel
+  ok otherwise
+  ensure phase.get' order = 4
+body
+  restock (item_of.get order)
+  phase.set order 4
+";
+    let reps = reports(&parse(src));
+    let r = &reps["cancel"];
+    assert!(r.guarantees.iter().all(|g| g.status == kern::report::Status::Proven), "{:?}", r.guarantees);
+    assert!(r.props.violations.is_empty(), "{:?}", r.props.violations);
+    assert!(r.clean);
+}
+
 // =====================================================================================
+// S7. Refusal conditions after a write// =====================================================================================
 // S7. Refusal conditions after a write (closed: lifted through direct writes, with aliasing)
 // =====================================================================================
 

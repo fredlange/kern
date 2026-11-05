@@ -172,6 +172,8 @@ pub struct ExampleResult {
 pub struct Props {
     pub runs: u64,
     pub succeeded: u64,
+    /// runs whose random world broke a module invariant: not run (no call reaches such a world)
+    pub skipped: u64,
     /// refusal constructor -> count, in first-seen order
     pub failures: IndexMap<String, u64>,
     pub violations: Vec<Violation>,
@@ -515,13 +517,18 @@ pub fn props_json(p: &Props) -> J {
         })
         .collect();
     let failures: serde_json::Map<String, J> = p.failures.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
-    json!({"runs": p.runs, "succeeded": p.succeeded, "failures": failures, "violations": violations})
+    let mut j = json!({"runs": p.runs, "succeeded": p.succeeded, "failures": failures, "violations": violations});
+    if p.skipped > 0 {
+        j["skipped"] = json!(p.skipped); // only then, so every dump without skips is as before
+    }
+    j
 }
 
 fn props_from(j: &J) -> Option<Props> {
     Some(Props {
         runs: j["runs"].as_u64()?,
         succeeded: j["succeeded"].as_u64()?,
+        skipped: j["skipped"].as_u64().unwrap_or(0),
         failures: j["failures"].as_object()?.iter().map(|(k, v)| (k.clone(), v.as_u64().unwrap_or(0))).collect(),
         violations: j["violations"]
             .as_array()?

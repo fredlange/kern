@@ -79,7 +79,7 @@ body
 | Effects, failures | inferred from the body, transitively through callees |
 | Writes, refusal conditions | inferred: which balances and state can change (the frame modular proofs use), and the body-level conditions under which a call refuses |
 | Examples | run in the interpreter; each failing one gets a `failing: eg …   (got …)` line: the outcome, or the error (wrong argument count, unknown account), or, when only the after-state differs, the listed items' actual values |
-| Random tests | 500 random worlds and inputs; every guarantee is checked on each success |
+| Random tests | 500 random worlds and inputs; every guarantee is checked on each success. A world that breaks a module invariant is repaired (each failing key's entries back to 0 or `""`), since no call can start there and the prover assumes the invariants; one that can't be repaired is skipped, and the line says how many |
 | Proofs | symbolic execution to Z3. Calls are verified *modularly*, from the callee's spec and inferred interface, never its body |
 | Refusals | with `ok otherwise`, proven to refuse only where a spec `need` fails |
 | Tiers | ✔ proven, ✗ refuted (replayed), ? unconfirmed or no answer, ! relies on something unproven, ⊙ relies on an assumed handler, ◐ tested only, ○ a module invariant checked only at run time, after every call (`kern host` and `kern build` programs; the gated host serves it only with `--no-gate`), ∅ never succeeds |

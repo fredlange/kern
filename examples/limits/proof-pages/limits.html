@@ -51,7 +51,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>A:0@u1 | request_limit A -&gt; ok | pending.A:1 req.A:1</code> <span class='okc'>✔</span></li>
 <li><code>A:0@u1 pending.A:1 | request_limit A -&gt; AlreadyPending</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 253 succeeded and were checked against every guarantee; refused: AlreadyPending 247.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 394 succeeded and were checked against every guarantee; refused: AlreadyPending 106.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 6/6 deliberate bugs (100%)</span></h3><p>Caught by the prover: 6; by random tests checking the guarantees: 6. The examples alone catch 5/6; everything together 6/6.</p>
 <p>Refusals in the spec: 2/2 changes caught, by examples 2, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 </section>

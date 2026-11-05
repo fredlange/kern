@@ -426,9 +426,14 @@ pub fn card(r: &Report, defs: &Module, why: &Status) -> String {
     fl.sort_by(|a, b| b.1.cmp(a.1));
     let fl: Vec<String> = fl.iter().map(|(k, v)| format!("{} {}", k, v)).collect();
     out.push(format!(
-        "<h3>Random tests</h3><p>{} random worlds and inputs: {} succeeded and were checked against every guarantee; \
+        "<h3>Random tests</h3><p>{} random worlds and inputs{}: {} succeeded and were checked against every guarantee; \
          refused: {}.</p>",
         p.runs,
+        if p.skipped > 0 {
+            format!(" ({} broke a module invariant, so no call could start there: skipped)", p.skipped)
+        } else {
+            String::new()
+        },
         p.succeeded,
         if fl.is_empty() { "none".to_string() } else { fl.join(", ") }
     ));
@@ -788,6 +793,10 @@ pub fn terminal(reports: &IndexMap<String, Report>, defs: &Module, whys: &IndexM
             r.props.runs,
             r.props.violations.len()
         ));
+        if r.props.skipped > 0 {
+            let last = out.pop().unwrap_or_default();
+            out.push(format!("{}   ({} worlds broke a module invariant: skipped)", last, r.props.skipped));
+        }
         for e in ex.iter().filter(|e| !e.pass) {
             out.push(format!("      failing: eg {}   (got {})", e.src, e.got));
         }

@@ -433,9 +433,9 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Examples <span class='muted'>1/1 pass, executed against build d5cfabae</span></h3><ul class='ex'>
 <li><code>E:100@u0 A:0@u1 hold.5:100 disputed.5:1 | resolve_for_buyer 5 E A -&gt; ok | E:0 A:100 hold.5:0 disputed.5:0</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 13 succeeded and were checked against every guarantee; refused: NotDisputed 451, BadAmount 25, SameAccount 9, Insufficient 2.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 13 succeeded and were checked against every guarantee; refused: NotDisputed 476, SameAccount 9, Insufficient 2.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 9/9 deliberate bugs (100%)</span></h3><p>Caught by the prover: 9; by random tests checking the guarantees: 9. The examples alone catch 7/9; everything together 9/9.</p>
-<p>Refusals in the spec: 7/8 changes caught, by examples 3, by guarantees 4. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need disputed.get id = 1 else NotDisputed</code>: dropped</li></ul>
+<p>Refusals in the spec: 5/8 changes caught, by examples 3, by guarantees 2. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need disputed.get id = 1 else NotDisputed</code>: dropped</li><li><code>need hold.get id &gt; 0 else BadAmount</code>: dropped; <code>&gt;</code> → <code>&gt;=</code></li></ul>
 <h3>Relies on</h3><p><code>release</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>resolve_for_seller</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 9a3b6892</span></header>
@@ -457,9 +457,9 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Examples <span class='muted'>1/1 pass, executed against build 9a3b6892</span></h3><ul class='ex'>
 <li><code>E:300@u0 B:0@u2 H:0@u9 hold.5:250 disputed.5:1 | resolve_for_seller 5 E B H -&gt; ok | E:50 B:245 H:5 hold.5:0</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 6 succeeded and were checked against every guarantee; refused: NotDisputed 454, SameAccount 22, BadAmount 18.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 6 succeeded and were checked against every guarantee; refused: NotDisputed 472, SameAccount 22.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 13/13 deliberate bugs (100%)</span></h3><p>Caught by the prover: 13; by random tests checking the guarantees: 13. The examples alone catch 9/13; everything together 13/13.</p>
-<p>Refusals in the spec: 5/7 changes caught, by examples 1, by guarantees 4. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need disputed.get id = 1 else NotDisputed</code>: dropped</li><li><code>need ledger.balance escrow &gt;= hold.get id else Insufficient</code>: <code>&gt;=</code> → <code>&gt;</code></li></ul>
+<p>Refusals in the spec: 3/7 changes caught, by examples 1, by guarantees 2. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need disputed.get id = 1 else NotDisputed</code>: dropped</li><li><code>need hold.get id &gt; 0 else BadAmount</code>: dropped; <code>&gt;</code> → <code>&gt;=</code></li><li><code>need ledger.balance escrow &gt;= hold.get id else Insufficient</code>: <code>&gt;=</code> → <code>&gt;</code></li></ul>
 <h3>Relies on</h3><p><code>capture</code>, <code>fee_for</code>, <code>transfer</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>resolve_split</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build dcd599c7</span></header>
@@ -482,7 +482,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Examples <span class='muted'>1/1 pass, executed against build dcd599c7</span></h3><ul class='ex'>
 <li><code>E:100@u0 A:0@u1 B:0@u2 hold.5:100 disputed.5:1 | resolve_split 5 E A B 40 -&gt; ok | E:0 A:40 B:60 hold.5:0</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 1 succeeded and were checked against every guarantee; refused: NotDisputed 450, BadPart 40, SameAccount 9.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 1 succeeded and were checked against every guarantee; refused: NotDisputed 471, BadPart 20, SameAccount 8.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 18/18 deliberate bugs (100%)</span></h3><p>Caught by the prover: 18; by random tests checking the guarantees: 0. The examples alone catch 12/18; everything together 18/18.</p>
 <p>Refusals in the spec: 5/6 changes caught, by examples 2, by guarantees 3. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need disputed.get id = 1 else NotDisputed</code>: dropped</li></ul>
 <h3>Relies on</h3><p><code>move</code>, <code>split</code> — through their specs only, not their code.</p>
@@ -631,9 +631,9 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Examples <span class='muted'>1/1 pass, executed against build 05a3f601</span></h3><ul class='ex'>
 <li><code>A:500@u1 E:0@u0 B:0@u2 H:0@u9 | purchase_order 9 A E B H 250 -&gt; ok | A:250 E:0 B:245 H:5 hold.9:0</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 21 succeeded and were checked against every guarantee; refused: Frozen 185, SameAccount 130, OrderExists 92, Insufficient 34, BadAmount 32, Disputed 6.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 21 succeeded and were checked against every guarantee; refused: Frozen 185, SameAccount 136, OrderExists 92, Insufficient 34, BadAmount 32.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 20/20 deliberate bugs (100%)</span></h3><p>Caught by the prover: 20; by random tests checking the guarantees: 20. The examples alone catch 20/20; everything together 20/20.</p>
-<p>Refusals in the spec: 12/13 changes caught, by examples 4, by guarantees 8. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need ledger.balance buyer &gt;= amount else Insufficient</code>: <code>&gt;=</code> → <code>&gt;</code></li></ul>
+<p>Refusals in the spec: 11/13 changes caught, by examples 4, by guarantees 7. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need ledger.balance buyer &gt;= amount else Insufficient</code>: <code>&gt;=</code> → <code>&gt;</code></li><li><code>need disputed.get id = 0 else Disputed</code>: dropped</li></ul>
 <h3>Relies on</h3><p><code>capture_order</code>, <code>fee_for</code>, <code>open_order</code>, <code>transfer</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>verify</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 431233e0</span></header>

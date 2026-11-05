@@ -39,7 +39,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>now:12 last.1:10 | request 1 -&gt; TooSoon 3</code> <span class='okc'>✔</span></li>
 <li><code>now:15 last.1:10 | request 1 -&gt; ok | last.1:15</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 11 succeeded and were checked against every guarantee; refused: UnknownSource 467, AlreadyPending 18, TooSoon 4.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 18 succeeded and were checked against every guarantee; refused: UnknownSource 467, AlreadyPending 8, TooSoon 7.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 20/20 deliberate bugs (100%)</span></h3><p>Caught by the prover: 20; by random tests checking the guarantees: 20. The examples alone catch 10/20; everything together 20/20.</p>
 <p>Refusals in the spec: 5/5 changes caught, by examples 5, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 <details><summary>Why (3)</summary><ul><li>the slot is reserved at request time and travels in the event, so the reply writes a parameter key; a computed key would leave the invariants unproven</li><li>one request per source at a time keeps the public APIs from being hammered by a button-masher</li><li>the 5-second cooldown is politeness toward free APIs with no key; 5 is a guess, not a published limit</li></ul></details>

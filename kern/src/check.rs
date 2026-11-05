@@ -210,13 +210,41 @@ fn world_text(before: &World, accts: &[&str]) -> String {
     s
 }
 
+/// Make `w` satisfy the module invariants by resetting, at each key where one fails, the state entries it reads to
+/// their defaults (0, ""). False if that doesn't make every invariant hold (an invariant false at the defaults, or
+/// one about balances).
+fn repair(defs: &Module, interp: &mut Interp, w: &mut World) -> Result<bool, Crash> {
+    for _ in 0..64 {
+        let broken = interp.broken_invariants(w, None).map_err(crash)?;
+        if broken.is_empty() {
+            return Ok(true);
+        }
+        let mut changed = false;
+        for (text, key) in broken {
+            let Some((_, _, cond)) = defs.invariants.iter().find(|(v, t, c)| format!("{}:{} {}", v, t, code(c)) == text) else {
+                return Ok(false);
+            };
+            let Some(k) = key.as_key() else { return Ok(false) };
+            for n in crate::infer::names(cond) {
+                let Some(x) = n.strip_suffix(".get") else { continue };
+                changed |= w.maps.get_mut(x).and_then(|m| m.shift_remove(&k)).is_some();
+                changed |= w.texts.get_mut(x).and_then(|m| m.shift_remove(&k)).is_some();
+            }
+        }
+        if !changed {
+            return Ok(false);
+        }
+    }
+    Ok(false)
+}
+
 /// Random worlds and arguments; every success is checked against d's guarantees and the module invariants.
 pub fn proptest(defs: &Module, d: &Def, n: u64, seed: i128) -> Result<Props, Crash> {
     let mut rnd = Random::from_int(seed);
     let mut interp = Interp::new(defs);
     let mut times = Random::from_int(seed + 1_000_003);
     let mut per_state: IndexMap<String, Random> = IndexMap::new();
-    let mut stats = Props { runs: n, succeeded: 0, failures: IndexMap::new(), violations: vec![] };
+    let mut stats = Props { runs: n, succeeded: 0, skipped: 0, failures: IndexMap::new(), violations: vec![] };
     let touched = uses(defs, d);
     let states_used = relevant_states(defs, d);
     let checks_invariants = touched.iter().any(|e| e.ends_with(".write") || e == "ledger.write");
@@ -246,6 +274,13 @@ pub fn proptest(defs: &Module, d: &Def, n: u64, seed: i128) -> Result<Props, Cra
             w.maps.insert(x.clone(), m);
         }
         let args = rand_args(d, &accts, &mut rnd);
+        // a world that breaks a module invariant can't be reached by any call, and the prover assumes they hold:
+        // repair it (each failing key's entries back to their defaults), or skip the run if that doesn't do it
+        // (the draws above happen regardless, so the streams stay as they were)
+        if !defs.invariants.is_empty() && !repair(defs, &mut interp, &mut w)? {
+            stats.skipped += 1;
+            continue;
+        }
         let before = w.clone();
         let outcome = match interp.run(&d.name, &args, &mut w) {
             Ok(o) => o,

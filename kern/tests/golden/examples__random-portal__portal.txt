@@ -9,7 +9,7 @@ request [1337b802]  All guarantees proven
   ✔ invariant s:Int pending.get s = 0 or pending.get s = 1
   ✔ emit net FetchJoke src (next.get 0 + 1) when src = 1, then FetchPun src (next.get 0 + 1) when src = 2
   writes deadline.src last.src next.* pending.src want.src   (no guarantee about the new value of next.*)
-  examples 6/6   random tests 11/500 reached success, 0 violations
+  examples 6/6   random tests 18/500 reached success, 0 violations
   spec strength: guarantees 20/20 (prover 20, random tests 20); examples 10/20; together 20/20
   spec refusals: 5/5 changes caught (examples 5, guarantees 0)
   why 3

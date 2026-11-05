@@ -255,8 +255,9 @@ resolve_for_buyer [d5cfabae]  All guarantees proven
   writes escrow buyer disputed.id hold.id   (no guarantee about the new balance of escrow)
   examples 1/1   random tests 13/500 reached success, 0 violations
   spec strength: guarantees 9/9 (prover 9, random tests 9); examples 7/9; together 9/9
-  spec refusals: 7/8 changes caught (examples 3, guarantees 4)
+  spec refusals: 5/8 changes caught (examples 3, guarantees 2)
       unpinned: need disputed.get id = 1 else NotDisputed (dropped)
+      unpinned: need hold.get id > 0 else BadAmount (dropped, `>` → `>=`)
 
 resolve_for_seller [9a3b6892]  All guarantees proven
   ✔ ok otherwise
@@ -271,8 +272,9 @@ resolve_for_seller [9a3b6892]  All guarantees proven
   writes escrow seller house disputed.id hold.id   (no guarantee about the new balance of seller, house)
   examples 1/1   random tests 6/500 reached success, 0 violations
   spec strength: guarantees 13/13 (prover 13, random tests 13); examples 9/13; together 13/13
-  spec refusals: 5/7 changes caught (examples 1, guarantees 4)
+  spec refusals: 3/7 changes caught (examples 1, guarantees 2)
       unpinned: need disputed.get id = 1 else NotDisputed (dropped)
+      unpinned: need hold.get id > 0 else BadAmount (dropped, `>` → `>=`)
       unpinned: need ledger.balance escrow >= hold.get id else Insufficient (`>=` → `>`)
 
 resolve_split [dcd599c7]  All guarantees proven
@@ -384,8 +386,9 @@ purchase_order [05a3f601]  All guarantees proven
   writes buyer escrow seller house captured.id hold.id   (no guarantee about the new balance of seller, house, captured.id)
   examples 1/1   random tests 21/500 reached success, 0 violations
   spec strength: guarantees 20/20 (prover 20, random tests 20); examples 20/20; together 20/20
-  spec refusals: 12/13 changes caught (examples 4, guarantees 8)
+  spec refusals: 11/13 changes caught (examples 4, guarantees 7)
       unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
+      unpinned: need disputed.get id = 0 else Disputed (dropped)
 
 verify [431233e0]  All guarantees proven
   ✔ ok otherwise
