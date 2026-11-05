@@ -127,7 +127,7 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   | ~~records~~ first cut closed `b18367a` (Closed: "S5, records") | `s5_records_check` |
   | ~~text~~ closed `135dfca` (Closed: "S5, text") | `s5_text_checks` |
   | ~~`match`~~ closed `a8cee99` (Closed: "S5, match") | `s5_match_checks` |
-  | recursion (rejected: no termination measures) | `s5_recursion_is_accepted` |
+  | ~~recursion~~ closed `3700f8d` (Closed: "S5, recursion with a termination measure") | `s5_recursion_is_accepted` |
   | ~~nested loops~~ closed `59c9e66` (Closed: "S5, nested loops and variable × variable") | `s5_nested_loops_check` |
   | ~~variable × variable~~ closed `59c9e66` (same entry) | `s5_variable_times_variable_checks` |
   | ~~named constants~~ closed `0acdb54` (Closed: "S5, named constants") | `s5_named_constants_check` |
@@ -217,6 +217,23 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S5, recursion with a termination measure (one row of S5)
+- **Kind:** code gap. **Closed** 2026-11-05 in `3700f8d`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
+  recursion); review fix `6eb422f`; compiled `606ed1c` and the host's stated depth limit `f03cb4e` (runtime).
+- **Was:** recursion was rejected, because there were no termination measures.
+- **Decided by** F2 (calls stay modular, a self-call too) and F5 (partial correctness must not read as total):
+  a spec line `decreases E` (3 tokens) over parameters, constants and pure functions; every definition of a
+  cycle needs one. Each recursive call gets a `measure` goal, `0 <= E(args) < E(params)` on the path to the call.
+  In test, a self-recursive definition with a ✗ or `?` measure still showed its ensures ✔ (`result = loop_self n`
+  never returns); since `6eb422f` its other goals are `!`, "relies on termination measure".
+- **Evidence:** `s5_recursion_is_accepted` passes as an ordinary test; `s5_a_measure_is_checked_at_every_recursive_call`:
+  a recursive and a mutually recursive pair proven, `spin n` ✗ with a replaying counterexample, `loop_self` `!`.
+  Tester: valid measures ✔, bad ones `!` for self, mutual and caller cases; compiled recursion 0 divergences.
+  Digests at their recorded values; fuzz seeds 1–3 0 contradictions. examples/apps/shop's `parcels` proves its
+  measure and a closed form by induction.
+- **What remains:** calls nest at most 200 deep at run time (interpreter, host, compiled program); deeper is a
+  fault, stated on the host page. A proven measure doesn't promise a depth under 200.
 
 ### S10. Audit events in examples, and time inside a call
 - **Kind:** code gap. **Closed** 2026-11-05 in `e1e1a68` (lang), under delegation (.party/DECISIONS.md, 2026-11-05,
