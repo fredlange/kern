@@ -3,7 +3,7 @@
 //! docs/research/RUNTIME_PLAN.md beyond the examples.
 //!
 //! ```text
-//! fuzzdiff [--seed 1] [--loops 300] [--handlers 200] [--sums 150] [--no-mutants] [--per-def 100]
+//! fuzzdiff [--seed 1] [--loops 300] [--handlers 200] [--sums 150] [--texts 100] [--no-mutants] [--per-def 100]
 //! ```
 //!
 //! All programs go into one crate (one module each, picked by the binary's first argument), so there is one cargo
@@ -36,11 +36,12 @@ pub struct Summary {
     pub bad: Vec<(String, usize, String, String, String)>,
 }
 
-pub fn run(seed: i128, loops: usize, handlers: usize, sums: usize, mutants: bool, per_def: usize) -> Result<Summary, String> {
+pub fn run(seed: i128, loops: usize, handlers: usize, sums: usize, texts: usize, mutants: bool, per_def: usize) -> Result<Summary, String> {
     let mut progs: Vec<(String, String, Module, i128, String, crate::difftest::Checks)> = vec![];
     let (mut not_wf, mut unsupported) = (0, vec![]);
     let mut all = jobs(std::path::Path::new(ROOT), seed, loops, handlers, 0, mutants);
     all.extend(crate::fuzz::sum_jobs(seed, sums, 0));
+    all.extend(crate::fuzz::text_jobs(seed, texts, 0));
     for job in all {
         let defs = match (&job.module, &job.src) {
             (Some(m), _) => m.clone(),
@@ -143,7 +144,7 @@ pub fn run(seed: i128, loops: usize, handlers: usize, sums: usize, mutants: bool
 }
 
 pub fn main(argv: &[String]) -> i32 {
-    let (mut seed, mut loops, mut handlers, mut sums, mut mutants, mut per_def) = (1i128, 300usize, 200usize, 150usize, true, 100usize);
+    let (mut seed, mut loops, mut handlers, mut sums, mut texts, mut mutants, mut per_def) = (1i128, 300usize, 200usize, 150usize, 100usize, true, 100usize);
     let mut i = 0;
     while i < argv.len() {
         let flag = argv[i].as_str();
@@ -156,6 +157,7 @@ pub fn main(argv: &[String]) -> i32 {
             "--loops" => loops = val(&mut i) as usize,
             "--handlers" => handlers = val(&mut i) as usize,
             "--sums" => sums = val(&mut i) as usize,
+            "--texts" => texts = val(&mut i) as usize,
             "--per-def" => per_def = val(&mut i) as usize,
             "--no-mutants" => mutants = false,
             other => {
@@ -166,7 +168,7 @@ pub fn main(argv: &[String]) -> i32 {
         i += 1;
     }
     let t0 = std::time::Instant::now();
-    let s = match run(seed, loops, handlers, sums, mutants, per_def) {
+    let s = match run(seed, loops, handlers, sums, texts, mutants, per_def) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("fuzzdiff: {e}");

@@ -1,7 +1,7 @@
 //! Differential test (port of validation/difftest.py): a compiled Kern module against the reference interpreter.
 //!
 //! ```text
-//! difftest [--per-def N] [--seed S] [MODULE.k ...]   (default: every example + tests/probes/{runtime,invcheck,sums}.k)
+//! difftest [--per-def N] [--seed S] [MODULE.k ...]   (default: every example + tests/probes/{runtime,invcheck,sums,texts}.k)
 //! ```
 //!
 //! Scorecard C1 and C2 of docs/research/RUNTIME_PLAN.md:
@@ -27,6 +27,9 @@ const NAMES: [&str; 6] = ["A", "B", "C", "D", "E", "H"];
 const INTS: [i128; 14] = [-1, 0, 1, 2, 3, 5, 7, 50, 99, 100, 101, 150, 250, 1000];
 const BALANCES: [i128; 9] = [0, 1, 5, 50, 99, 100, 101, 250, 1000];
 const MAP_VALUES: [i128; 7] = [0, 1, 2, 5, 100, 250, -1];
+/// Text values for arguments and Text state entries (e7df085): empty, a space, the two escaped characters,
+/// non-ASCII, and a literal `\x41`. Drawn only for modules with Text, so other scripts are unchanged.
+const TEXTS: [&str; 10] = ["", "a", "ab", "x y", "hello world", "\\", "\"", "é", "😀", "\\x41"];
 
 /// A value the binary can print: a nested constructor isn't one.
 fn show(v: &Value) -> Result<String, String> {
@@ -59,10 +62,14 @@ fn key_str(k: &Key) -> String {
     }
 }
 
-fn world_line(bal: &IndexMap<String, i128>, own: &IndexMap<String, String>, maps: &IndexMap<String, IndexMap<Key, i128>>, now: i128) -> String {
+fn world_line(bal: &IndexMap<String, i128>, own: &IndexMap<String, String>, maps: &IndexMap<String, IndexMap<Key, i128>>,
+              texts: &kern::syntax::Texts, now: i128) -> String {
     let mut items: Vec<String> = bal.iter().map(|(a, b)| format!("{}:{}@{}", a, b, own[a])).collect();
     for (m, kv) in maps {
         items.extend(kv.iter().map(|(k, v)| format!("{}.{}:{}", m, key_str(k), v)));
+    }
+    for (m, kv) in texts {
+        items.extend(kv.iter().map(|(k, v)| format!("{}.{}:{}", m, key_str(k), kern::syntax::quote(v))));
     }
     items.push(format!("now:{}", now));
     format!("world {}", items.join(" "))
@@ -77,6 +84,18 @@ fn dump(w: &World, defs: &Module) -> String {
     let mut states: Vec<&String> = defs.states.keys().collect();
     states.sort();
     for m in states {
+        if defs.text_states.contains(m) {
+            // as the binary's dump: entries that aren't "", sorted by key, quoted
+            let mut kv: Vec<(&Key, &String)> = w.texts.get(m).map(|kv| kv.iter().filter(|(_, v)| !v.is_empty()).collect()).unwrap_or_default();
+            kv.sort_by(|(a, _), (b, _)| match (a, b) {
+                (Key::Int(x), Key::Int(y)) => x.cmp(y),
+                _ => key_str(a).cmp(&key_str(b)),
+            });
+            for (k, v) in kv {
+                s.push_str(&format!(" {}.{}:{}", m, key_str(k), kern::syntax::quote(v)));
+            }
+            continue;
+        }
         let mut kv: Vec<(&Key, &i128)> = w.maps.get(m).map(|kv| kv.iter().filter(|(_, v)| **v != 0).collect()).unwrap_or_default();
         if defs.states[m] == "Account" {
             kv.sort_by_key(|(k, _)| key_str(k));
@@ -116,6 +135,9 @@ impl kern::run::Store for Snap {
     fn cell(&self, state: &str, key: &Key) -> Option<i128> {
         self.0.maps.get(state).and_then(|m| m.get(key)).copied()
     }
+    fn text_cell(&self, state: &str, key: &Key) -> Option<String> {
+        self.0.texts.get(state).and_then(|m| m.get(key)).cloned()
+    }
 }
 
 /// Module invariants the compiled program checks after a call (`kern::emit_rust::unproven_invariants`): name ->
@@ -147,6 +169,9 @@ fn interp_call(interp: &mut Interp, w: &mut World, defs: &Module, checks: &Check
     w.own.extend(lw.own);
     for (x, m) in lw.maps {
         w.maps.entry(x).or_default().extend(m);
+    }
+    for (x, m) in lw.texts {
+        w.texts.entry(x).or_default().extend(m);
     }
     w.audit.extend(lw.audit);
     for (c, evs) in lw.out {
@@ -197,7 +222,11 @@ fn interp_args(d: &kern::syntax::Def, toks: &[String]) -> Vec<Value> {
         .params
         .iter()
         .zip(toks)
-        .map(|((_, t), tok)| if t == "Int" { tok.parse().map(Value::Int).unwrap_or(Value::Str(tok.clone())) } else { Value::Str(tok.clone()) })
+        .map(|((_, t), tok)| match t.as_str() {
+            "Int" => tok.parse().map(Value::Int).unwrap_or(Value::Str(tok.clone())),
+            "Text" => Value::Str(kern_rt_unquote(tok)),
+            _ => Value::Str(tok.clone()),
+        })
         .collect();
     out.extend(toks[d.params.len().min(toks.len())..].iter().map(|t| Value::Str(t.clone())));
     out
@@ -261,13 +290,42 @@ fn sample<T: Clone>(rng: &mut Random, pop: &[T], k: usize) -> Vec<T> {
 
 type Maps = IndexMap<String, IndexMap<Key, i128>>;
 
-fn random_world(rng: &mut Random, defs: &Module) -> (IndexMap<String, i128>, IndexMap<String, String>, Maps, i128) {
+/// A quoted script token back to its Text (as the binary's `unquote`; a bare token stays as it is).
+fn kern_rt_unquote(tok: &str) -> String {
+    let Some(inner) = tok.strip_prefix('"').and_then(|t| t.strip_suffix('"')) else { return tok.to_string() };
+    let (mut out, mut esc) = (String::new(), false);
+    for c in inner.chars() {
+        if esc {
+            out.push(c);
+            esc = false;
+        } else if c == '\\' {
+            esc = true;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn random_world(rng: &mut Random, defs: &Module) -> (IndexMap<String, i128>, IndexMap<String, String>, Maps, kern::syntax::Texts, i128) {
     let k = rng.randint(2, 5) as usize;
     let names = sample(rng, &NAMES, k);
     let bal: IndexMap<String, i128> = names.iter().map(|a| (a.to_string(), *rng.choice(&BALANCES))).collect();
     let own: IndexMap<String, String> = names.iter().map(|a| (a.to_string(), format!("u{}", rng.randint(1, 3)))).collect();
     let mut maps = Maps::new();
+    let mut texts = kern::syntax::Texts::new();
     for (m, key) in &defs.states {
+        if defs.text_states.contains(m) {
+            let mut kv = IndexMap::new();
+            for _ in 0..rng.randint(0, 3) {
+                let k = if key == "Account" { Key::Str(rng.choice(&names).to_string()) } else { Key::Int(*rng.choice(&[0, 1, 2, 3, 7])) };
+                kv.insert(k, rng.choice(&TEXTS).to_string());
+            }
+            if !kv.is_empty() {
+                texts.insert(m.clone(), kv);
+            }
+            continue;
+        }
         let mut kv = IndexMap::new();
         for _ in 0..rng.randint(0, 3) {
             let k = if key == "Account" { Key::Str(rng.choice(&names).to_string()) } else { Key::Int(*rng.choice(&[0, 1, 2, 3, 7])) };
@@ -277,7 +335,7 @@ fn random_world(rng: &mut Random, defs: &Module) -> (IndexMap<String, i128>, Ind
             maps.insert(m.clone(), kv);
         }
     }
-    (bal, own, maps, rng.randint(0, 20) as i128)
+    (bal, own, maps, texts, rng.randint(0, 20) as i128)
 }
 
 fn tok_of(k: &Key) -> String {
@@ -296,10 +354,17 @@ pub fn build_case<'m>(defs: &'m Module, checks: &Checks, rng: &mut Random, per_d
         for ex in &d.examples {
             let bal: IndexMap<String, i128> = ex.world.iter().map(|(a, (b, _))| (a.clone(), *b)).collect();
             let own: IndexMap<String, String> = ex.world.iter().map(|(a, (_, o))| (a.clone(), o.clone())).collect();
-            case.script.push(world_line(&bal, &own, &ex.maps, ex.now));
-            let mut w = World::from_example(&ex.world, ex.now, &ex.maps);
-            let (name, toks) = (&ex.call.0, ex.call.1.iter().map(tok_of).collect::<Vec<_>>());
+            case.script.push(world_line(&bal, &own, &ex.maps, &ex.texts, ex.now));
+            let mut w = World::from_example(&ex.world, ex.now, &ex.maps).with_texts(&ex.texts);
+            let name = &ex.call.0;
             let Some(cd) = defs.defs.get(name) else { continue };
+            // a Text argument is one quoted token in the script
+            let toks: Vec<String> = ex.call.1.iter().enumerate()
+                .map(|(i, k)| match (cd.params.get(i).map(|p| p.1.as_str()), k) {
+                    (Some("Text"), Key::Str(t)) => kern::syntax::quote(t),
+                    _ => tok_of(k),
+                })
+                .collect();
             let (line, obs) = interp_call(&mut interp, &mut w, defs, checks, name, &interp_args(cd, &toks))?;
             let ctx = format!("eg {}", ex.src);
             let mut all = vec![name.clone()];
@@ -313,10 +378,10 @@ pub fn build_case<'m>(defs: &'m Module, checks: &Checks, rng: &mut Random, per_d
     let n_calls = per_def * names.len();
     let mut done = 0;
     while done < n_calls {
-        let (bal, own, maps, now) = random_world(rng, defs);
-        let wl = world_line(&bal, &own, &maps, now);
+        let (bal, own, maps, texts, now) = random_world(rng, defs);
+        let wl = world_line(&bal, &own, &maps, &texts, now);
         case.script.push(wl.clone());
-        let mut w = World { bal: bal.clone(), own: own.clone(), clock: now, maps: maps.clone(), ..Default::default() };
+        let mut w = World { bal: bal.clone(), own: own.clone(), clock: now, maps: maps.clone(), texts, ..Default::default() };
         let accounts: Vec<String> = bal.keys().cloned().collect();
         for _ in 0..15 {
             let name = if done < names.len() * per_def / 2 { names[done % names.len()] } else { *rng.choice(&names) };
@@ -331,6 +396,8 @@ pub fn build_case<'m>(defs: &'m Module, checks: &Checks, rng: &mut Random, per_d
                         } else {
                             "Z".into()
                         }
+                    } else if t == "Text" {
+                        kern::syntax::quote(rng.choice(&TEXTS))
                     } else {
                         rng.choice(&INTS).to_string()
                     }
@@ -527,6 +594,7 @@ pub fn main(argv: &[String]) -> i32 {
         mods.push(format!("{ROOT}/tests/probes/runtime.k")); // paths the examples never reach
         mods.push(format!("{ROOT}/tests/probes/invcheck.k")); // compiled module-invariant checks that break
         mods.push(format!("{ROOT}/tests/probes/sums.k")); // sums and state-reading functions
+        mods.push(format!("{ROOT}/tests/probes/texts.k")); // Text: lengths, joins, comparisons, Account-keyed Text
     }
     let (mut calls, mut divs, mut eg_fail, mut egs, mut failed) = (0, 0, 0, 0, 0usize);
     for m in &mods {
