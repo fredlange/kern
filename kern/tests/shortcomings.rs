@@ -288,9 +288,8 @@ body
 }
 
 #[test]
-#[should_panic(expected = "gap S5 nested loops:")]
 fn s5_nested_loops_check() {
-    // gap (S5): `nested loops are not supported yet`. Real syntax today
+    // closed (S5): loops nest; the outer loop's frame havocs what the inner one writes (DECISIONS.md, 2026-11-05)
     must_check(
         "gap S5 nested loops",
         "state cell Int
@@ -311,9 +310,8 @@ body
 }
 
 #[test]
-#[should_panic(expected = "gap S5 variable times variable:")]
 fn s5_variable_times_variable_checks() {
-    // gap (S5): arithmetic is linear (`*` needs a number on one side). Real syntax today
+    // closed (S5): `*` takes two variables; Z3's nonlinear arithmetic may answer unknown (`?`), never a wrong ✔
     must_check(
         "gap S5 variable times variable",
         "state area Int
@@ -325,6 +323,83 @@ body
   area.set k (w * h)
 ",
     );
+}
+
+#[test]
+fn s5_nonlinear_verdicts_agree_with_the_interpreter() {
+    // the measurement the task asks for: true and false nonlinear claims; a ✔ that random tests break or a ✗ that
+    // doesn't replay fails the test; undecided ones are counted (they must stay `?`/◐, never ✔)
+    let claims = [
+        ("result = w * h", true),
+        ("result = h * w", true),
+        ("result >= 0 when w >= 0 and h >= 0", true),
+        ("result >= w when h >= 1 and w >= 0", true),
+        ("result * result >= 0", true),
+        ("(w + 1) * (w + 1) = w * w + 2 * w + 1", true),
+        ("result != 7 when w > 1 and h > 1", true),
+        ("result > 0 when w > 0", false),
+        ("result = w * w", false),
+        ("result <= w * w", false),
+        ("result != 6 when w > 0 and h > 0", false),
+    ];
+    let (mut proven, mut refuted, mut undecided, mut true_undecided) = (0, 0, 0, 0);
+    for body in ["w * h", "h * w"] {
+        let ensures: String = claims.iter().map(|(c, _)| format!("  ensure {c}\n")).collect();
+        let src = format!("area w:Int h:Int -> Int\n{ensures}body\n  result = {body}\n");
+        let defs = parse(&src);
+        let reps = reports(&defs);
+        let r = &reps["area"];
+        for (g, (_, right)) in r.guarantees.iter().zip(&claims) {
+            match g.status {
+                kern::report::Status::Proven => {
+                    proven += 1;
+                    assert!(*right, "a wrong claim is ✔: {}", g.clause);
+                    let broke = r.props.violations.iter().any(|v| matches!(v, kern::report::Violation::Clause { clause, .. } if *clause == format!("ensure {}", g.clause)));
+                    assert!(!broke, "✔ but random tests broke it: {}", g.clause);
+                }
+                kern::report::Status::Refuted => {
+                    refuted += 1;
+                    assert!(!*right, "a right claim is ✗: {}", g.clause);
+                    assert!(g.counterexample.as_ref().unwrap().confirmed_by_interpreter, "{}", g.clause);
+                }
+                _ => {
+                    undecided += 1;
+                    if *right {
+                        true_undecided += 1;
+                    }
+                    eprintln!("undecided ({:?}): {}", g.status, g.clause);
+                }
+            }
+        }
+    }
+    eprintln!("nonlinear claims: {proven} proven, {refuted} refuted, {undecided} undecided ({true_undecided} of them true)");
+    assert!(proven >= 8 && refuted >= 4, "proven {proven}, refuted {refuted}");
+}
+
+#[test]
+fn s5_nested_loops_run_and_a_grid_seat_is_a_product() {
+    // app's request #3: a booking grid, seat = row * width + col, filled by two nested loops
+    let src = "state seat Int
+
+invariant s:Int seat.get s >= 0
+
+fill rows:Int width:Int
+  need rows >= 0 and width >= 0 else Bad
+  ok otherwise
+  eg | fill 2 3 -> ok | seat.0:1 seat.5:1 seat.6:0
+body
+  for r from 0 to rows
+    for c from 0 to width
+      seat.set (r * width + c) 1
+";
+    let defs = parse(src);
+    let reps = reports(&defs);
+    let r = &reps["fill"];
+    assert!(r.examples.iter().all(|e| e.pass), "{:?}", r.examples);
+    assert!(r.guarantees.iter().all(|g| !matches!(g.status, kern::report::Status::Refuted)), "{:?}", r.guarantees);
+    // a computed key (r * width + c): the invariant can't be checked key by key, so it is ○, not ✔
+    let inv = r.guarantees.iter().find(|g| g.kind == "invariant").unwrap();
+    assert_eq!(inv.status, kern::report::Status::Runtime);
 }
 
 #[test]

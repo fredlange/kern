@@ -188,7 +188,8 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   and checked at parameter keys only; a computed-key write makes it unknown).
 - `need as C args` / `emit as C args` expand a callee's spec at parse time; only right when
   the callee runs first (otherwise the prover refutes it and the caller restates).
-- Arithmetic is linear: `*` needs a literal on one side, `/` a positive literal on the right. Int is i64 at run time
+- `*` may multiply two variables (nonlinear: Z3 can answer unknown, shown `?`); `/` needs a positive literal on
+  the right. Int is i64 at run time
   (host store, `kern build`); a literal, `const` or `eg` value outside i64 is a parse error (S20). The interpreter
   computes in i128 and the prover over unbounded integers, so an i64 overflow in the middle of a call is a run-time fault.
 - Types: `Int`, `Account`, `Text` and record parameters (plus internal Owner/Bool/Event/Unit). Text: literals,
@@ -198,8 +199,8 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   them (modularly: uninterpreted over their arguments and the state they read, + their ensures). Recursion is rejected (no termination measures yet).
 - Bodies are guards plus `if`/`else` blocks (the prover forks a path per branch; paths grow as
   2^ifs per body) and bounded loops `for k from LO to HI` with `invariant` lines (a proposal, roadmap
-  run S4). The loop frame is inferred, never stated; there's no per-iteration emit form, and loops can't be
-  nested. Locals can't be updated in a loop (no accumulators); `sum j from A to B of E [where C]` (a Z3
+  run S4). The loop frame is inferred, never stated; there's no per-iteration emit form. Loops nest; the outer
+  loop's frame havocs what an inner loop writes unless keyed by the outer variable. Locals can't be updated in a loop (no accumulators); `sum j from A to B of E [where C]` (a Z3
   recursive function per sum) covers totals and counts, in specs and bodies. No `match`. Specs have `ensure E when C` and `emit … when C`.
 - Frames are *inferred* (`writes`), not written.
 - `ok otherwise` (opt-in) says a call succeeds whenever its spec needs hold. A caller that
@@ -255,7 +256,7 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
 - Packages (a proposal, roadmap run P): `import a.b` brings a module's names in unqualified; names are unique
   per package; imports reach within one package only (each example app copies its ledger). Missing for
   ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): Accounts as state values, iteration over
-  accounts, variable × variable, effects that return values, records as state values.
+  accounts, effects that return values, records as state values.
 - Records (first cut): `record Name f:Int|Account …`; record-typed parameters only, flattened to their fields
   at load time (`syntax::flatten_records`); `eg` and counterexamples pass the fields positionally. Not yet:
   records as state values, `-> Record`, nested records, record equality, records in `let`s.

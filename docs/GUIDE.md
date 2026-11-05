@@ -440,8 +440,8 @@ body
 
 ## Limits worth knowing
 
-- **Types:** Int and Account only. No text or records. There's one hard-coded ledger, plus
-  declared state. Loops are bounded, can't be nested, and are still a proposal (see Loops).
+- **Types:** Int, Account, Text, and records of those as parameters. Text has only `=`, `length` and `+`.
+  There's one hard-coded ledger, plus declared state. Loops are bounded, may nest, and are still a proposal (see Loops).
 - **A refusal after a write can't be inherited.** Restate it as a `need` on the caller.
 - **Exact audit specs grow with the call tree, and each `if` doubles the paths.** Mutation
   testing is ~95% of a full `check`. Use `--quick` and the cache in the inner loop

@@ -26,7 +26,7 @@ body
 | `need COND else Ctor ARGS` | refuse with `Ctor ARGS` unless COND holds |
 | `EXPR` | an effect: `ledger.debit a n`, `callee a b n`, `audit.emit (Ev a n)` |
 | `if COND`, then an indented block, optionally `else` and a block | branches |
-| `for k from LO to HI`, then an indented block | a loop: k = LO … HI−1 (bounds evaluated once). It starts with `invariant CLAUSE` lines; it can't be nested |
+| `for k from LO to HI`, then an indented block | a loop: k = LO … HI−1 (bounds evaluated once). It starts with `invariant CLAUSE` lines; loops nest |
 | `result = EXPR` | a function's result (once per path) |
 
 ### Expressions
@@ -34,8 +34,8 @@ body
 - **Operands:** integers (literals fit in i64), Text literals `"…"` (escape `\"` and `\\`), names, and
   juxtaposition application `f a b`. Arguments are atoms,
   so parenthesise anything compound: `Insufficient (amount - have)`.
-- **Arithmetic:** `+ - * /`. `*` needs a literal on one side; `/` needs a positive literal
-  on the right (floor division).
+- **Arithmetic:** `+ - * /`. `/` needs a positive literal on the right (floor division). `*` of two
+  variables is allowed, but the prover may give no answer (`?`) where it is nonlinear.
 - **Comparisons:** `= != < <= > >=` (Text: only `=` and `!=`).
 - **Text:** `length t` is its number of characters; `a + b` joins two Texts.
 - **Logic:** `and` binds tighter than `or`; `distinct a b c`.

@@ -90,9 +90,6 @@ impl<'a> Checker<'a> {
                         if *op == "/" && !matches!(**r, Expr::Int(n) if n > 0) {
                             self.err(place, &format!("`{}`: `/` needs a positive number on the right", code(e)));
                         }
-                        if *op == "*" && !matches!(**l, Expr::Int(_)) && !matches!(**r, Expr::Int(_)) {
-                            self.err(place, &format!("`{}`: `*` needs a number on one side", code(e)));
-                        }
                         self.need_types(place, op, &[&lt, &rt], &["Int", "Int"], "Int")
                     }
                     ">=" | "<=" | ">" | "<" => self.need_types(place, op, &[&lt, &rt], &["Int", "Int"], "Bool"),
@@ -389,9 +386,6 @@ impl<'a> Checker<'a> {
                 }
                 Stmt::For(k, lo, hi, invs, body) => {
                     let place = format!("for {} from {} to {}", k, code(lo), code(hi));
-                    if in_loop {
-                        self.err(&place, "nested loops are not supported yet");
-                    }
                     for b in [lo, hi] {
                         let t = self.ty(b, scope, &place, false, false, false);
                         self.expect(&place, &t, "Int");
