@@ -11,6 +11,8 @@ state qty_of Int
 
 invariant o:Int phase.get o >= 0
 invariant o:Int phase.get o <= 4
+invariant o:Int phase.get o = 0 or qty_of.get o > 0
+invariant o:Int phase.get o = 0 or item_of.get o > 0
 
 place order:Int item:Int qty:Int
   need order > 0 else BadOrder
@@ -55,8 +57,6 @@ body
 
 cancel order:Int
   need phase.get order = placed or phase.get order = paid else CannotCancel
-  need item_of.get order > 0 else CannotCancel
-  need qty_of.get order > 0 else CannotCancel
   ok otherwise
   ensure phase.get' order = cancelled
   ensure stock.get' (item_of.get order) = stock.get (item_of.get order) + qty_of.get order
@@ -64,8 +64,6 @@ cancel order:Int
   emit Cancelled order
   eg phase.1:1 item_of.1:3 qty_of.1:2 stock.3:5 | cancel 1 -> ok | phase.1:4 stock.3:7
   eg phase.1:3 | cancel 1 -> CannotCancel
-  eg phase.1:1 item_of.1:0 qty_of.1:2 | cancel 1 -> CannotCancel
-  eg phase.1:1 item_of.1:3 qty_of.1:0 | cancel 1 -> CannotCancel
 body
   restock (item_of.get order) (qty_of.get order)
   phase.set order cancelled

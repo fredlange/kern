@@ -7,7 +7,6 @@ Stock and prices live in their own package, `../catalog` (`kern.pkg` says `use .
 shop/
 ├── kern.pkg             `use ../catalog`
 ├── orders.k             place, advance (match on the phase), cancel (restocks)
-├── probes/orders_with_invariants.k.txt   the cross-map-invariant version (see below)
 └── proof-pages/shop.html
 ```
 
@@ -18,7 +17,7 @@ cargo run --release -p kern -- check examples/apps/shop
 cargo run --release -p kern -- build examples/apps/shop
 ```
 
-## What `check` says (HEAD at recording: 8576908, `--cache ''`)
+## What `check` says (HEAD at recording: 8b85fc0, `--cache ''`)
 
 | definition | status | spec strength |
 |---|---|---|
@@ -31,5 +30,8 @@ cargo run --release -p kern -- build examples/apps/shop
 - `cancel`'s spec first omitted that it calls `restock`, so its `emit` was wrong (✗, replayed): the exact event
   sequence is `Restocked …, Cancelled …`.
 - `place` accepted item 0 until a cross-map invariant made the prover refute it.
-- The invariants-only version of `cancel` reads "Broken guarantees" though every guarantee is ✔: request 0 in
-  `.party/requests.md`. `orders.k` carries needs instead.
+- `orders.k` states `phase = 0 or item_of > 0` and `phase = 0 or qty_of > 0` as module invariants (cross-map, read at one key). Until 8b85fc0
+  random tests built worlds that broke them and `cancel` read "Broken guarantees" with every guarantee ✔ (request 0, closed by
+  lang); the `need` workaround is gone.
+- Random testing reaches success rarely: `advance` 0/500, `place` 1/500 (worlds must satisfy the invariants and the needs); the
+  proofs carry these definitions, and `advance` went from 25/500 to 0/500 with the repair.

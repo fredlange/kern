@@ -85,6 +85,8 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>i</code> (Int): stock of <code>i</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant i:Int stock.get i &gt;= 0</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o &gt;= 0</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> ≤ 4</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o &lt;= 4</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> = 0 or qty_of of <code>o</code> &gt; 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o = 0 or qty_of.get o &gt; 0</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> = 0 or item_of of <code>o</code> &gt; 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o = 0 or item_of.get o &gt; 0</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>appends exactly one event to the audit log: <code>Placed</code> (<code>order</code>, <code>item</code>, <code>qty</code>)</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>emit Placed order item qty</code></div></div></li>
 </ul>
 <h3>Examples <span class='muted'>8/8 pass, executed against build 454cd7cd</span></h3><ul class='ex'>
@@ -97,7 +99,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>stock.3:5 price.3:100 | place 0 3 2 -&gt; BadOrder</code> <span class='okc'>✔</span></li>
 <li><code>stock.3:5 price.3:100 | place 1 3 0 -&gt; BadQuantity</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 1 succeeded and were checked against every guarantee; refused: NotForSale 285, BadOrder 77, NoSuchItem 70, OrderExists 38, OutOfStock 23, BadQuantity 6.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 1 succeeded and were checked against every guarantee; refused: NotForSale 311, BadOrder 77, NoSuchItem 70, OutOfStock 29, BadQuantity 8, OrderExists 4.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 26/26 deliberate bugs (100%)</span></h3><p>Caught by the prover: 26; by random tests checking the guarantees: 26. The examples alone catch 19/26; everything together 26/26.</p>
 <p>Refusals in the spec: 12/12 changes caught, by examples 9, by guarantees 3. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 <h3>Relies on</h3><p><code>take</code> — through their specs only, not their code.</p>
@@ -111,6 +113,8 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li class='proven'><span class='ic'>✔</span><div><div>phase of <code>order</code> <em>after</em> = phase of <code>order</code> <em>before</em> + 1</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure phase.get&#x27; order = phase.get order + 1</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o &gt;= 0</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> ≤ 4</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o &lt;= 4</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> = 0 or qty_of of <code>o</code> &gt; 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o = 0 or qty_of.get o &gt; 0</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> = 0 or item_of of <code>o</code> &gt; 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o = 0 or item_of.get o &gt; 0</code></div></div></li>
 </ul>
 <h3>Examples <span class='muted'>4/4 pass, executed against build b82f1e8b</span></h3><ul class='ex'>
 <li><code>phase.1:1 | advance 1 -&gt; ok | phase.1:2</code> <span class='okc'>✔</span></li>
@@ -118,29 +122,29 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>phase.1:3 | advance 1 -&gt; CannotAdvance</code> <span class='okc'>✔</span></li>
 <li><code>| advance 1 -&gt; CannotAdvance</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 25 succeeded and were checked against every guarantee; refused: CannotAdvance 475.</p>
-<h3>Spec strength <span class='muted'>guarantees catch 12/12 deliberate bugs (100%)</span></h3><p>Caught by the prover: 12; by random tests checking the guarantees: 6. The examples alone catch 12/12; everything together 12/12.</p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 0 succeeded and were checked against every guarantee; refused: CannotAdvance 500.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 12/12 deliberate bugs (100%)</span></h3><p>Caught by the prover: 12; by random tests checking the guarantees: 0. The examples alone catch 12/12; everything together 12/12.</p>
 <p>Refusals in the spec: 1/1 changes caught, by examples 1, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 </section>
-<section class="card"><header><h2><code>cancel</code><span class="muted"> in orders</span></h2><span class="badge warn">Checked at run time only, not proven</span><span class="hash">build 0baeb322</span></header>
+<section class="card"><header><h2><code>cancel</code><span class="muted"> in orders</span></h2><span class="badge warn">Checked at run time only, not proven</span><span class="hash">build 9ea8a4ff</span></header>
 <h3>Can touch</h3><p>the audit log, state <code>item_of</code> (read only), state <code>phase</code> (read and write), state <code>qty_of</code> (read only), state <code>stock</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
 <p>Changes: phase.order stock.*. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
 <p class='warnc'>No guarantee says what the new value of <code>stock.*</code> is.</p>
-<h3>Refuses when</h3><table><tr><td>phase of <code>order</code> ≠ 1 and phase of <code>order</code> ≠ 2</td><td class='fail-name'>→ <code>CannotCancel</code></td></tr><tr><td>item_of of <code>order</code> ≤ 0</td><td class='fail-name'>→ <code>CannotCancel</code></td></tr><tr><td>qty_of of <code>order</code> ≤ 0</td><td class='fail-name'>→ <code>CannotCancel</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Refuses when</h3><table><tr><td>phase of <code>order</code> ≠ 1 and phase of <code>order</code> ≠ 2</td><td class='fail-name'>→ <code>CannotCancel</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
 <h3>Guarantees</h3><ul class='g'>
 <li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>phase of <code>order</code> <em>after</em> = 4</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure phase.get&#x27; order = 4</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>stock of item_of of <code>order</code> <em>before</em> <em>after</em> = stock of item_of of <code>order</code> <em>before</em> <em>before</em> + qty_of of <code>order</code> <em>before</em></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure stock.get&#x27; (item_of.get order) = stock.get (item_of.get order) + qty_of.get order</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o &gt;= 0</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> ≤ 4</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o &lt;= 4</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> = 0 or qty_of of <code>o</code> &gt; 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o = 0 or qty_of.get o &gt; 0</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>o</code> (Int): phase of <code>o</code> = 0 or item_of of <code>o</code> &gt; 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant o:Int phase.get o = 0 or item_of.get o &gt; 0</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>appends exactly 2 events to the audit log, in order: <code>Restocked</code> (item_of of <code>order</code>, qty_of of <code>order</code>), then <code>Cancelled</code> (<code>order</code>)</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>emit Restocked (item_of.get order) (qty_of.get order), then Cancelled order</code></div></div></li>
 <li class='runtime'><span class='ic'>○</span><div><div>keeps the module invariant for every <code>i</code> (Int): stock of <code>i</code> ≥ 0</div><div class='how'>Not proven (it writes a computed key, so the invariant can&#x27;t be checked key by key). <code>kern host</code> and programs from <code>kern build</code> check it after every call, at the keys the call wrote, and undo a call that breaks it (a fault, not one of the declared refusals). The gated host serves this definition only with <code>--no-gate</code>.</div><div class='src'><code>invariant i:Int stock.get i &gt;= 0</code></div></div></li>
 </ul>
-<h3>Examples <span class='muted'>4/4 pass, executed against build 0baeb322</span></h3><ul class='ex'>
+<h3>Examples <span class='muted'>2/2 pass, executed against build 9ea8a4ff</span></h3><ul class='ex'>
 <li><code>phase.1:1 item_of.1:3 qty_of.1:2 stock.3:5 | cancel 1 -&gt; ok | phase.1:4 stock.3:7</code> <span class='okc'>✔</span></li>
 <li><code>phase.1:3 | cancel 1 -&gt; CannotCancel</code> <span class='okc'>✔</span></li>
-<li><code>phase.1:1 item_of.1:0 qty_of.1:2 | cancel 1 -&gt; CannotCancel</code> <span class='okc'>✔</span></li>
-<li><code>phase.1:1 item_of.1:3 qty_of.1:0 | cancel 1 -&gt; CannotCancel</code> <span class='okc'>✔</span></li>
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 7 succeeded and were checked against every guarantee; refused: CannotCancel 493.</p>
 <h3>Spec strength</h3><p class='muted'>Not measured until every guarantee holds.</p>
