@@ -57,7 +57,7 @@ fn every_handler_and_language_form_is_documented() {
         assert!(reference.contains(&format!("`{name}")), "handler {name} is not in REFERENCE.md");
     }
     for form in ["need", "ok otherwise", "keep", "ensure", "emit", "when", "need as", "emit as", "eg", "state",
-                 "invariant", "channel", "-> Int", "result", "distinct", "if", "else", "const"] {
+                 "invariant", "channel", "-> Int", "result", "distinct", "if", "else", "const", "record"] {
         assert!(reference.contains(&format!("`{form}")), "form {form} is not in REFERENCE.md");
     }
 }
@@ -109,6 +109,9 @@ fn every_mcp_tool_is_documented() {
 fn reference_stays_within_its_token_budget() {
     match kern::views::tokens(&read("docs/REFERENCE.md")) {
         None => eprintln!("SKIP: no tokenizer"),
-        Some(n) => assert!(n <= 2500, "REFERENCE.md is {n} tokens; the budget is 2,500 (docs/research/CHALLENGE.md, C2)"),
+        // 2,500 until 2026-11-05: C2's measured language tax (docs/research/CHALLENGE.md). Raised to 3,500 on
+        // 2026-11-05: Fredrik chose "Raise the budget" (.party/DECISIONS.md, first entry); 3,500 is lang's number
+        // for records, constants, sum and state-reading functions. C2's measurement was made at the old size.
+        Some(n) => assert!(n <= 3500, "REFERENCE.md is {n} tokens; the budget is 3,500 (raised from C2's 2,500, 2026-11-05)"),
     }
 }
