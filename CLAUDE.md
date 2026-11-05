@@ -149,14 +149,16 @@ examples/             one standalone project per directory, each with a README a
 
 kern/tests/           fundamentals_front.rs, fundamentals_back.rs, fundamentals_scale.rs: adversarial audit tests,
                       one section per fundamental; host.rs, mcp.rs, package.rs, runtime.rs (compiled program vs
-                      interpreter), docs.rs (REFERENCE/GUIDE in step with the code); golden.rs + golden/: recorded
+                      interpreter), docs.rs (REFERENCE/GUIDE in step with the code); shortcomings.rs (a gap test per
+                      code-gap entry of docs/research/SHORTCOMINGS.md, plus a check that the register's names exist); golden.rs + golden/: recorded
                       `check` output, views and some proof pages per module, the regression floor (re-record with
                       KERN_BLESS=1, and say why in the commit)
 tests/probes/         small modules the tests and validation tools use
 validation/src/       kern-validation (binaries; validation/README.md): fuzz (soundness fuzzer: random loop/handler
                       programs + template mutants, interpreter as oracle), digest (results digests, S2 and --loops:
                       the floor for prover changes), difftest and fuzzdiff (compiled program vs interpreter),
-                      sensitivity (does difftest catch planted runtime/emitter bugs), chains (C6's chain generator)
+                      sensitivity (does difftest catch planted runtime/emitter bugs), chains (C6's chain generator), c6 (C6's
+                      frozen runner on the Rust toolchain)
 validation/tests/     difftest, fuzz, digest (both digests at their recorded values), fuzz_generators,
                       prover_no_answer
 
@@ -177,6 +179,8 @@ it from source), or `docker build -t kern .`. Token counts need the Claude token
 (`KERN_TOKENIZER` or `~/.cache/kern/tokenizer.json`). Tests: `cargo test --workspace --release`.
 
 ### Known limitations
+
+The register of shortcomings, with evidence, kind and what counts as fixed: docs/research/SHORTCOMINGS.md.
 
 - The domain is hard-coded: the ledger, clock and audit handlers are built into the interpreter. Modules
   can declare `state NAME Int|Account` maps (Int values) and `invariant x:Type COND` (assumed

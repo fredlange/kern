@@ -6,6 +6,7 @@ The user documentation is one level up ([REFERENCE.md](../REFERENCE.md), [GUIDE.
 
 | Note | About |
 |---|---|
+| [SHORTCOMINGS.md](SHORTCOMINGS.md) | the one register of what Kern doesn't do well yet or hasn't shown, and what "fixed" means for each |
 | [AUDIT.md](AUDIT.md) | the audit against [FUNDAMENTALS.md](../FUNDAMENTALS.md), with ranked gaps |
 | [FIXES.md](FIXES.md) | the fix pass, with before/after evidence per step |
 | [SCALE.md](SCALE.md) | one app in three sizes, against a pre-registered scorecard |

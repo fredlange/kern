@@ -156,11 +156,17 @@ approximate.
 ### Where it falls short
 
 - **The C2 token threshold failed.** Working through views cost 1.03–1.33× the tokens of
-  TypeScript (0.97–1.06× counting cache reads), against a frozen target of 0.7×, because the language reference and tool schemas cost more than the views save on a
-  10-definition module. The saving should grow with the program; that is not yet shown.
-- **The prover is too slow for deep call trees.** C6 failed both speed thresholds: 16 s per
-  definition at depth 6 with 4 `if`s, because each `if` doubles the paths. A result cache makes
-  an unchanged re-check almost free; a cold check is still slow.
+  TypeScript (0.97–1.06× counting cache reads), against a frozen target of 0.7×. Two things cost
+  more than the views saved on a 10-definition module. One is the language reference, paid on the
+  first request. The other is the editor views themselves: on one of the three tasks they read
+  more tokens than the whole module. The saving should grow with the program; that is not yet shown.
+- **A proven spec can still be the wrong spec.** Kern proves that the code does what the spec says,
+  not that the spec says the right thing. The one seeded bug that every language missed was a
+  dropped condition in a spec. Whether a reviewer catches such bugs on the proof page (C4), and
+  whether an agent can game a green page (C3), hasn't been tested.
+- **The prover's speed has little margin.** On the Python toolchain, C6 failed both speed
+  thresholds (16 s per definition at depth 6 with 4 `if`s). The Rust toolchain passes both (0.85–0.91
+  s against 1 s). That margin is about one `if`, because each `if` still doubles the paths.
 - **At a leaf, Kern doesn't win.** The savings come from callees read as specs, not from the
   syntax.
 - **One author, one model family.** The same agent wrote the Kern, TypeScript and Go versions, in
@@ -168,7 +174,10 @@ approximate.
   Kern.
 - **A small language.** `Int` and `Account` are the only parameter types, so far. There are no
   records and no text. Loops are bounded and can't be nested. The ledger, clock and audit
-  handlers are built in. The full list is in [CLAUDE.md](CLAUDE.md), "Known limitations".
+  handlers are built in.
+
+Every known shortcoming, with its evidence and what would count as fixing it, is in
+[docs/research/SHORTCOMINGS.md](docs/research/SHORTCOMINGS.md).
 
 ## What exists
 
@@ -184,8 +193,8 @@ Kern is one Rust binary, `kern` (about 12,500 lines), with Z3 as the prover. It 
   and deterministic replay.
 
 [examples/](examples/) has ten standalone projects, from the ledger tour to a small web app.
-`cargo test --workspace --release` runs 254 tests: an adversarial test suite per design
-fundamental, golden outputs and the toolchain's own checks.
+`cargo test --workspace --release` runs 271 tests: an adversarial test suite per design
+fundamental, golden outputs, the toolchain's own checks, and a gap test for each known shortcoming.
 
 What's next: records, `match`, and the central experiment: the same tasks done in editor view
 versus full source, measuring tokens, task success and how often the agent breaks a guarantee it
