@@ -44,7 +44,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 | option | meaning |
 |---|---|
 | `--seed N` | the generator seed (default 1); a run is deterministic per seed |
-| `--loops N` / `--handlers N` | how many random programs of each kind (default 300 / 200) |
+| `--loops N` / `--handlers N` / `--sums N` | how many random programs of each kind (default 300 / 200 / 150). Sum programs (`gen_sum`, since 2026-11-05) come from their own stream, so the loop and handler programs for a seed are unchanged |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
 | `--jobs N` | worker threads (each program runs on a fresh thread) |
@@ -59,4 +59,12 @@ deterministic version, and the fault (b) check, with every `cargo test`.
 300 runs each): 677/677 well-formed, 228,300 runs, 0 contradictions, 0 crashes, 12 s. The faults:
 (a) 9,428 contradictions in 66 programs, (b) 15,048 in 92, (c) 3,248 in 26. These are exactly
 `fuzz.py`'s FZ2 numbers.
+
+**2026-11-05, sum programs added** (`gen_sum`: sums and state-reading functions, 72d2446). A point update with
+before/after sum claims, an accumulating loop whose invariant is a sum, a function read around a write, a filtered
+count, and sums against closed forms (`= hi - lo`, a one-element range), correct and then perturbed or negated. A
+default run is now 827 programs. Seeds 1-3: 827/827 well-formed, 318,300 runs, 0 contradictions, 0 crashes (24-26 s).
+Teeth, by planting bugs in `zz::rec_sum` (not committed): a wrong sign gives 1,314 contradictions in 6 of 150 sum
+programs; a wrong empty range (`hi < lo` for `hi <= lo`) gives none, but 223 unconfirmed (`?`) goals against 0, so
+`validation/tests/fuzz.rs` also requires 0 unconfirmed on sum programs. Sum proofs are slow: about 1.5 s per program.
 

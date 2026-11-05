@@ -195,3 +195,25 @@ fn every_generated_program_means_the_same_with_its_literals_as_constants() {
     }
     assert!(compared == 500 && hoisted > 4000, "compared {compared}, hoisted {hoisted}");
 }
+
+#[test]
+fn a_small_sum_fuzz_run_is_clean_decided_and_deterministic() {
+    // gen_sum (72d2446's sum and state-reading functions): no contradiction, and no counterexample that fails to
+    // replay. A wrong sign in the sum encoding gives contradictions; a wrong empty range gives unconfirmed `?`
+    // goals instead (both measured with planted bugs, 2026-11-05: .party/notes/tester.md, #TH2UWV33V6).
+    let run = || {
+        let results: Vec<_> = kern_validation::fuzz::sum_jobs(5, 12, 60).iter().map(check_program).collect();
+        summarise(&results)
+    };
+    let s = run();
+    assert_eq!(s["sum_well_formed"], "12/12");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    assert_eq!(s["unmapped"], 0);
+    let e = &s["tiers"]["ensure"];
+    assert!(e["proven"].as_u64().unwrap_or(0) > 5 && e["refuted"].as_u64().unwrap_or(0) > 0, "{e}");
+    for kind in ["ensure", "loop"] {
+        assert_eq!(s["tiers"][kind]["unconfirmed"].as_u64().unwrap_or(0), 0, "{}", s["tiers"]);
+    }
+    assert_eq!(run(), s);
+}

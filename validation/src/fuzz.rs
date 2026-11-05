@@ -188,6 +188,136 @@ pub fn gen_loop(rnd: &mut Random) -> String {
     lines.join("\n") + "\n"
 }
 
+// ---------------------------------------------------------------- random sum programs (72d2446)
+
+/// A module with a sum function `agg` and one definition that uses sums: a point update with before/after sum
+/// claims, an accumulating loop whose invariant is a sum, a state-reading function called around a write, or a
+/// filtered count. The claims are written correct, then (half the time) one clause or statement is perturbed.
+/// Drawn from its own stream (`sum_jobs`), so the loop and handler streams pinned in fuzz_generators.json stay.
+pub fn gen_sum(rnd: &mut Random) -> String {
+    let kind = choice_str(rnd, &["point", "acc", "fn", "count", "closed", "closed"]);
+    let e = choice_str(rnd, &["hold.get j", "hold.get j", "1", "2 * hold.get j", "hold.get j + 3"]);
+    let filt = match kind {
+        "acc" | "count" => choice_str(rnd, &["", " where flag.get j = 1", " where hold.get j > 2"]),
+        _ => choice_str(rnd, &["", "", " where flag.get j = 1"]),
+    };
+    let sum = |state: &str, lo: &str, hi: &str| format!("(sum j from {lo} to {hi} of {}{filt})", e.replace("hold.get j", state));
+    // how much a +v at k changes the sum of e (for point / fn)
+    let delta = match e {
+        "1" => "0",
+        "2 * hold.get j" => "2 * v",
+        _ => "v",
+    };
+    let at_k = if filt.is_empty() { "" } else { " and flag.get k = 1" };
+    let off_k = if filt.is_empty() { "" } else { " or flag.get k != 1" };
+    let (header, mut ens, mut body): (String, Vec<String>, Vec<String>);
+    let mut negate = false;
+    match kind {
+        "point" => {
+            (ens, body) = (vec![], vec![]);
+            header = "f k:Int v:Int lo:Int hi:Int".into();
+            ens.push(format!("{} = {} + {delta} when lo <= k and k < hi{at_k}", sum("hold.get' j", "lo", "hi"), sum("hold.get j", "lo", "hi")));
+            ens.push(format!("{} = {} when k < lo or k >= hi{off_k}", sum("hold.get' j", "lo", "hi"), sum("hold.get j", "lo", "hi")));
+            body.push("hold.set k (hold.get k + v)".into());
+        }
+        "fn" => {
+            (ens, body) = (vec![], vec![]);
+            header = "f k:Int v:Int lo:Int hi:Int".into();
+            ens.push(format!("tally.get' 0 = {delta} when lo <= k and k < hi{at_k}"));
+            ens.push(format!("tally.get' 0 = 0 when k < lo or k >= hi{off_k}"));
+            body.extend(["x = agg lo hi".to_string(), "hold.set k (hold.get k + v)".into(), "y = agg lo hi".into(), "tally.set 0 (y - x)".into()]);
+        }
+        "acc" => {
+            (ens, body) = (vec![], vec![]);
+            header = "f lo:Int hi:Int".into();
+            ens.push(format!("tally.get' 0 = tally.get 0 + {}", sum("hold.get j", "lo", "hi")));
+            let ek = e.replace("hold.get j", "hold.get k");
+            let step = format!("tally.set 0 (tally.get 0 + {})", if ek.contains(' ') { format!("({ek})") } else { ek });
+            body.push("for k from lo to hi".into());
+            body.push(format!("  invariant tally.get' 0 = tally.get 0 + {}", sum("hold.get j", "lo", "k")));
+            if filt.is_empty() {
+                body.push(format!("  {step}"));
+            } else {
+                body.push(format!("  if {}", filt.trim_start().trim_start_matches("where ").replace(" j ", " k ")));
+                body.push(format!("    {step}"));
+            }
+        }
+        "closed" => {
+            // sums against values computed without a sum: a wrong encoding of `sum` can't agree with both sides
+            header = "f k:Int lo:Int hi:Int".into();
+            ens = vec![
+                "tally.get' 0 = hi - lo when lo <= hi".into(),
+                "tally.get' 0 = 0 when hi <= lo".into(),
+                "tally.get' 1 = hold.get k".into(),
+                format!("tally.get' 2 = {} when lo <= k and k < hi", sum("hold.get j", "lo", "k") + " + " + &sum("hold.get j", "k", "hi")),
+            ];
+            body = vec![
+                "tally.set 0 (sum j from lo to hi of 1)".into(),
+                "tally.set 1 (sum j from k to (k + 1) of hold.get j)".into(),
+                format!("tally.set 2 {}", sum("hold.get j", "lo", "hi")),
+            ];
+            negate = rnd.random() < 0.5;
+            if negate {
+                // a false claim, true only if `sum` were encoded with the wrong sign or the wrong empty range
+                let i = rnd.randbelow(3) as usize;
+                ens[i] = [
+                    "tally.get' 0 = lo - hi when lo < hi",
+                    "tally.get' 0 = 1 when hi <= lo",
+                    "tally.get' 1 = 0 - hold.get k when hold.get k != 0",
+                ][i]
+                    .into();
+            }
+        }
+        _ => {
+            (ens, body) = (vec![], vec![]);
+            header = "f lo:Int hi:Int".into();
+            ens.push("tally.get' 0 >= 0".into());
+            ens.push("tally.get' 0 <= hi - lo when lo <= hi".into());
+            ens.push(format!("tally.get' 0 = {}", "(sum j from lo to hi of 1".to_string() + filt + ")"));
+            body.push(format!("tally.set 0 (sum j from lo to hi of 1{filt})"));
+        }
+    }
+    let mut agg_body = sum("hold.get j", "lo", "hi");
+    if !negate && rnd.random() < 0.5 {
+        match rnd.randbelow(3) {
+            0 => {
+                let i = rnd.randbelow(ens.len() as u128) as usize;
+                ens[i] = perturb(rnd, &ens[i].clone(), "ens");
+            }
+            1 => {
+                let i = rnd.randbelow(body.len() as u128) as usize;
+                body[i] = perturb(rnd, &body[i].clone(), "stmt");
+            }
+            _ => agg_body = perturb(rnd, &agg_body, "ens"),
+        }
+    }
+    let mut lines: Vec<String> = vec!["state hold Int".into(), "state flag Int".into(), "state tally Int".into(), String::new()];
+    lines.push("agg lo:Int hi:Int -> Int".into());
+    lines.push(format!("  ensure result = {}", sum("hold.get j", "lo", "hi")));
+    lines.push("body".into());
+    lines.push(format!("  result = {agg_body}"));
+    lines.push(String::new());
+    lines.push(header);
+    if rnd.random() < 0.3 {
+        lines.push("  ok otherwise".into());
+    }
+    lines.extend(ens.iter().map(|x| format!("  ensure {x}")));
+    lines.push("body".into());
+    lines.extend(body.iter().map(|x| format!("  {x}")));
+    lines.join("\n") + "\n"
+}
+
+/// `n` sum programs (gen_sum) from their own stream for `seed`, labelled `sum#i`.
+pub fn sum_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 72);
+    (0..n)
+        .map(|i| {
+            let src = gen_sum(&mut rnd);
+            Job { label: format!("sum#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -701,7 +831,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "contradictions": results.iter().map(|r| r.found.len()).sum::<usize>(),
         "programs_with_contradictions": results.iter().filter(|r| !r.found.is_empty()).map(|r| &r.label).collect::<Vec<_>>(),
         "tiers": tiers, "runs": runs, "ok_runs": ok, "skipped": skipped, "unmapped": unmapped, "unmapped_kinds": unmapped_kinds,
-        "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"),
+        "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"),
     })
 }
 
@@ -713,12 +843,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -743,7 +873,8 @@ pub fn main(argv: &[String]) -> i32 {
     });
     let threads = num("jobs", std::thread::available_parallelism().map(|n| n.get() as u64 - 1).unwrap_or(1).max(1));
     let t0 = std::time::Instant::now();
-    let js = jobs(&root, num("seed", 1) as i128, num("loops", 300) as usize, num("handlers", 200) as usize, num("runs", 300), !no_mutants);
+    let mut js = jobs(&root, num("seed", 1) as i128, num("loops", 300) as usize, num("handlers", 200) as usize, num("runs", 300), !no_mutants);
+    js.extend(sum_jobs(num("seed", 1) as i128, num("sums", 150) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));

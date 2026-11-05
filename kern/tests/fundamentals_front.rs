@@ -468,7 +468,8 @@ fn s2_specs_may_read_state_but_not_write_it() {
 fn s3_functions_are_pure_total_and_only_they_appear_in_specs() {
     for (src, msg) in [
         ("f a:Int -> Int\nbody\n  need a > 0 else Bad\n  result = a\n", "total"),
-        ("f a:Account -> Int\nbody\n  result = ledger.balance a\n", "pure"),
+        // since 72d2446 a function may read state (aggregation); it still may not change it
+        ("f a:Account -> Int\nbody\n  ledger.credit a 1\n  result = 0\n", "may read state but not change it"),
         ("f a:Int -> Int\nbody\n  if a > 0\n    result = a\n", "every path"),
         ("g a:Account\n  ensure ledger.balance' a = 0\nbody\n  h a\n\nh a:Account\nbody\n  ledger.credit a 0\n\nk a:Account\n  ensure h a\nbody\n  h a\n", "only functions"),
     ] {
