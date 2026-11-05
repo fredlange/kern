@@ -831,3 +831,59 @@ fn s20_an_int_outside_i64_is_a_host_error_and_rolled_back() {
     });
     assert_eq!(out, [400, 400, 400]);
 }
+
+/// A network that never answers; replies are injected by hand.
+struct Silent;
+impl kern::host::Net for Silent {
+    fn send(&mut self, _seq: i64, _ev: &Value, _eps: &IndexMap<String, kern::host::Endpoint>) -> Vec<(String, Vec<Value>)> {
+        vec![]
+    }
+}
+
+#[test]
+fn s12_deadlines_late_replies_manual_answers_and_replay() {
+    // S12 (f79f085): with `timeout 5` and one recorded clock second per call, an unanswered request gets its fail
+    // call once its deadline passes, never before and never twice; a reply after that is Stale; a request answered
+    // by an ordinary call before its deadline gets no timeout call; replay covers the timeout calls
+    let defs = limits();
+    let reps = reports(&defs);
+    let eps = load_config(&format!("{CONFIG}; timeout 5").replace("{port}", "1"), &defs).unwrap();
+    let mut h = Host::new(&defs, reps.clone(), Options { endpoints: Some(eps), net: Some(Box::new(Silent)), ..opts() }).unwrap();
+    h.init(LIMITS_WORLD).unwrap();
+    let timeouts: RefCell<Vec<(String, Vec<String>)>> = RefCell::new(vec![]);
+    let mut step = |h: &mut Host, name: &str, args: &[Value], extra: Vec<(String, Vec<Value>)>| -> Vec<CallResult> {
+        let r = call(h, name, args);
+        h.flush().unwrap();
+        let mut rs = vec![r];
+        for (n, a, res) in h.pump(extra).unwrap() {
+            if res.get("timeout").is_some() {
+                timeouts.borrow_mut().push((n.clone(), a.iter().map(|v| v.str()).collect()));
+            }
+            rs.push(res);
+        }
+        rs
+    };
+    assert_eq!(step(&mut h, "request_limit", &[s("A")], vec![])[0]["status"], "ok"); // sent at t0
+    assert_eq!(step(&mut h, "request_limit", &[s("B")], vec![])[0]["status"], "ok"); // sent at t0 + 1
+    // B is answered by an ordinary call before its deadline
+    assert_eq!(step(&mut h, "limit_failed", &[s("B"), i(1)], vec![])[0]["status"], "ok");
+    for _ in 0..2 {
+        step(&mut h, "transfer", &[s("A"), s("K"), i(1)], vec![]);
+    }
+    assert!(timeouts.borrow().is_empty(), "fired early: {:?}", timeouts.borrow());
+    for _ in 0..6 {
+        step(&mut h, "transfer", &[s("A"), s("K"), i(1)], vec![]);
+    }
+    let ts = timeouts.borrow().clone();
+    assert_eq!(ts.len(), 1, "{ts:?}");
+    assert_eq!((ts[0].0.as_str(), ts[0].1.clone()), ("limit_failed", vec!["A".to_string(), "1".to_string()]));
+    // the late reply is refused, and A can ask again
+    let late = step(&mut h, "transfer", &[s("A"), s("K"), i(1)], vec![("got_limit".into(), vec![s("A"), i(1), i(300)])]);
+    assert_eq!(late[1]["refused"], "Stale", "{late:?}");
+    assert_eq!(step(&mut h, "request_limit", &[s("A")], vec![])[0]["status"], "ok");
+    assert!(h.replay().unwrap().is_empty());
+    // a deadline is a non-negative number of seconds
+    for bad in ["; timeout 0", "; timeout -1", "; timeout x", "; timeout"] {
+        assert!(load_config(&format!("{CONFIG}{bad}").replace("{port}", "1"), &defs).is_err(), "{bad} accepted");
+    }
+}
