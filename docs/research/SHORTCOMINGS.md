@@ -141,7 +141,8 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   loop bound by one (`hi + 1`, `lo - 1`) survives the guarantees. Events inside a loop are flagged,
   not specified ([ROADMAP_RUN.md, S4 results](ROADMAP_RUN.md#s4-results)).
 - **Fixed when:** `s6_a_guarantee_kills_the_sweep_one_too_many_mutant` (on `advance_subs`; closing it
-  means stating the frame in batch.k itself) and `s6_a_sum_invariant_proves` (P).
+  means stating the frame in batch.k itself) and `s6_a_sum_invariant_proves` (~~sum~~ closed `72d2446`, Closed:
+  "S6, sum"). The stateable frame stays open.
 
 ### S9. The `why` obligation lint is a keyword heuristic
 - **Kind:** code gap (a measurement, not a test). **Weakens:** F6 (nothing that must be obeyed lives in
@@ -258,10 +259,40 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   not the interpreter, is wrong (AGENTS.md).
 - **Next:** not in this quest's list; raised to runtime (host boundary) and lang (literals).
 
+### S21. No iteration limit at run time: a huge loop or sum bound holds the host
+- **Kind:** code gap. **Weakens:** the host as a server (F7: one call can hold the SQLite write lock).
+  Found 2026-11-05 by the tester (.party/notes/tester.md, `#TH2UWV33V6`); pre-existing for `for`, and `sum`
+  has it too.
+- **Evidence:** the interpreter iterates `for` and `sum` linearly; `REPLAY_BUDGET` (prove.rs) bounds only
+  counterexample replay. `sum j from 0 to n` with n = 10^8 takes 8 s; n = 3·10^9 or i64::MAX holds
+  `kern host` for minutes or forever, while `ok otherwise` is ✔ proven (the proof says the call succeeds,
+  not when).
+- **Fixed when:** a call that exceeds a stated iteration limit ends as an atomic fault in the host and the
+  compiled program alike, with a gap test (not written yet).
+- **Next:** not in this quest's list; raised to runtime.
+
 ## Closed
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S6, sum (one half of S6; the entry stays open for the stateable frame)
+- **Kind:** code gap. **Closed** 2026-11-05 in `72d2446`, under delegation (.party/DECISIONS.md, 2026-11-05,
+  lang, aggregation; app's request #1). Fuzz generator `6a6671b`; sum bounds `80c3b26`.
+- **Was:** no way to state a total or a count, in a spec or a body; `-> Int` functions couldn't read state.
+- **Decided by** F2/F5 (exact, no approximation): `sum j from A to B of E [where C]` (11 tokens; with a filter
+  15) is one Z3 recursive function per sum, defined from the right, so a loop step is one unfolding. `where`,
+  not `when`, so `ensure X = sum … when C` keeps one reading (F1). `-> Int` functions may read state and the
+  clock; their symbol takes the arrays they read, so a call before and after a write are different values.
+- **Evidence:** `s6_a_sum_invariant_proves`, its placeholder now the chosen syntax, passes as an ordinary test.
+  A seeded floor of 60 sum programs: 220 goals proven, 80 refuted and replayed, 0 undecided. The tester's
+  sum generator: fuzz seeds 1–3, 827/827 programs, 0 contradictions, a planted sign bug caught. Digests,
+  goldens and difftest unchanged. examples/apps/todo's `count_overdue` proves `0 <= result <= hi - lo`
+  (after `80c3b26`). REFERENCE.md 2,445 → 2,524 tokens (budget 3,500).
+- **Cost:** sum proofs take about 1.5 s per generated program, against about 0.05 s for loop programs
+  (tester, `#TH2UWV33V6`). Counts against bet 1.
+- **What remains:** local accumulators in loops, nested sums, calls inside a sum body and `f' a` (decided:
+  not now). A sum's iteration is unbounded at run time (S21).
 
 ### S5, named constants (one row of S5; the entry stays open for the rest)
 - **Kind:** code gap. **Closed** 2026-11-05 in `0acdb54`, under delegation (.party/DECISIONS.md, 2026-11-05,
