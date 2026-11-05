@@ -231,28 +231,29 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Next:** none planned. Each needs a merge of after-states, which is the same machinery as S16's
   path merging.
 
-### S20. Integers have three widths: prover, interpreter and host store disagree at the edges
-- **Kind:** code gap. **Weakens:** F5 (a ✔ the host can break) and F7 (replay). Found 2026-11-05 by the tester
-  (.party/notes/tester.md, `#PIJSU5HEBM`), while testing the host's record parameters; not records-specific.
-- **Evidence:** the prover reasons over unbounded integers, the interpreter computes in i128, the host's SQLite
-  store keeps i64. A call with `x = i64::MAX` that writes key `x + 1` succeeds, the store records key 0, and
-  replay computes 2^63: `kern host replay` reports "state differs" (same via `repl`). Also over HTTP, `1.5` for
-  an `Int` parameter is accepted and truncated, not refused with 400. Integer literals past i64
-  (`99999999999999999999999`) parse; what the interpreter does with them is not yet probed.
-- **Fixed when:** one integer range for every path, either refused at the boundary (host input, literals)
-  or carried through, with a gap test in `kern/tests/shortcomings.rs` (not written yet). Until then the host,
-  not the interpreter, is wrong (AGENTS.md).
-- **Progress, 2026-11-05:** host side done in `8e8f1b5` (tests `0a55c5e`): a non-i64 number is refused at
-  input (HTTP 400, repl, genesis world), and a call whose stored key or value, event, result or refusal payload
-  leaves i64 is a host fault, rolled back, logged and skipped by replay (tester: every path, replay matches).
-  The compiled runtime already faults on overflow. Still open: literals past i64 in Kern source (lang). The
-  prover still reasons over unbounded integers, so a ✔ call can end as a range fault at the edge; it fails
-  atomically and says so; since `0f4ed45` the host page states the i64 range as an assumption.
-
 ## Closed
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S20. Integers had three widths: prover, interpreter and host store disagreed at the edges
+- **Kind:** code gap. **Closed** 2026-11-05: host side `8e8f1b5` (runtime, tests `0a55c5e`), source side and gap
+  test `7cbcd28` (lang; host test adjusted in `61994ac`); the host page states the range since `0f4ed45`.
+  Found by the tester while testing records over HTTP.
+- **Was:** the prover reasoned over unbounded integers, the interpreter in i128, the host's SQLite store in i64.
+  A call writing key `i64::MAX + 1` succeeded, the store wrapped it, and replay reported "state differs"; over
+  HTTP, `1.5` or 2^63 for an `Int` became 0; literals past i64 parsed.
+- **Decided by** F7 (replay must match) and F5 (a fault says so): Int is i64 at run time. A number outside it is
+  refused where it is written: a literal, a `const` value or an `eg` value is a parse error naming the range,
+  and host input (HTTP 400, `repl`, genesis world) is refused. A call whose stored key or value, event, result
+  or refusal payload leaves i64 is a fault, undone, logged and skipped by replay, as the compiled runtime's
+  overflow already was.
+- **Evidence:** `s20_an_integer_literal_outside_i64_is_refused_where_it_is_written` (i64::MAX itself still
+  checks). Tester: 16 positions where a number can be written, `repl` too, all refuse; every host overflow path
+  is an error with rollback, and replay matches. Digests and goldens unchanged.
+- **What remains:** the prover still reasons over unbounded integers, so a ✔ call can end as a range fault at
+  the edge; it fails atomically, and the host page states the range as an assumption. Some `eg` value errors
+  have no line number (tester).
 
 ### S11. Tier ○ (runtime-checked only) existed only in the host
 - **Kind:** code gap. **Closed** 2026-11-05 in `f160617`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
