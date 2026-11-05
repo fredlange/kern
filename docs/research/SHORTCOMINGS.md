@@ -178,8 +178,12 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   Full Kern source for a definition and its callees costs more than TypeScript (purchase 1,258
   against 963). The saving comes only from reading callees as specs
   ([COMPARE.md](COMPARE.md#findings), findings 4–5).
-- **Decision needed:** accept it as the price of a checked interface, or drop the inferred lines
-  when there's nothing to skip (AUDIT F9 suggested this; the gain is small).
+- **Measured, 2026-11-05:** dropping the inferred lines (`uses`, `writes`, `fails`) from a leaf's
+  editor view saves 24 of 262 tokens on ledger_v7's transfer (9%). What remains is the spec and the
+  examples, which is the content a caller relies on, so dropping the lines doesn't close the gap.
+- **Decision needed (Fredrik):** accept it as the price of a checked interface. That's the
+  recommendation: 9% isn't worth a view that differs by position in the call tree.
+  The alternative is to drop the inferred lines at leaves anyway.
 
 ### S14. `ok otherwise` makes callers restate every refusal
 - **Kind:** trade-off.
