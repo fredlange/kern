@@ -104,7 +104,7 @@ pub fn json_value(j: &J) -> Value {
         J::Null => Value::None,
         J::Bool(b) => Value::Bool(*b),
         // an Int is an i64 at the host (S20); anything else (1.5, 2^63) stays text, which no Int parameter accepts
-        J::Number(n) => n.as_i64().map(|x| Value::Int(x as Int)).unwrap_or_else(|| Value::Str(n.to_string())),
+        J::Number(n) => n.as_i64().map(|x| Value::Int(x as Int)).unwrap_or_else(|| Value::Str(number_text(n))),
         J::String(s) => Value::Str(s.clone()),
         J::Array(xs) => match xs.split_first() {
             Some((J::String(c), rest)) => Value::Ctor(c.clone(), rest.iter().map(json_value).collect()),
@@ -151,6 +151,16 @@ fn out_of_range(world: &World, result: Option<&Value>) -> Option<String> {
     match result {
         Some(r) if !value_fits(r) => Some(format!("result {}", r.repr())),
         _ => None,
+    }
+}
+
+/// How a JSON number that isn't an i64 reads in an error: exact when serde kept it (a u64), else as parsed; an integer
+/// past i64 says so (serde holds it as a float, so `-9223372036854775809` would otherwise echo as `-9.2…e18`).
+fn number_text(n: &serde_json::Number) -> String {
+    match (n.as_u64(), n.as_f64()) {
+        (Some(u), _) => format!("{} (outside i64)", u),
+        (None, Some(x)) if x.fract() == 0.0 => format!("{:e} (outside i64)", x),
+        _ => n.to_string(),
     }
 }
 
@@ -2119,7 +2129,9 @@ nope x:Int k:Int
         assert!(h.replay().unwrap().is_empty(), "{:?}", h.replay());
         // input: a number that isn't an i64 never becomes an Int
         assert_eq!(json_value(&json!(1.5)), Value::Str("1.5".into()));
-        assert_eq!(json_value(&json!(9223372036854775808u64)), Value::Str("9223372036854775808".into()));
+        assert_eq!(json_value(&json!(9223372036854775808u64)), Value::Str("9223372036854775808 (outside i64)".into()));
+        let below: J = serde_json::from_str("-9223372036854775809").unwrap();
+        assert_eq!(json_value(&below), Value::Str("-9.223372036854776e18 (outside i64)".into()));
         assert_eq!(parse_args(&["9223372036854775808", "-5"]), vec![Value::Str("9223372036854775808".into()), Value::Int(-5)]);
         let e = Host::new(&defs, IndexMap::new(), Options { sinks: Some(vec![]), gate: false, ..Default::default() })
             .unwrap()
