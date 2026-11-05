@@ -430,6 +430,14 @@ pub struct Interp<'m, 'p> {
     pub last_result: Option<Value>,
     /// when Some, every built-in handler call appends its effect label (tests observe effects with it)
     pub effect_log: Option<Vec<&'static str>>,
+    /// the fuzzer's oracle (validation/fuzz): when on, every iteration head of the top-level definition's loops
+    /// appends (k, bad) to `heads` instead of checking `check_loops`. `bad` lists the loop invariants false there
+    /// (their code() text), then "module invariant TEXT" for each broken module invariant. Nested calls record
+    /// nothing.
+    pub record_heads: bool,
+    pub heads: Vec<(Int, Vec<String>)>,
+    /// definitions currently running (1 inside the top-level one)
+    depth: usize,
     call_pre: Option<World>,
 }
 
@@ -451,6 +459,9 @@ impl<'m, 'p> Interp<'m, 'p> {
             budget: None,
             last_result: None,
             effect_log: None,
+            record_heads: false,
+            heads: vec![],
+            depth: 0,
             call_pre: None,
         }
     }
@@ -666,6 +677,13 @@ impl<'m, 'p> Interp<'m, 'p> {
 
     /// Run a definition's needs and body; functions (-> Int) return `result`.
     pub fn call_def(&mut self, d: &Def, args: Vec<Value>, world: &mut World) -> SResult<Option<Value>> {
+        self.depth += 1;
+        let r = self.call_def_body(d, args, world);
+        self.depth -= 1;
+        r
+    }
+
+    fn call_def_body(&mut self, d: &Def, args: Vec<Value>, world: &mut World) -> SResult<Option<Value>> {
         if args.len() != d.params.len() {
             return Err(RunError::Kern(format!("{} takes {} argument(s), got {}", d.name, d.params.len(), args.len())).into());
         }
@@ -738,6 +756,9 @@ impl<'m, 'p> Interp<'m, 'p> {
 
     /// With check_loops on: record a loop invariant (or module invariant) false at an iteration head.
     fn check_loop(&mut self, s: &Stmt, env: &Env, world: &mut World, k: Int) -> SResult<()> {
+        if self.record_heads {
+            return self.record_head(s, env, world, k);
+        }
         if !self.check_loops {
             return Ok(());
         }
@@ -761,6 +782,36 @@ impl<'m, 'p> Interp<'m, 'p> {
         for (text, key) in self.broken_invariants_s(world, None)? {
             self.loop_violations.push((format!("module invariant {} at {}", text, key.str()), k));
         }
+        Ok(())
+    }
+
+    /// With record_heads on: one entry in `heads` per iteration head of the top-level definition.
+    fn record_head(&mut self, s: &Stmt, env: &Env, world: &mut World, k: Int) -> SResult<()> {
+        if self.depth != 1 {
+            return Ok(());
+        }
+        let Stmt::For(var, _, _, invs, _) = s else { return Ok(()) };
+        let mut e = env.clone();
+        e.insert(var.clone(), Value::Int(k));
+        let mut pre = self.call_pre.take().unwrap_or_default();
+        let mut bad = vec![];
+        let mut res = Ok(());
+        for inv in invs {
+            match self.ev(inv, &e, &mut pre, Some(world)) {
+                Ok(v) if !v.truthy() => bad.push(code(inv)),
+                Ok(_) => {}
+                Err(x) => {
+                    res = Err(x);
+                    break;
+                }
+            }
+        }
+        self.call_pre = Some(pre);
+        res?;
+        for (text, _) in self.broken_invariants_s(world, None)? {
+            bad.push(format!("module invariant {text}"));
+        }
+        self.heads.push((k, bad));
         Ok(())
     }
 

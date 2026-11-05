@@ -1,6 +1,7 @@
 //! The interpreter against kern/run.py: every call in build/oracle_run.json (made by
 //! `.venv/bin/python validation/oracle_run.py build/oracle_run.json`) must give the same outcome or error (kind and
-//! text), world after, last_result, holds, unstated_refusal, broken invariants, observations and loop violations.
+//! text), world after, last_result, holds, unstated_refusal, broken invariants, observations, loop violations and
+//! (Interp::record_heads, the fuzzer's oracle) loop heads.
 //! Skipped (with a note) when the dump is missing.
 
 use indexmap::{IndexMap, IndexSet};
@@ -170,17 +171,31 @@ fn interpreter_matches_python() {
             let mut loop_interp = Interp::new(&defs);
             loop_interp.check_loops = true;
             loop_interp.budget = Some(2000);
+            let mut heads_interp = Interp::new(&defs);
+            heads_interp.record_heads = true;
+            heads_interp.budget = Some(2000);
             for want in dd["calls"].as_array().unwrap() {
                 if want.get("skip").is_some() {
                     continue;
                 }
                 n += 1;
                 let is_loop = want.get("check_loops").is_some();
-                let it = if is_loop { &mut loop_interp } else { &mut interp };
+                let is_heads = want.get("record_heads").is_some();
+                let it = if is_heads {
+                    &mut heads_interp
+                } else if is_loop {
+                    &mut loop_interp
+                } else {
+                    &mut interp
+                };
                 let mut got = one_call(it, name, want);
                 if is_loop {
                     let v: Vec<J> = it.loop_violations.drain(..).map(|(t, k)| json!([t, k as i64])).collect();
                     got.as_object_mut().unwrap().insert("loop_violations".into(), J::Array(v));
+                }
+                if is_heads {
+                    let v: Vec<J> = it.heads.drain(..).map(|(k, bad)| json!([k as i64, bad])).collect();
+                    got.as_object_mut().unwrap().insert("heads".into(), J::Array(v));
                 }
                 for (k, g) in got.as_object().unwrap() {
                     if want.get(k) != Some(g) && bad.len() < 1000 {
@@ -190,7 +205,7 @@ fn interpreter_matches_python() {
                         ));
                     }
                 }
-                for k in ["err", "outcome", "holds", "loop_violations"] {
+                for k in ["err", "outcome", "holds", "loop_violations", "heads"] {
                     if want.get(k).is_some() && got.get(k).is_none() {
                         bad.push(format!("{} {} args={}: missing {k}: want {}", m["name"], name, want["args"], want[k]));
                     }

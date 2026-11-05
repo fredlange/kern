@@ -5,7 +5,8 @@
 
 Per module and definition, one Interp runs, in order: every `eg` (as check.run_examples does), then 40 random
 calls (worlds, state and arguments drawn here and written out, so the Rust side needs no RNG of its own), then the
-same calls again with check_loops on and a step budget. Per call: the outcome or the error (kind and text), the
+same calls again with check_loops on and a step budget, then once more with the fuzzer's oracle (validation/fuzz.py
+_Oracle: loop heads of the top-level definition, Interp.record_heads in Rust). Per call: the outcome or the error (kind and text), the
 world after, last_result, holds(), unstated_refusal(), broken_invariants() (all keys, and the written keys),
 observations and loop violations. Assumed handlers use the default seeded provider, so the stream continues
 across calls exactly as it does in kern/run.py.
@@ -21,6 +22,7 @@ sys.path.insert(0, ROOT)
 from kern.run import Fail, Interp, KernError, World  # noqa: E402
 from kern.syntax import ParseError, parse_module  # noqa: E402
 from kern.wf import check_module  # noqa: E402
+from validation.fuzz import _Oracle  # noqa: E402
 from validation.oracle_syntax import corpus  # noqa: E402
 
 
@@ -108,6 +110,13 @@ def module_run(defs, seed):
             rec["loop_violations"] = loop.loop_violations
             loop.loop_violations = []
             calls.append({"check_loops": True, **rec})
+        heads = _Oracle(defs, None, 0)
+        heads.budget = 2000
+        for args, w in draws:
+            rec = one_call(heads, d, args, w.copy())
+            rec["heads"] = [[k, bad] for k, bad in heads.heads]
+            heads.heads = []
+            calls.append({"record_heads": True, **rec})
         out.append({"def": d.name, "calls": calls})
     return out
 
