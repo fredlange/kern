@@ -213,3 +213,20 @@ and C++20 `<format>` (GCC ≥ 13), and Debian bookworm has CMake 3.25 and GCC 12
 (rust:1.99-trixie, debian:trixie-slim, python:3.9-slim-trixie). The `kern` image runs `kern check` on a mounted
 checkout. HTTPS needs no system CA bundle: ureq uses rustls with webpki-roots compiled in. The binary links
 only libc, libm, libstdc++ and libgcc. The `cargo install` half of R6 was verified by kern-9b.
+
+**Final Python-vs-Rust run before cutover (kern-8b's share, 2026-11-05, fresh Z3 contexts).** This is the record
+of what the Python oracles last said:
+- **prove oracle:** 94 modules, 242 definitions, 1,389 guarantees. Every status, claim, reason, relied_on and
+  first-kill result matches. 10 modules differ in witness values only, and each Rust witness replays.
+- **analyse, no mutation:** 93/94. The one difference, fuzz_4, is the terminal line that prints
+  handler_sat's "unsatisfiable for n = …". That's a model value, compared as a witness in the JSON fields but
+  not masked in the printed text.
+- **analyse with mutation:** 87/94. The 7 modules (batch, library, shop, a GUIDE block, fuzz_4, fuzz_19,
+  fuzz_31) differ by 1–2 borderline prover kills each, or by fuzz_4's handler_sat line. Since Fredrik's decision
+  these are no longer pass conditions.
+- **Rust-only checks that continue after cutover:**
+  - the fuzzer (R3): 677 programs, 0 contradictions, faults a/b/c found with fuzz.py's exact counts;
+  - the S2 digest, unchanged at 3cb0e5efa3b63fb8, and the loop digest, re-baselined;
+  - tests/determinism.rs: results don't depend on order;
+  - the ported test suite: every pytest file has a cargo counterpart;
+  - kern-9b's golden output.
