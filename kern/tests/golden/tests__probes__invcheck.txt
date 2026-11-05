@@ -1,7 +1,7 @@
 $ kern check tests/probes/invcheck.k   (exit 1)
 put [ef2a453e]  Broken guarantees
-  ○ invariant o:Int hold.get o >= 0   (not proven; checked at run time after every call)
-      cannot be proven: it writes a computed key, so the invariant can't be checked key by key
+  ✗ invariant o:Int hold.get o >= 0
+      counterexample: eg A:402@u1 B:603@u2 C:873@u1 now:98 hold.-5:1 hold.-3:129 hold.-1:1 hold.0:1 hold.1:1 hold.3:1 hold.4:7 | put 106 3 -> ok
   writes hold.*   (no guarantee about the new value of hold.*)
   examples 0/0   random tests 428/500 reached success, 3 violations
 
@@ -13,8 +13,8 @@ restore [5c2cadb3]  Checked at run time only, not proven
   examples 0/0   random tests 500/500 reached success, 0 violations
 
 relay [767a6b24]  Broken guarantees
-  ○ invariant o:Int hold.get o >= 0   (not proven; checked at run time after every call)
-      cannot be proven: it writes a computed key, so the invariant can't be checked key by key
+  ✗ invariant o:Int hold.get o >= 0
+      counterexample: eg A:402@u1 B:603@u2 C:873@u1 now:98 hold.-5:1 hold.-3:129 hold.-1:1 hold.0:1 hold.1:1 hold.3:1 hold.4:7 | relay 106 3 -> ok
   writes hold.*   (no guarantee about the new value of hold.*)
   examples 0/0   random tests 428/500 reached success, 3 violations
 
@@ -27,8 +27,8 @@ sweep [c46223ae]  Broken guarantees
   examples 0/0   random tests 500/500 reached success, 3 violations
 
 late [f74cef79]  Broken guarantees
-  ○ invariant o:Int hold.get o >= 0   (not proven; checked at run time after every call)
-      cannot be proven: it writes a computed key, so the invariant can't be checked key by key
+  ✗ invariant o:Int hold.get o >= 0
+      counterexample: eg A:760@u2 B:340@u1 C:917@u2 now:0 hold.-5:207 hold.-3:94 hold.1:228 hold.2:299 hold.4:60 hold.5:1 | late 1022 -> ok
   writes hold.*   (no guarantee about the new value of hold.*)
   examples 0/0   random tests 20/500 reached success, 3 violations
 

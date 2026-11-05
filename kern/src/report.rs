@@ -750,10 +750,25 @@ pub fn analyse(
     // ○ runtime-checked: a module invariant the prover neither proved nor refuted is still enforced at run time,
     // since `kern host` checks the module invariants after every call (at the keys the call wrote). It keeps
     // `tested` when random tests also held it. Nothing else is checked at run time, so nothing else gets ○.
+    // A random run that broke it is a counterexample the interpreter found, so the goal is ✗ with that run as its
+    // `eg` line (a success, so `-> ok`), never ○ (reviewer, S11).
     for r in reports.values_mut() {
+        let violations = r.props.violations.clone();
         for g in &mut r.guarantees {
             if g.kind == "invariant" && matches!(g.status, Status::Unknown | Status::Tested) {
-                g.status = Status::Runtime;
+                let broke = violations.iter().find_map(|v| match v {
+                    Violation::Clause { clause, eg } if *clause == format!("invariant {}", g.clause) => Some(eg.clone()),
+                    _ => None,
+                });
+                match broke {
+                    Some(eg) => {
+                        g.status = Status::Refuted;
+                        g.tested = None;
+                        g.counterexample =
+                            Some(Counterexample { eg: format!("{eg} -> ok"), emitted: String::new(), confirmed_by_interpreter: true });
+                    }
+                    None => g.status = Status::Runtime,
+                }
             }
         }
     }

@@ -1025,8 +1025,15 @@ fn s11_an_invariant_the_prover_cannot_decide_is_runtime_checked_on_the_page() {
     assert!(g.tested.is_some());
     assert_eq!(kern::render::status(&reps["shift"]).1, "Checked at run time only, not proven");
     assert!(!reps["shift"].clean, "○ is not proven, so the definition isn't clean");
-    // random tests break drain's invariant: the definition is broken, the goal itself stays ○ (no proof either way)
-    assert_eq!(inv("drain").status, Status::Runtime);
+    // random tests break drain's invariant: that run is a counterexample, so the goal is ✗, not ○ (reviewer), and
+    // its eg line replays (a success that breaks the invariant)
+    let g = inv("drain");
+    assert_eq!(g.status, Status::Refuted);
+    let cx = g.counterexample.clone().unwrap();
+    assert!(cx.confirmed_by_interpreter && cx.eg.ends_with("-> ok"), "{}", cx.eg);
+    let mut d = defs.defs["drain"].clone();
+    d.examples = vec![kern::syntax::parse_example(cx.eg.trim_start_matches("eg").trim(), None).unwrap()];
+    assert!(kern::check::run_examples(&defs, &d).unwrap()[0].pass, "{}", cx.eg);
     assert_eq!(kern::render::status(&reps["drain"]).1, "Broken guarantees");
     let whys: IndexMap<String, why::Status> = defs.defs.keys().map(|k| (k.clone(), why::Status::default())).collect();
     let page = kern::render::page(&reps, &defs, &whys, "s11", &kern::render::Orphans::new(), None);

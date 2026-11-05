@@ -231,10 +231,11 @@ Examples: `examples/shop/`, `examples/library/`, `examples/lottery/` (each with 
 | `--skip-proven` | skip the per-call invariant check for definitions whose invariant goals are all proven ✔ (the manifest says which). Off by default: the check is on for every definition until the loop and handler fuzzer has run clean (decided 2026-11-04) |
 | `--audit-rate R` | with `--skip-proven`: still run the skipped checks on a fraction R of calls (defence in depth; the counts are in the manifest). The full invariant audit at startup always runs |
 | `--html OUT.html` | `page` |
+| `--why FILE.why` | `page`: the rationale store (default `FILE.why` next to the module, as `kern check`) |
 
 - **One call is one transaction.** A refusal writes nothing, and an unproven definition isn't
   served. HTTP status codes: ok → 200, refused → 409, bad call → 400, unproven → 403, broken
-  invariant → 500.
+  invariant, an Int outside i64 or more than 10,000,000 loop and sum iterations in one call → 500 (docs/HOST.md).
 - **Delivery is at-least-once,** so consumers dedupe on `seq`.
 - **Assumed handlers** (`handler rand.below …`):
   - the host must provide each one, or it refuses to start;
