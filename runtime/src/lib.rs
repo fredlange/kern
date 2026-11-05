@@ -462,6 +462,11 @@ impl<'a, E> Tx<'a, E> {
         }
         out
     }
+    /// `clock.tick`: a later instant in the same call, exactly one more (S10), as the interpreter's checked add.
+    pub fn tick(&mut self) -> Result<(), Fault> {
+        self.now = self.now.checked_add(1).ok_or(Fault::Overflow)?;
+        Ok(())
+    }
     /// A loop or sum over [lo, hi) is about to start: charge hi - lo against the call's iteration limit (S21).
     #[inline(always)]
     pub fn spend(&mut self, lo: i64, hi: i64) -> Result<(), Fault> {
@@ -493,11 +498,15 @@ impl<E> Exec<E> {
         self.events.clear();
         self.obs.clear();
         let now = w.clock;
-        let out = {
+        let (out, end) = {
             let budget = self.limit;
             let mut tx = Tx { w: &mut *w, undo: &mut self.undo, events: &mut self.events, obs: &mut self.obs, prov, budget, now };
-            body(&mut tx)
+            let out = body(&mut tx);
+            (out, tx.now)
         };
+        if out.is_ok() {
+            w.clock = end; // the call's clock.ticks stay; a refusal or fault undoes them with everything else
+        }
         if out.is_err() {
             while let Some(u) = self.undo.pop() {
                 match u {
@@ -756,6 +765,28 @@ mod tests {
         assert_eq!(unquote("plain"), None);
         let t = "q\"\\é";
         assert_eq!(unquote(&quote(t)).as_deref(), Some(t));
+    }
+
+    #[test]
+    fn ticks_stay_on_ok_and_are_undone_on_a_refusal() {
+        let mut w = World::new(0, 0);
+        w.clock = 10;
+        let mut exec: Exec<()> = Exec::default();
+        let mut prov = Replay::default();
+        let seen = exec.call(&mut w, &mut prov, |tx| -> Result<i64, Stop<()>> {
+            tx.tick()?;
+            tx.tick()?;
+            Ok(tx.now)
+        });
+        assert_eq!((seen, w.clock), (Ok(12), 13), "two ticks, then the step to the next call");
+        let r = exec.call(&mut w, &mut prov, |tx| -> Result<(), Stop<()>> {
+            tx.tick()?;
+            Err(Stop::Refused(()))
+        });
+        assert_eq!((r, w.clock), (Err(Stop::Refused(())), 14), "the tick undone, the call still takes one");
+        w.clock = i64::MAX;
+        let r = exec.call(&mut w, &mut prov, |tx| -> Result<(), Stop<()>> { tx.tick().map_err(Stop::Fault) });
+        assert_eq!((r, w.clock), (Err(Stop::Fault(Fault::Overflow)), i64::MAX));
     }
 
     #[test]

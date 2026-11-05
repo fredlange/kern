@@ -347,6 +347,7 @@ impl<'a> Gen<'a> {
                 "ledger.debit" => "tx.debit({}, {})?",
                 "ledger.credit" => "tx.credit({}, {})?",
                 "clock.now" => "tx.now",
+                "clock.tick" => "tx.tick()?",
                 "audit.emit" => "tx.emit(0, {})",
                 _ => unreachable!(),
             };
