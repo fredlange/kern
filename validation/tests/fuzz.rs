@@ -304,3 +304,17 @@ fn a_small_computed_key_fuzz_run_is_clean() {
     let i = &s["tiers"]["invariant"];
     assert!(i["proven"].as_u64().unwrap_or(0) > 5 && i["refuted"].as_u64().unwrap_or(0) > 0, "{i}");
 }
+
+#[test]
+fn a_small_recursion_fuzz_run_is_clean() {
+    // gen_rec (3700f8d, 6eb422f): counting down, mutual, a recursive procedure; measures that decrease or not. A
+    // depth-limit error counts against the page only if every reachable measure is proven. Teeth (2026-11-05): the
+    // measure goal's `<` planted as `<=` -> 3,060 contradictions in 14 of 100.
+    let results: Vec<_> = kern_validation::fuzz::rec_jobs(5, 30, 60).iter().map(check_program).collect();
+    let s = summarise(&results);
+    assert_eq!(s["rec_well_formed"], "30/30");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    let m = &s["tiers"]["measure"];
+    assert!(m["proven"].as_u64().unwrap_or(0) > 5 && m["refuted"].as_u64().unwrap_or(0) > 5, "{m}");
+}

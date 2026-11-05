@@ -50,6 +50,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 | `--ticks N` | `clock.tick` programs (`gen_tick`, default 100, own stream): n ticks then a store and an event with an `eg` that pins it, a ticking callee, ticks in a loop |
 | `--frames N` | stated loop frames (`gen_frame`, default 100, own stream): a loop writing `hold` at `k + OFF`, with `keep hold except A to B` right or one key too narrow, and `keep other` |
 | `--ckeys N` | computed-key writes under module invariants (`gen_ckey`, default 100, own stream): `k * C + D` or a key read from a map, a value that is non-negative, guarded, copied or possibly negative, one invariant or two across maps |
+| `--recs N` | recursion (`gen_rec`, default 100, own stream): a counting-down function, a mutual pair, a recursive procedure; the recursive argument decreases or not, claims right or near misses. A depth-limit error contradicts the page only if every measure the call can reach is proven |
 | `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`), a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`) and a package variant (`agg` in a package `lib` the program's package `use`s). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (fatal since 7d011af fixed the record counterexamples) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
@@ -101,4 +102,8 @@ not committed) gives 3,103 contradictions in 24 of 100 frame programs. Clean: 90
 **2026-11-05, computed-key invariants** (4b44b2f; `--ckeys`). Teeth: the goal's after-state side evaluated on the
 pre-state (prove.rs, not committed) gives 5,688 contradictions in 35 of 100. Clean: 74 proven, 27 refuted, 43 `?`
 (a false invariant whose counterexample doesn't replay; random tests often break it too, so ✗ would be earned).
+
+**2026-11-05, recursion** (3700f8d, 6eb422f; `--recs`). Teeth: the measure goal's `<` planted as `<=` (prove.rs, not
+committed) gives 3,060 contradictions in 14 of 100 (each a depth-limit error under a measure shown proven). Clean:
+0, with depth-limit errors under an unproven measure counted as skipped.
 

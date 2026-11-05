@@ -839,6 +839,64 @@ pub fn ckey_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         .collect()
 }
 
+// ---------------------------------------------------------------- recursion (3700f8d, 6eb422f)
+
+/// A recursive program: a counting-down function (base case, step, a claim on the result), a mutually recursive
+/// pair, or a recursive procedure that writes state. The recursive argument decreases (n - 1, n - 2) or not (n,
+/// n + 1); the claim is right or a near miss. Own stream (`rec_jobs`).
+pub fn gen_rec(rnd: &mut Random) -> String {
+    let kind = choice_str(rnd, &["count", "mutual", "walk"]);
+    let arg = choice_str(rnd, &["n - 1", "n - 1", "n - 2", "n", "n + 1"]);
+    let mut lines: Vec<String> = vec!["state hold Int".into(), String::new()];
+    match kind {
+        "count" => {
+            // f n = 0 for n <= 0, else K + f (arg): for arg = n - 1 that is K * n
+            let k = *rnd.choice(&[1i64, 2, 3]);
+            let claims = [
+                format!("result = {k} * n when n >= 0"),
+                "result >= 0".to_string(),
+                format!("result = {k} * n + 1 when n >= 0"),
+                "result <= 0".to_string(),
+            ];
+            let claim = claims[rnd.randbelow(4) as usize].clone();
+            lines.extend([
+                "f n:Int -> Int".to_string(), "  decreases n".into(), format!("  ensure {claim}"), "body".into(),
+                "  if n <= 0".into(), "    result = 0".into(), "  else".into(), format!("    result = {k} + f ({arg})"),
+            ]);
+        }
+        "mutual" => {
+            lines.extend([
+                "even n:Int -> Int".to_string(), "  decreases n".into(), "  ensure result >= 0".into(), "body".into(),
+                "  if n <= 0".into(), "    result = 1".into(), "  else".into(), format!("    result = odd ({arg})"),
+                String::new(),
+                "odd n:Int -> Int".into(), "  decreases n".into(),
+                format!("  ensure {}", choice_str(rnd, &["result >= 0", "result = 0", "result <= 1"])), "body".into(),
+                "  if n <= 0".into(), "    result = 0".into(), "  else".into(), "    result = even (n - 1)".into(),
+            ]);
+        }
+        _ => {
+            lines.extend([
+                "walk n:Int".to_string(), "  decreases n".into(), "  ok otherwise".into(),
+                format!("  ensure hold.get' n = 1 when n >= {}", choice_str(rnd, &["0", "0", "1"])),
+                format!("  ensure hold.get' (n + 1) = hold.get (n + 1){}", if rnd.random() < 0.5 { "" } else { " when n < 0" }),
+                "body".into(), "  if n > 0".into(), format!("    walk ({arg})"), "  hold.set n 1".into(),
+            ]);
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `n` recursive programs from their own stream, labelled `rec#i`.
+pub fn rec_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 37);
+    (0..n)
+        .map(|i| {
+            let src = gen_rec(&mut rnd);
+            Job { label: format!("rec#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -1146,6 +1204,36 @@ pub fn oracle(defs: &Module, reports: &IndexMap<String, Report>, rnd: Rnd, runs:
                         stats.skipped += 1;
                         continue;
                     }
+                    if msg.starts_with(kern::run::TOO_DEEP) {
+                        // the depth limit (recursion): a contradiction only if termination was fully claimed, i.e.
+                        // every measure goal of every definition this call can reach is proven (args are small, so a
+                        // proven measure keeps the depth far below the limit)
+                        let mut reach: Vec<String> = vec![name.clone()];
+                        let mut i = 0;
+                        while i < reach.len() {
+                            for c in callees(defs, &defs.defs[&reach[i]]) {
+                                if defs.defs.contains_key(&c) && !reach.contains(&c) {
+                                    reach.push(c);
+                                }
+                            }
+                            i += 1;
+                        }
+                        let measures: Vec<&kern::report::Guarantee> = reach
+                            .iter()
+                            .flat_map(|n| reports[n.as_str()].guarantees.iter().filter(|g| g.kind == "measure"))
+                            .collect();
+                        if !measures.is_empty() && measures.iter().all(|g| claimed(g.status)) {
+                            let mut e = ev.clone();
+                            e["def"] = json!(name);
+                            e["kind"] = json!("measure");
+                            e["clause"] = json!(msg);
+                            e["status"] = json!("proven");
+                            found.push(e);
+                        } else {
+                            stats.skipped += 1;
+                        }
+                        continue;
+                    }
                     if let Some(rest) = msg.strip_prefix("need of ") {
                         let (h, text) = rest.split_once(" not met: ").unwrap_or((rest, ""));
                         let mut e = ev.clone();
@@ -1367,7 +1455,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "tiers": tiers, "runs": runs, "ok_runs": ok, "skipped": skipped, "unmapped": unmapped, "unmapped_kinds": unmapped_kinds,
         "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"), "text_well_formed": fam("text#"), "nest_well_formed": fam("nest#"), "match_well_formed": fam("match#"),
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
-        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"),
+        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"),
         "variant_mismatches": variant_mismatches(results),
     })
 }
@@ -1380,12 +1468,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -1420,6 +1508,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(tick_jobs(num("seed", 1) as i128, num("ticks", 100) as usize, num("runs", 300)));
     js.extend(frame_jobs(num("seed", 1) as i128, num("frames", 100) as usize, num("runs", 300)));
     js.extend(ckey_jobs(num("seed", 1) as i128, num("ckeys", 100) as usize, num("runs", 300)));
+    js.extend(rec_jobs(num("seed", 1) as i128, num("recs", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));
