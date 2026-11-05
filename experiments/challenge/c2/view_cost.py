@@ -185,7 +185,8 @@ def main():
         total += c
         print(f"   {t['name']:13} {c:4} (description {n(t['description'])})")
     print(f"   all ten tool schemas: {total} (as `kern mcp` serves them now; the Python server at {C2_REV} "
-          f"had the same descriptions)")
+          f"had the same descriptions except kern_view's, reworded on 2026-11-05: 30 description tokens then, "
+          f"and no `full`)")
     designs(n, data)
 
 
@@ -196,12 +197,13 @@ def kern_exe():
     return exe if os.path.exists(exe) else shutil.which("kern")
 
 
-def serve_views(requests, tok_path):
-    """kern_view results from `kern mcp`, one per (file, name, as) request, as the agent would have seen them."""
+def serve_views(requests, tok_path, full=True):
+    """kern_view results from one `kern mcp` process (one session), one per (file, name, as) request. With `full`,
+    every view is whole (as the server sent them during C2); without it, the server stubs repeated callee specs."""
     lines = ['{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}']
     for i, (f, name, as_) in enumerate(requests, 1):
         lines.append(json.dumps({"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {
-            "name": "kern_view", "arguments": {"file": f, "name": name, "as": as_}}}))
+            "name": "kern_view", "arguments": {"file": f, "name": name, "as": as_, "full": full}}}))
     env = dict(os.environ, KERN_TOKENIZER=tok_path)       # the "tokens" field in each view needs it
     out = subprocess.run([kern_exe(), "mcp"], input="\n".join(lines) + "\n", capture_output=True, text=True,
                          env=env).stdout
@@ -294,7 +296,8 @@ def designs(n, data):
     module = os.path.join(tmp, "escrow_s1.k")
     open(module, "w").write(git_show("examples/escrow_s1.k"))
 
-    print("\n6. Other view designs, simulated on the K-view runs (proxy tokens of kern_view results)")
+    print("\n6. Other view designs, simulated on the K-view runs (proxy tokens of kern_view results); the (server) "
+          "columns send the same calls through `kern mcp`'s own session dedup")
     b, (a, c, rows, resid) = fit_marginal(data, n)
     print(f"   calibration: each request's cache_creation = {a:.0f} + {b:.2f} x (proxy tokens of the tool results it "
           f"adds) + {c:.0f} x (tool calls), over {rows} read-only turns (largest residual {resid:.0f}). So one proxy "
@@ -323,6 +326,10 @@ def designs(n, data):
         for i, (subj, r) in enumerate(spec_first):
             prior = {s for s, _ in spec_first[:i]}
             both.append(dedup(spec_first[:i + 1], n, shown=prior)[-1] if subj in targets else r)
+        # the same sequences through the server's own session dedup (kern mcp since 2026-11-05)
+        server_dedup = serve_views([(module, v[0], "editor") for v in views], tok_path, full=False)
+        server_both = serve_views([(module, v[0], "editor" if v[0] in targets else "spec") for v in views], tok_path,
+                                  full=False)
         lenient = [(v[0], e if (v[0] in targets or i == 0) else s) for i, (v, e, s) in enumerate(zip(views, editor, spec))]
         cost = lambda rs: sum(n(r) for r in rs)
         per_run[k] = {
@@ -331,6 +338,8 @@ def designs(n, data):
             "spec-first": cost(r for _, r in spec_first),
             "both": cost(both),
             "both, 1st view editor": cost(dedup(lenient, n)),
+            "dedup (server)": cost(server_dedup),
+            "both (server)": cost(server_both),
         }
         first_editor[k] = sorted(targets)
     print(f"   regenerated editor views identical to the recorded ones: {sum(len([1 for (t, _), _ in tool_results(data[k][2]) if t.startswith('kern_view')]) for k in per_run) - mismatches} "

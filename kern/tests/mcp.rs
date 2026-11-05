@@ -270,3 +270,99 @@ fn root_keeps_the_server_inside_the_workspace() {
     let (msg, err) = c.tool("kern_view", json!({"file": format!("{ROOT}/examples/escrow/escrow_s2.k"), "name": "capture"}));
     assert!(err && msg.as_str().unwrap().contains("outside this server's root"), "{msg}");
 }
+
+// --- one session sends a callee spec block once (S1; experiments/challenge/c2/PROTOCOL.md, 2026-11-05) ---------
+
+fn view_in(s: &mut kern::mcp::Session, m: &str, name: &str, as_: &str, full: bool) -> String {
+    let args = json!({"file": m, "name": name, "as": as_, "full": full});
+    match s.call_tool("kern_view", args.as_object().unwrap()).unwrap() {
+        Ok(v) => v["text"].as_str().unwrap().to_string(),
+        Err(kern::mcp::ToolError(k, e)) => panic!("{k}: {e}"),
+    }
+}
+
+const STUB: &str = "move: spec shown earlier in this session";
+
+#[test]
+fn session_sends_a_callee_spec_once_then_a_stub() {
+    let m = module("mcp_dedup");
+    let mut s = kern::mcp::Session::default();
+    let capture = view_in(&mut s, &m, "capture", "editor", false);
+    assert_eq!(capture, tool("kern_view", json!({"file": m, "name": "capture", "as": "editor"})).unwrap()["text"],
+               "the first view sends everything");
+    let refund = view_in(&mut s, &m, "refund", "editor", false);
+    let whole = tool("kern_view", json!({"file": m, "name": "refund", "as": "editor"})).unwrap()["text"].as_str().unwrap().to_string();
+    let move_spec = tool("kern_view", json!({"file": m, "name": "move", "as": "spec"})).unwrap()["text"].as_str().unwrap().to_string();
+    assert!(whole.contains(&move_spec) && !refund.contains(&move_spec), "move's block was sent with capture");
+    assert!(refund.contains(STUB), "{refund}");
+    // capture's editor view was sent, and it holds every line of capture's spec block but the proof line: a stub
+    // that carries the proof line
+    let capture_spec = tool("kern_view", json!({"file": m, "name": "capture", "as": "spec"})).unwrap()["text"].as_str().unwrap().to_string();
+    let capture_stub = "capture: spec shown earlier in this session; proof ok";
+    assert!(refund.contains(capture_stub), "{refund}");
+    assert_eq!(refund.replace(STUB, &move_spec).replace(capture_stub, &capture_spec), whole, "only the repeated blocks differ");
+    // full: true sends every block; outside a session nothing is ever stubbed
+    assert_eq!(view_in(&mut s, &m, "refund", "editor", true), whole);
+    assert_eq!(tool("kern_view", json!({"file": m, "name": "refund", "as": "editor", "full": false})).unwrap()["text"], whole);
+    // a spec view counts as sent
+    let mut s2 = kern::mcp::Session::default();
+    view_in(&mut s2, &m, "move", "spec", false);
+    assert!(view_in(&mut s2, &m, "split", "editor", false).contains(STUB));
+}
+
+#[test]
+fn session_resends_a_block_that_changed_even_when_its_hash_did_not() {
+    let m = module("mcp_dedup_edit");
+    let mut s = kern::mcp::Session::default();
+    view_in(&mut s, &m, "split", "editor", false); // sends move's block
+    assert!(view_in(&mut s, &m, "tip", "editor", false).contains(STUB));
+    // a body need in transfer: move's own source (and hash) is unchanged, but its inferred `fails` now includes
+    // TooBig, so its block is different and must be sent again
+    let defs = kern::package::load(&m, &Default::default()).unwrap();
+    let hash = defs.defs["move"].hash();
+    let src = "transfer from:Account to:Account amount:Int\n  need amount > 0 else BadAmount\n  need from != to else SameAccount\n  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)\n  ok otherwise\n  keep ledger.total\n  ensure ledger.balance' from = ledger.balance from - amount\n  ensure ledger.balance' to = ledger.balance to + amount\n  emit Moved from to amount clock.now\nbody\n  need amount < 1000000 else TooBig\n  ledger.debit from amount\n  ledger.credit to amount\n  audit.emit (Moved from to amount clock.now)\n";
+    let args = json!({"file": m, "name": "transfer", "source": src});
+    s.call_tool("kern_replace", args.as_object().unwrap()).unwrap().unwrap();
+    let defs = kern::package::load(&m, &Default::default()).unwrap();
+    assert_eq!(defs.defs["move"].hash(), hash, "move itself did not change");
+    let tip = view_in(&mut s, &m, "tip", "editor", false);
+    assert!(!tip.contains(STUB) && tip.contains("TooBig"), "{tip}");
+    assert!(view_in(&mut s, &m, "split", "editor", false).contains(STUB), "and once sent, it is a repeat again");
+}
+
+#[test]
+fn an_editor_view_covers_its_spec_only_while_its_lines_still_hold() {
+    let m = module("mcp_dedup_own");
+    let mut s = kern::mcp::Session::default();
+    view_in(&mut s, &m, "move", "editor", false);
+    assert!(view_in(&mut s, &m, "split", "editor", false).contains("move: spec shown earlier in this session; proof ok"));
+    // move's spec changes through the server: the editor view the session showed no longer holds, so the block is sent
+    let text = std::fs::read_to_string(&m).unwrap();
+    let new = text.replace("  emit Moved from to amount clock.now when amount > 0\n", "");
+    assert_ne!(new, text);
+    let src = new.split("\n\n").find(|d| d.starts_with("move ")).unwrap().to_string();
+    let args = json!({"file": m, "name": "move", "source": src});
+    s.call_tool("kern_replace", args.as_object().unwrap()).unwrap().unwrap();
+    let tip = view_in(&mut s, &m, "tip", "editor", false);
+    assert!(!tip.contains("move: spec shown earlier"), "{tip}");
+    // a lifted body need is not a line of the editor view, so a block with one is never covered by it
+    let m2 = module("mcp_dedup_body_need");
+    let t = std::fs::read_to_string(&m2).unwrap().replacen("body\n  ledger.debit from amount", "body\n  need amount < 1000000 else TooBig\n  ledger.debit from amount", 1);
+    std::fs::write(&m2, t).unwrap();
+    let mut s = kern::mcp::Session::default();
+    view_in(&mut s, &m2, "transfer", "editor", false);
+    let mv = view_in(&mut s, &m2, "move", "editor", false);
+    assert!(mv.contains("body need amount < 1000000") && !mv.contains("transfer: spec shown earlier"), "{mv}");
+}
+
+#[test]
+fn the_stdio_server_keeps_one_session() {
+    let m = module("mcp_dedup_stdio");
+    let mut c = Client::new(&[]);
+    c.send("initialize", json!({}), false);
+    let first = c.tool("kern_view", json!({"file": m, "name": "split", "as": "editor"})).0;
+    let second = c.tool("kern_view", json!({"file": m, "name": "tip", "as": "editor"})).0;
+    assert!(!first["text"].as_str().unwrap().contains(STUB));
+    assert!(second["text"].as_str().unwrap().contains(STUB));
+    assert!(second["tokens"].is_null() || second["tokens"].as_u64() < first["tokens"].as_u64());
+}

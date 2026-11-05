@@ -60,7 +60,20 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Next:**
   - (b) is now the main question: a pre-registered C2b on a larger module (`escrow` s3 or
     `ledger-large`), with the two view changes built first. It needs Fredrik's approval (agent runs).
-  - (a), the two view changes, is worth building anyway: it's 40–66% fewer view tokens.
+  - (a), the two view changes: **built 2026-11-05** (kern-9b; `kern/src/mcp.rs`, `Session`).
+    - **Dedup:** the server stubs a callee spec block it has already shown, as
+      `move: spec shown earlier in this session; proof ok`.
+    - **Keyed on the block's text, not the hash:** a change in a callee's own callee alters the block
+      without changing the hash.
+    - **An earlier editor view of X counts as having shown X's spec**, but only while the lines are
+      exactly equal.
+    - **The `kern_view` description** now says to read with `spec`.
+    - **Measured:** the recorded view calls replayed through the server give 1,584 / 1,896 / 2,584
+      view tokens with dedup, against the simulation's 1,573 / 1,882 / 2,545. With the spec-first
+      description followed too, 732 / 1,566 / 1,704. `kern view` and the goldens are unchanged.
+    - **The test any dedup design must pass:**
+      `an_editor_view_covers_its_spec_only_while_its_lines_still_hold`. A first version used line
+      containment, and it stubbed a block after an edit had *removed* a line from it.
   - (c) REFERENCE.md's size is the language tax. Cutting it is Fredrik's call, since C2 froze it.
   - Not worth it: dropping the four tools the runs never called (`kern_why`, `kern_run`,
     `kern_replace`, `kern_remove`) saves about 330 proxy tokens, and 0 under the frozen metric.

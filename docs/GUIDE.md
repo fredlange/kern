@@ -234,7 +234,7 @@ same command with `--mcp-config`.
 | tool | does |
 |---|---|
 | `kern_list` | the definitions: interface line and status |
-| `kern_view` | `iface`, `spec` or `editor` view of one definition (identical to `kern view`) |
+| `kern_view` | `iface`, `spec` or `editor` view of one definition (as `kern view`, except for repeated callee specs, below); `full: true` sends every block |
 | `kern_callers` | who reaches a definition, so you know whose guarantees an edit can break |
 | `kern_why` | the rationale entries, with staleness |
 | `kern_check` | a summary (status per definition plus what's broken); `name` gives full detail; `quick` (default) skips mutation testing |
@@ -253,6 +253,20 @@ What an edit does and reports:
   fix forward.
 - **`kern_remove` refuses** while anything references the name.
 - **`KERN_MCP_LOG=path`** logs one JSON line per call, with the tokens it returned.
+
+One server process is one session. It remembers the latest thing it showed about each definition. A later
+editor view sends a callee's spec block as one line when what the session last showed of that callee still
+holds:
+- the same block, word for word (sent as a callee block or a `spec` view): `move: spec shown earlier in this session`;
+- an editor view of the callee whose lines before `body`, without `eg` lines, are the block without its proof line:
+  the stub carries the proof line, `move: spec shown earlier in this session; proof ok`.
+
+`full: true` sends every block, for an agent that lost its context. The test is on text, not on the definition's
+hash, so a callee whose inferred `fails` or proof line changed (a callee of it was edited) is sent again, and so
+is one whose own edit removed a line. A block with `body need` or expanded `need as` lines is always sent.
+`kern_view`'s description asks agents to read with `spec` and use `editor` only for a definition they will change. C2's K-view agents used `editor` for all
+35 views, and repeated callee specs were 27–34% of what they read
+([experiments/challenge/c2/PROTOCOL.md](../experiments/challenge/c2/PROTOCOL.md), 2026-11-05).
 
 ## Compiling to Rust
 
@@ -328,6 +342,7 @@ The `kern` crate (`kern/`) is a library as well as the binary. The AST is plain 
 | `kern::host::SimNet` | a hostile simulated network for tests |
 | `kern::emit_rust::emit`, `kern::emit_rust::build` | Kern → a Rust crate in `build/`; `cargo build` it → the binary's path |
 | `kern::mcp::handle` | one MCP JSON-RPC message → the response |
+| `kern::mcp::Session` | one MCP session (`Session::default()`, `.handle(msg)`): sends a repeated callee spec as a stub |
 
 A minimal program:
 

@@ -266,3 +266,19 @@ in the note above, because JSON-escaped code tokenizes worse.
 - **Held fixed, and likely optimistic:** the agents' behaviour. Spec-first removes the bodies that T1's agents
   read to model `settle` on (the column with the first view kept `editor` prices one such read: +460 proxy in T1), and an
   agent shown less may ask for more; each extra call costs ~126 real tokens plus its result.
+
+**2026-11-05: the server's own dedup, measured the same way (added after the run; nothing above is changed).**
+`kern mcp` now stubs a callee spec block when the latest thing the session showed about that callee still holds
+(kern/src/mcp.rs, `Session`; GUIDE.md, MCP section). `view_cost.py` section 6 sends each run's recorded view calls
+through it; its "(server)" columns compare with the simulation above:
+
+| view tokens (proxy), median | T1 | T2 | T3 |
+|---|---|---|---|
+| dedup, simulated / server | 1,573 / 1,584 | 1,882 / 1,896 | 2,545 / 2,584 |
+| both, simulated / server | 732 / 732 | 1,560 / 1,566 | 1,698 / 1,704 |
+
+The server is within 0–39 proxy tokens of the simulation (its stub for a definition last shown in an editor view
+carries the proof line, `move: spec shown earlier in this session; proof ok`). "Both" also assumes the agents
+follow `kern_view`'s new description (read with `spec`, `editor` only for what you change). That costs 65
+description tokens instead of 30, and the schema grows from 100 to 141. The schemas sit in the cached prefix,
+so that adds nothing under the frozen metric.

@@ -12,10 +12,23 @@
 //! caller are re-checked (callers were verified against the old spec). The result is ok only if all of them are
 //! clean; otherwise it says what broke, as `check` does for a file.
 //!
-//! Responses are the Python server's, byte for byte (pyjson). One deliberate difference: a runtime error in
+//! Responses are the Python server's, byte for byte (pyjson), apart from the session stubs below. One deliberate
+//! difference: a runtime error in
 //! `kern_run` (Python's KernError) is a tool error here; the Python server let it escape and stopped.
+//!
+//! One session (a `kern mcp` process, `Session`) remembers the latest thing it showed about each definition. A
+//! later editor view sends a callee's spec block as a one-line stub when that latest showing still holds: the same
+//! block, word for word (as a callee block or a spec view: `NAME: spec shown earlier in this session`), or an
+//! editor view of NAME whose lines before `body`, without `eg` lines, are the block without its proof line (the
+//! stub then carries the current proof line). A block with lifted `body need` lines or expanded `need as` lines
+//! never equals an editor view, so it is sent. `full: true` sends every
+//! block (an agent whose context was compacted). The test is on text, not on the definition's hash: a callee's
+//! block also changes when a callee *of it* changes (its inferred `fails`, its proof line), which its own hash
+//! doesn't see. An edit therefore never leaves a stale stub. C2 measured the repeats
+//! (experiments/challenge/c2/PROTOCOL.md, 2026-11-05).
+//! `kern view` and the free `handle`/`call_tool` are stateless: they never stub.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::io::{BufRead, Write};
 
 use indexmap::IndexMap;
@@ -41,9 +54,10 @@ pub fn tools() -> Value {
     json!([
         {"name": "kern_list", "description": "List the definitions of a module: interface line and status.",
          "inputSchema": {"type": "object", "properties": {"file": file}, "required": ["file"]}},
-        {"name": "kern_view", "description": "A view of one definition: iface (what callers need), spec (+ guarantees), editor (its full source + its callees' spec views).",
+        {"name": "kern_view", "description": "A view of one definition. To read one, use spec (interface + guarantees). Use editor (full source + callees' specs) only for a definition you will change. iface: the interface only. Callee specs already sent come back as a one-line stub; full: true resends them.",
          "inputSchema": {"type": "object", "properties": {"file": file, "name": name,
-                                                          "as": {"type": "string", "enum": ["iface", "spec", "editor"]}},
+                                                          "as": {"type": "string", "enum": ["iface", "spec", "editor"]},
+                                                          "full": {"type": "boolean"}},
                          "required": ["file", "name"]}},
         {"name": "kern_why", "description": "Rationale (why) entries for a definition, with staleness.",
          "inputSchema": {"type": "object", "properties": {"file": file, "name": name}, "required": ["file", "name"]}},
@@ -348,15 +362,88 @@ pub fn kern_list(file: &str) -> T<Value> {
     Ok(json!({ "definitions": list }))
 }
 
+/// The latest thing one session showed about a definition: its spec block, or an editor view of it (kept as the
+/// spec part of its own text, `editor_spec`).
+enum Shown {
+    Block(String),
+    Own(String),
+}
+
+/// The part of an editor view's own text that a spec block repeats: the lines before `body`, without `eg` lines.
+fn editor_spec(own: &str) -> String {
+    own.split('\n').take_while(|l| *l != "body").filter(|l| !l.starts_with("  eg ")).collect::<Vec<_>>().join("\n")
+}
+
+/// What one MCP session has shown, per (module path, definition name): only the latest, so a stub always means
+/// "what you saw last is still true".
+#[derive(Default)]
+pub struct Session {
+    shown: HashMap<(String, String), Shown>,
+}
+
+impl Session {
+    /// The editor view `text` of `name`, with every callee block whose latest showing in this session still holds
+    /// replaced by a stub (none with `full`). If the text doesn't end in the callee blocks as expected (views.rs
+    /// changed its layout), it is sent whole and nothing is remembered.
+    fn editor(&mut self, file: &str, reps: &IndexMap<String, Report>, name: &str, w: &IndexMap<String, why::Status>,
+              text: String, full: bool) -> String {
+        let blocks: Vec<(&String, String)> = reps[name].callees.iter().map(|c| (c, views::spec(&reps[c], &w[c]))).collect();
+        let tail: String = blocks.iter().map(|(_, b)| format!("\n\n{}", b)).collect();
+        if !text.ends_with(&tail) {
+            return text;
+        }
+        let own = &text[..text.len() - tail.len()];
+        let path = realpath(file);
+        let mut out = own.to_string();
+        for (c, b) in blocks {
+            out.push_str("\n\n");
+            let key = (path.clone(), c.clone());
+            let (rest, proof) = b.rsplit_once('\n').unwrap_or(("", &b));
+            match self.shown.get(&key) {
+                Some(Shown::Block(t)) if !full && *t == b => {
+                    out.push_str(&format!("{}: spec shown earlier in this session", c));
+                }
+                Some(Shown::Own(seen)) if !full && proof.starts_with("  proof ") && seen == rest => {
+                    out.push_str(&format!("{}: spec shown earlier in this session; {}", c, proof.trim()));
+                }
+                _ => {
+                    out.push_str(&b);
+                    self.shown.insert(key, Shown::Block(b));
+                }
+            }
+        }
+        self.shown.insert((path, name.to_string()), Shown::Own(editor_spec(own)));
+        out
+    }
+
+    /// One JSON-RPC message -> the response, or None for a notification.
+    pub fn handle(&mut self, msg: &Value) -> Option<Value> {
+        handle_in(self, msg)
+    }
+
+    pub fn call_tool(&mut self, name: &str, args: &Map<String, Value>) -> Option<T<Value>> {
+        call_tool_in(self, name, args)
+    }
+}
+
+/// A view as `kern view` prints it (no session: nothing is stubbed).
 pub fn kern_view(file: &str, name: &str, as_: &str) -> T<Value> {
+    kern_view_in(&mut Session::default(), file, name, as_, true)
+}
+
+fn kern_view_in(session: &mut Session, file: &str, name: &str, as_: &str, full: bool) -> T<Value> {
     let (_, defs) = load(file)?;
     need_def(&defs, name)?;
     let reps = reports(&defs, false, file)?;
     let w = whys(file, &defs)?;
     let text = match as_ {
         "iface" => views::iface(&reps[name], &w[name]),
-        "spec" => views::spec(&reps[name], &w[name]),
-        "editor" => views::editor(&reps, name, &w),
+        "spec" => {
+            let t = views::spec(&reps[name], &w[name]);
+            session.shown.insert((realpath(file), name.to_string()), Shown::Block(t.clone()));
+            t
+        }
+        "editor" => session.editor(file, &reps, name, &w, views::editor(&reps, name, &w), full),
         other => return Err(ToolError("KeyError", repr_str(other))),
     };
     Ok(json!({"text": text, "tokens": views::tokens(&text)}))
@@ -484,11 +571,18 @@ fn opt_s<'a>(v: Option<&'a Value>) -> Option<&'a str> {
     v.and_then(|x| x.as_str())
 }
 
+/// One tool call outside any session (nothing is stubbed).
 pub fn call_tool(name: &str, args: &Map<String, Value>) -> Option<T<Value>> {
+    call_tool_in(&mut Session::default(), name, args)
+}
+
+fn call_tool_in(session: &mut Session, name: &str, args: &Map<String, Value>) -> Option<T<Value>> {
     Some(match name {
         "kern_list" => args_for(name, args, &[("file", true)]).and_then(|a| kern_list(s(a[0], "file")?)),
-        "kern_view" => args_for(name, args, &[("file", true), ("name", true), ("as", false)])
-            .and_then(|a| kern_view(s(a[0], "file")?, s(a[1], "name")?, opt_s(a[2]).unwrap_or("iface"))),
+        "kern_view" => args_for(name, args, &[("file", true), ("name", true), ("as", false), ("full", false)]).and_then(|a| {
+            let full = a[3].map_or(false, |f| f.as_bool().unwrap_or(!f.is_null()));
+            kern_view_in(session, s(a[0], "file")?, s(a[1], "name")?, opt_s(a[2]).unwrap_or("iface"), full)
+        }),
         "kern_why" => {
             args_for(name, args, &[("file", true), ("name", true)]).and_then(|a| kern_why(s(a[0], "file")?, s(a[1], "name")?))
         }
@@ -550,8 +644,12 @@ fn log(tool: &str, args: &Map<String, Value>, text: &str) {
     }
 }
 
-/// One JSON-RPC message -> the response, or None for a notification.
+/// One JSON-RPC message -> the response, or None for a notification, outside any session.
 pub fn handle(msg: &Value) -> Option<Value> {
+    handle_in(&mut Session::default(), msg)
+}
+
+fn handle_in(session: &mut Session, msg: &Value) -> Option<Value> {
     let mid = msg.get("id").filter(|v| !v.is_null())?.clone();
     let method = msg.get("method").and_then(|m| m.as_str());
     let empty = Map::new();
@@ -564,7 +662,7 @@ pub fn handle(msg: &Value) -> Option<Value> {
         Some("tools/call") => {
             let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
             let args = params.get("arguments").and_then(|a| a.as_object()).unwrap_or(&empty);
-            match call_tool(name, args) {
+            match call_tool_in(session, name, args) {
                 None => {
                     let shown = params.get("name").and_then(|n| n.as_str()).map(repr_str).unwrap_or_else(|| "None".into());
                     return Some(json!({"jsonrpc": "2.0", "id": mid,
@@ -591,6 +689,7 @@ pub fn handle(msg: &Value) -> Option<Value> {
 
 /// The stdio loop.
 pub fn serve(inp: impl BufRead, out: &mut dyn Write) -> std::io::Result<()> {
+    let mut session = Session::default();
     for line in inp.lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -598,7 +697,7 @@ pub fn serve(inp: impl BufRead, out: &mut dyn Write) -> std::io::Result<()> {
         }
         let resp = match serde_json::from_str::<Value>(&line) {
             Err(_) => Some(json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "parse error"}})),
-            Ok(msg) => handle(&msg),
+            Ok(msg) => session.handle(&msg),
         };
         if let Some(r) = resp {
             writeln!(out, "{}", pyjson::dumps(&r, None))?;
