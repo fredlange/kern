@@ -487,6 +487,8 @@ impl<'a> Gen<'a> {
             "#[inline]".to_string(),
             format!("pub fn {}(tx: &mut Tx<Event>{}) -> R<{}> {{", ident(&d.name), params, ret),
         ];
+        // nesting depth, as the interpreter counts it (MAX_CALL_DEPTH); recursion is allowed when proven to end
+        out.push("    tx.enter()?;".into());
         if d.ret.is_some() {
             out.push("    let mut result: i64;".into());
         }
@@ -499,6 +501,7 @@ impl<'a> Gen<'a> {
         }
         stmts.extend(d.body.iter().cloned());
         out.extend(self.block(&stmts, &mut sc, "    ", d)?);
+        out.push("    tx.leave();".into());
         out.push(if d.ret.is_some() { "    Ok(result)" } else { "    Ok(())" }.into());
         out.push("}".into());
         Ok(out)
@@ -943,6 +946,11 @@ body
         let e = super::Gen::new(&b, "t").module().unwrap_err().0;
         assert!(e.contains("get: definition result of type Text"), "{e}");
         assert!(super::Gen::new(&base, "t").module().is_ok());
+    }
+
+    #[test]
+    fn the_runtime_nests_calls_as_deep_as_the_interpreter() {
+        assert!(super::RT_LIB.contains(&format!("pub const MAX_CALL_DEPTH: u32 = {};", crate::run::MAX_CALL_DEPTH)));
     }
 
     #[test]

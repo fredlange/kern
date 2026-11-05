@@ -325,6 +325,10 @@ enum Undo {
 /// when a loop or sum begins. kern host uses the same number (host.rs ITERATION_LIMIT).
 pub const ITERATION_LIMIT: i64 = 10_000_000;
 
+/// How deeply definitions may nest in one call, the top-level one included: the interpreter's MAX_CALL_DEPTH
+/// (run.rs). Recursion is licensed by the prover's measure; this is a resource limit, the same in both.
+pub const MAX_CALL_DEPTH: u32 = 200;
+
 /// Reusable per-thread buffers, so a call allocates nothing in the steady state.
 pub struct Exec<E> {
     undo: Vec<Undo>,
@@ -350,6 +354,8 @@ pub struct Tx<'a, E> {
     prov: &'a mut dyn Provider,
     /// iterations this call may still start
     budget: i64,
+    /// definitions entered and not yet returned from
+    depth: u32,
     /// `clock.now`: one value for the whole top-level call
     pub now: i64,
 }
@@ -462,6 +468,20 @@ impl<'a, E> Tx<'a, E> {
         }
         out
     }
+    /// A definition starts: one level deeper, a fault past MAX_CALL_DEPTH (as the interpreter's Kern error).
+    #[inline(always)]
+    pub fn enter(&mut self) -> Result<(), Fault> {
+        if self.depth >= MAX_CALL_DEPTH {
+            return Err(Fault::Error(format!("calls nest deeper than {MAX_CALL_DEPTH}")));
+        }
+        self.depth += 1;
+        Ok(())
+    }
+    /// A definition returned normally (a refusal or fault ends the whole call, so it never needs this).
+    #[inline(always)]
+    pub fn leave(&mut self) {
+        self.depth -= 1;
+    }
     /// `clock.tick`: a later instant in the same call, exactly one more (S10), as the interpreter's checked add.
     pub fn tick(&mut self) -> Result<(), Fault> {
         self.now = self.now.checked_add(1).ok_or(Fault::Overflow)?;
@@ -500,7 +520,7 @@ impl<E> Exec<E> {
         let now = w.clock;
         let (out, end) = {
             let budget = self.limit;
-            let mut tx = Tx { w: &mut *w, undo: &mut self.undo, events: &mut self.events, obs: &mut self.obs, prov, budget, now };
+            let mut tx = Tx { w: &mut *w, undo: &mut self.undo, events: &mut self.events, obs: &mut self.obs, prov, budget, depth: 0, now };
             let out = body(&mut tx);
             (out, tx.now)
         };
@@ -787,6 +807,25 @@ mod tests {
         w.clock = i64::MAX;
         let r = exec.call(&mut w, &mut prov, |tx| -> Result<(), Stop<()>> { tx.tick().map_err(Stop::Fault) });
         assert_eq!((r, w.clock), (Err(Stop::Fault(Fault::Overflow)), i64::MAX));
+    }
+
+    #[test]
+    fn calls_nest_at_most_max_call_depth_deep() {
+        fn down<E>(tx: &mut Tx<E>, n: u32) -> Result<(), Stop<()>> {
+            tx.enter()?;
+            if n > 0 {
+                down(tx, n - 1)?;
+            }
+            tx.leave();
+            Ok(())
+        }
+        let mut w = World::new(0, 0);
+        let mut exec: Exec<()> = Exec::default();
+        let mut prov = Replay::default();
+        // n + 1 levels: 200 fits, 201 doesn't; returning frees the levels for the next call in the same body
+        assert_eq!(exec.call(&mut w, &mut prov, |tx| down(tx, MAX_CALL_DEPTH - 1)), Ok(()));
+        assert!(matches!(exec.call(&mut w, &mut prov, |tx| down(tx, MAX_CALL_DEPTH)), Err(Stop::Fault(_))));
+        assert_eq!(exec.call(&mut w, &mut prov, |tx| { down(tx, 150)?; down(tx, 150) }), Ok(()));
     }
 
     #[test]

@@ -44,6 +44,9 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   string values. `replay` compares Text state too. A `.host` reply `$.field` for a Text parameter of the reply
   definition takes a JSON string (an Int parameter still takes an integer; anything else is the `fail` call), and
   a Text in a request URL is %-encoded.
+- **Recursion (2026-11-05).** A recursive definition runs once its `decreases` measure is proven; calls nest at
+  most 200 deep in one call, the top-level one included (the interpreter's `MAX_CALL_DEPTH`; kern-rt's is the same
+  number). Deeper is a resource error, like the iteration limit: undone, logged, skipped by replay.
 - **`clock.tick` (S10, 2026-11-05).** Inside a call it adds exactly 1 to `clock.now` (the interpreter's
   semantics; replay re-runs it, nothing new is recorded). The host reads the wall clock once per call, so after a
   call that ticked, the next call's `now` is at least where that call ended plus 1 (meta `clock_floor`, kept across
