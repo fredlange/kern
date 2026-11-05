@@ -1,0 +1,287 @@
+$ kern check tests/probes/runtime.k   (exit 1)
+ASSUMES rand.below n:Int -> Int: need n > 0; ensure result >= 0 and result < n   (spec satisfiable; the host provides it and checks it on every call)
+
+late [6e2a30ac]  No guarantees stated
+  writes a b mark.a slot.k   (no guarantee about the new balance of a, b, mark.a, slot.k)
+  examples 0/0   random tests 381/500 reached success, 0 violations
+  spec strength: guarantees 0/21 (prover 0, random tests 0); examples 0/21; together 0/21
+      survived: drop `slot.set k amount`
+      survived: `k` → `amount` in `slot.set k amount`
+      survived: `amount` → `k` in `slot.set k amount`
+      survived: drop `mark.set a 1`
+      survived: `a` → `b` in `mark.set a 1`
+      survived: `1` → `2` in `mark.set a 1`
+      survived: drop `ledger.debit a 1`
+      survived: `ledger.debit` → `ledger.credit` in `ledger.debit a 1`
+      survived: `a` → `b` in `ledger.debit a 1`
+      survived: `1` → `2` in `ledger.debit a 1`
+      survived: drop `ledger.credit b 1`
+      survived: `ledger.credit` → `ledger.debit` in `ledger.credit b 1`
+      survived: `b` → `a` in `ledger.credit b 1`
+      survived: `1` → `2` in `ledger.credit b 1`
+      survived: drop `need ledger.balance a >= amount else Short amount (ledger.balance a) k`
+      survived: `>=` → `>` in `need ledger.balance a >= amount else Short amount (ledger.balance a) k`
+      survived: `a` → `b` in `need ledger.balance a >= amount else Short amount (ledger.balance a) k`
+      survived: `amount` → `k` in `need ledger.balance a >= amount else Short amount (ledger.balance a) k`
+      survived: `amount` → `k` in payload of `need ledger.balance a >= amount else Short amount (ledger.balance a) k`
+      survived: `a` → `b` in payload of `need ledger.balance a >= amount else Short amount (ledger.balance a) k`
+      survived: `k` → `amount` in payload of `need ledger.balance a >= amount else Short amount (ledger.balance a) k`
+
+outer [17dbfe03]  No guarantees stated
+  writes a b mark.a mark.b slot.*   (no guarantee about the new balance of a, b, mark.a, mark.b, slot.*, slot.k)
+  examples 0/0   random tests 381/500 reached success, 0 violations
+  spec strength: guarantees 0/13 (prover 0, random tests 0); examples 0/13; together 0/13
+      survived: drop `slot.set (k + 1) 5`
+      survived: `+` → `-` in `slot.set (k + 1) 5`
+      survived: `k` → `amount` in `slot.set (k + 1) 5`
+      survived: `1` → `2` in `slot.set (k + 1) 5`
+      survived: `5` → `6` in `slot.set (k + 1) 5`
+      survived: drop `mark.set b 2`
+      survived: `b` → `a` in `mark.set b 2`
+      survived: `2` → `3` in `mark.set b 2`
+      survived: drop `late a b amount k`
+      survived: `a` → `b` in `late a b amount k`
+      survived: `b` → `a` in `late a b amount k`
+      survived: `amount` → `k` in `late a b amount k`
+      survived: `k` → `amount` in `late a b amount k`
+
+snapshot [b1d6533f]  No guarantees stated
+  writes slot.k   (no guarantee about the new value of slot.k)
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 0/1 (prover 0, random tests 0); examples 0/1; together 0/1
+      survived: drop `slot.set k ledger.total`
+
+record [7c4f8e3f]  No guarantees stated
+  writes slot.*   (no guarantee about the new value of slot.*)
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 0/6 (prover 0, random tests 0); examples 0/6; together 0/6
+      survived: drop `slot.set 1 x`
+      survived: `1` → `2` in `slot.set 1 x`
+      survived: `x` → `y` in `slot.set 1 x`
+      survived: drop `slot.set 2 y`
+      survived: `2` → `3` in `slot.set 2 y`
+      survived: `y` → `x` in `slot.set 2 y`
+
+draw2 [47a063e7]  Broken guarantees
+  ✔ pre rand.below: need n > 0 (at a call)
+  ✗ pre rand.below: need n > 0 (at a call)
+      counterexample: eg  | draw2 0 -> error: need of rand.below not met: n > 0
+  writes slot.*   (no guarantee about the new value of slot.*)
+  examples 0/0   random tests 423/500 reached success, 77 violations
+
+pick [be81df78]  No guarantees stated
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 0/17 (prover 0, random tests 0); examples 0/17; together 0/17
+      survived: drop `if ledger.owner a = ledger.owner b`
+      survived: `=` → `!=` in `if ledger.owner a = ledger.owner b`
+      survived: `a` → `b` in `if ledger.owner a = ledger.owner b`
+      survived: `b` → `a` in `if ledger.owner a = ledger.owner b`
+      survived: swap the branches of `if ledger.owner a = ledger.owner b`
+      survived: drop `audit.emit (Same (ledger.owner a) a b)`
+      survived: `a` → `b` in `audit.emit (Same (ledger.owner a) a b)`
+      survived: `a` → `b` in `audit.emit (Same (ledger.owner a) a b)`
+      survived: `b` → `a` in `audit.emit (Same (ledger.owner a) a b)`
+      survived: drop `audit.emit (Differ a (ledger.balance a - ledger.balance b) (ledger.balance a > ledger.balance b))`
+      survived: `a` → `b` in `audit.emit (Differ a (ledger.balance a - ledger.balance b) (ledger.balance a > ledger.balance b))`
+      survived: `-` → `+` in `audit.emit (Differ a (ledger.balance a - ledger.balance b) (ledger.balance a > ledger.balance b))`
+      survived: `a` → `b` in `audit.emit (Differ a (ledger.balance a - ledger.balance b) (ledger.balance a > ledger.balance b))`
+      survived: `b` → `a` in `audit.emit (Differ a (ledger.balance a - ledger.balance b) (ledger.balance a > ledger.balance b))`
+      survived: `>` → `>=` in `audit.emit (Differ a (ledger.balance a - ledger.balance b) (ledger.balance a > ledger.balance b))`
+      survived: `a` → `b` in `audit.emit (Differ a (ledger.balance a - ledger.balance b) (ledger.balance a > ledger.balance b))`
+      survived: `b` → `a` in `audit.emit (Differ a (ledger.balance a - ledger.balance b) (ledger.balance a > ledger.balance b))`
+
+half [8f5c8846]  No guarantees stated
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 0/4 (prover 0, random tests 0); examples 0/4; together 0/4
+      survived: `/` → `*` in `result = (n - 7) / 2`
+      survived: `-` → `+` in `result = (n - 7) / 2`
+      survived: `7` → `8` in `result = (n - 7) / 2`
+      survived: `2` → `3` in `result = (n - 7) / 2`
+
+use_half [d51f6a41]  No guarantees stated
+  writes mark.a slot.*   (no guarantee about the new value of mark.a, slot.*)
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 0/11 (prover 0, random tests 0); examples 0/11; together 0/11
+      survived: drop `mark.set a (half n)`
+      survived: drop `for i from 0 to 3`
+      survived: `0` → `0 + 1` in `for i from 0 to 3`
+      survived: `0` → `0 - 1` in `for i from 0 to 3`
+      survived: `3` → `3 + 1` in `for i from 0 to 3`
+      survived: `3` → `3 - 1` in `for i from 0 to 3`
+      survived: `i` → `i + 1` in the body of `for i from 0 to 3`
+      survived: empty the body of `for i from 0 to 3`
+      survived: drop `slot.set (i + n) (half (n + i))`
+      survived: `+` → `-` in `slot.set (i + n) (half (n + i))`
+      survived: `+` → `-` in `slot.set (i + n) (half (n + i))`
+
+
+$ kern view tests/probes/runtime.k late --as iface   (exit 0)
+late a:Account b:Account amount:Int k:Int
+  uses ledger.write mark.write slot.write
+  writes a b mark.a slot.k
+  fails Short(Int,Int,Int)
+
+$ kern view tests/probes/runtime.k late --as spec   (exit 0)
+late a:Account b:Account amount:Int k:Int
+  uses ledger.write mark.write slot.write
+  writes a b mark.a slot.k
+  fails Short(Int,Int,Int)
+  proof ok
+
+$ kern view tests/probes/runtime.k late --as editor   (exit 0)
+late a:Account b:Account amount:Int k:Int
+  uses ledger.write mark.write slot.write
+  writes a b mark.a slot.k
+  fails Short(Int,Int,Int)
+body
+  slot.set k amount
+  mark.set a 1
+  ledger.debit a 1
+  ledger.credit b 1
+  need ledger.balance a >= amount else Short amount (ledger.balance a) k
+
+$ kern view tests/probes/runtime.k outer --as iface   (exit 0)
+outer a:Account b:Account amount:Int k:Int
+  uses ledger.write mark.write slot.write
+  writes a b mark.a mark.b slot.*
+  fails Short(Int,Int,Int)
+
+$ kern view tests/probes/runtime.k outer --as spec   (exit 0)
+outer a:Account b:Account amount:Int k:Int
+  uses ledger.write mark.write slot.write
+  writes a b mark.a mark.b slot.*
+  fails Short(Int,Int,Int)
+  proof ok
+
+$ kern view tests/probes/runtime.k outer --as editor   (exit 0)
+outer a:Account b:Account amount:Int k:Int
+  uses ledger.write mark.write slot.write
+  writes a b mark.a mark.b slot.*
+  fails Short(Int,Int,Int)
+body
+  slot.set (k + 1) 5
+  mark.set b 2
+  late a b amount k
+
+late a:Account b:Account amount:Int k:Int
+  uses ledger.write mark.write slot.write
+  writes a b mark.a slot.k
+  fails Short(Int,Int,Int)
+  proof ok
+
+$ kern view tests/probes/runtime.k snapshot --as iface   (exit 0)
+snapshot k:Int
+  uses ledger.read slot.write
+  writes slot.k
+
+$ kern view tests/probes/runtime.k snapshot --as spec   (exit 0)
+snapshot k:Int
+  uses ledger.read slot.write
+  writes slot.k
+  proof ok
+
+$ kern view tests/probes/runtime.k snapshot --as editor   (exit 0)
+snapshot k:Int
+  uses ledger.read slot.write
+  writes slot.k
+body
+  slot.set k ledger.total
+
+$ kern view tests/probes/runtime.k record --as iface   (exit 0)
+record x:Int y:Int
+  uses slot.write
+  writes slot.*
+
+$ kern view tests/probes/runtime.k record --as spec   (exit 0)
+record x:Int y:Int
+  uses slot.write
+  writes slot.*
+  proof ok
+
+$ kern view tests/probes/runtime.k record --as editor   (exit 0)
+record x:Int y:Int
+  uses slot.write
+  writes slot.*
+body
+  slot.set 1 x
+  slot.set 2 y
+
+$ kern view tests/probes/runtime.k draw2 --as iface   (exit 0)
+draw2 n:Int
+  uses rand slot.write
+  writes slot.*
+
+$ kern view tests/probes/runtime.k draw2 --as spec   (exit 0)
+draw2 n:Int
+  uses rand slot.write
+  writes slot.*
+  proof 1 open
+
+$ kern view tests/probes/runtime.k draw2 --as editor   (exit 0)
+draw2 n:Int
+  uses rand slot.write
+  writes slot.*
+body
+  record (rand.below 3) (rand.below n)
+
+record x:Int y:Int
+  uses slot.write
+  writes slot.*
+  proof ok
+
+$ kern view tests/probes/runtime.k pick --as iface   (exit 0)
+pick a:Account b:Account
+  uses ledger.read audit
+
+$ kern view tests/probes/runtime.k pick --as spec   (exit 0)
+pick a:Account b:Account
+  uses ledger.read audit
+  proof ok
+
+$ kern view tests/probes/runtime.k pick --as editor   (exit 0)
+pick a:Account b:Account
+  uses ledger.read audit
+body
+  if ledger.owner a = ledger.owner b
+    audit.emit (Same (ledger.owner a) a b)
+  else
+    audit.emit (Differ a (ledger.balance a - ledger.balance b) (ledger.balance a > ledger.balance b))
+
+$ kern view tests/probes/runtime.k half --as iface   (exit 0)
+half n:Int -> Int
+  uses 
+
+$ kern view tests/probes/runtime.k half --as spec   (exit 0)
+half n:Int -> Int
+  uses 
+  proof ok
+
+$ kern view tests/probes/runtime.k half --as editor   (exit 0)
+half n:Int -> Int
+  uses 
+body
+  result = (n - 7) / 2
+
+$ kern view tests/probes/runtime.k use_half --as iface   (exit 0)
+use_half a:Account n:Int
+  uses mark.write slot.write
+  writes mark.a slot.*
+
+$ kern view tests/probes/runtime.k use_half --as spec   (exit 0)
+use_half a:Account n:Int
+  uses mark.write slot.write
+  writes mark.a slot.*
+  proof ok
+
+$ kern view tests/probes/runtime.k use_half --as editor   (exit 0)
+use_half a:Account n:Int
+  uses mark.write slot.write
+  writes mark.a slot.*
+body
+  mark.set a (half n)
+  for i from 0 to 3
+    slot.set (i + n) (half (n + i))
+
+half n:Int -> Int
+  uses 
+  proof ok

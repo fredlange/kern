@@ -1,0 +1,265 @@
+$ kern check examples/lottery   (exit 0)
+ASSUMES rand.below n:Int -> Int: need n > 0; ensure result >= 0 and result < n   (spec satisfiable; the host provides it and checks it on every call)
+
+== draw  (examples/lottery/draw.k)
+draw [12db448c]  Proven, assuming rand.below
+  ⊙ ok otherwise   (assuming rand.below)
+  ⊙ keep ledger.total   (assuming rand.below)
+  ⊙ ensure ledger.balance' pot = ledger.balance pot - amount   (assuming rand.below)
+  ✔ pre rand.below: need n > 0 (at a call)
+  ⊙ emit Moved pot _ amount clock.now, then Won _ amount clock.now   (assuming rand.below)
+  writes pot a b c   (no guarantee about the new balance of a, b, c)
+  examples 2/2   random tests 0/500 reached success, 0 violations
+  spec strength: guarantees 19/45 (prover 19, random tests 0); examples 7/45; together 19/45
+      survived: `3` → `4` in `r = rand.below 3`
+      survived: `=` → `!=` in `if r = 0`
+      survived: `0` → `1` in `if r = 0`
+      survived: swap the branches of `if r = 0`
+      survived: `pot` → `a` in `transfer pot a amount`
+      survived: `a` → `pot` in `transfer pot a amount`
+      survived: `a` → `b` in `transfer pot a amount`
+      survived: `a` → `c` in `transfer pot a amount`
+      survived: `a` → `pot` in `audit.emit (Won a amount clock.now)`
+      survived: `a` → `b` in `audit.emit (Won a amount clock.now)`
+      survived: `a` → `c` in `audit.emit (Won a amount clock.now)`
+      survived: `=` → `!=` in `if r = 1`
+      survived: `1` → `2` in `if r = 1`
+      survived: swap the branches of `if r = 1`
+      survived: `b` → `a` in `transfer pot b amount`
+      survived: `b` → `c` in `transfer pot b amount`
+      survived: `b` → `pot` in `audit.emit (Won b amount clock.now)`
+      survived: `b` → `a` in `audit.emit (Won b amount clock.now)`
+      survived: `b` → `c` in `audit.emit (Won b amount clock.now)`
+      survived: `pot` → `c` in `transfer pot c amount`
+      survived: `c` → `pot` in `transfer pot c amount`
+      survived: `c` → `a` in `transfer pot c amount`
+      survived: `c` → `b` in `transfer pot c amount`
+      survived: `c` → `pot` in `audit.emit (Won c amount clock.now)`
+      survived: `c` → `a` in `audit.emit (Won c amount clock.now)`
+      survived: `c` → `b` in `audit.emit (Won c amount clock.now)`
+
+== money.ledger  (examples/lottery/money/ledger.k)
+transfer [27367a3f]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount
+  ✔ ensure ledger.balance' to = ledger.balance to + amount
+  ✔ emit Moved from to amount clock.now
+  writes from to
+  examples 2/2   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+
+== tickets  (examples/lottery/tickets.k)
+buy_ticket [d1ce6d07]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure tickets.get' player = tickets.get player + 1
+  ✔ invariant p:Int tickets.get p >= 0
+  ✔ emit Moved buyer pot 10 clock.now
+  writes buyer pot tickets.player   (no guarantee about the new balance of buyer, pot)
+  examples 2/2   random tests 327/500 reached success, 0 violations
+  spec strength: guarantees 7/7 (prover 7, random tests 7); examples 7/7; together 7/7
+
+loyalty_bonus [2be98d3c]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure tickets.get' j = tickets.get j + 1 when tickets.get j >= 5 for j from lo to hi
+  ✔ ensure tickets.get' j = tickets.get j when tickets.get j < 5 for j from lo to hi
+  ✔ loop tickets.get' j = tickets.get j + 1 when tickets.get j >= 5 for j from lo to k  (holds when the loop starts)
+  ✔ loop tickets.get' j = tickets.get j when tickets.get j < 5 for j from lo to k  (holds when the loop starts)
+  ✔ loop module invariant p:Int tickets.get p >= 0  (holds when the loop starts)
+  ✔ loop tickets.get' j = tickets.get j + 1 when tickets.get j >= 5 for j from lo to k  (kept by every iteration)
+  ✔ loop tickets.get' j = tickets.get j when tickets.get j < 5 for j from lo to k  (kept by every iteration)
+  ✔ loop module invariant p:Int tickets.get p >= 0  (kept by every iteration)
+  ✔ loop tickets.get' j = tickets.get j + 1 when tickets.get j >= 5 for j from lo to k  (kept by every iteration)
+  ✔ loop tickets.get' j = tickets.get j when tickets.get j < 5 for j from lo to k  (kept by every iteration)
+  ✔ loop module invariant p:Int tickets.get p >= 0  (kept by every iteration)
+  ✔ invariant p:Int tickets.get p >= 0
+  writes tickets.[lo,hi)
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 12/14 (prover 11, random tests 10); examples 11/14; together 12/14
+      survived: `lo` → `lo - 1` in `for k from lo to hi`
+      survived: `hi` → `hi + 1` in `for k from lo to hi`
+
+
+$ kern view examples/lottery draw --as iface   (exit 0)
+draw pot:Account a:Account b:Account c:Account amount:Int
+  uses ledger.write clock audit rand
+  writes pot a b c
+  fails SameAccount BadAmount Insufficient(Int)
+
+$ kern view examples/lottery draw --as spec   (exit 0)
+draw pot:Account a:Account b:Account c:Account amount:Int
+  uses ledger.write clock audit rand
+  writes pot a b c
+  fails SameAccount BadAmount Insufficient(Int)
+  need distinct pot a b c else SameAccount
+  need amount > 0 else BadAmount
+  need ledger.balance pot >= amount else Insufficient (amount - ledger.balance pot)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' pot = ledger.balance pot - amount
+  emit Moved pot _ amount clock.now
+  emit Won _ amount clock.now
+  proof ok
+
+$ kern view examples/lottery draw --as editor   (exit 0)
+draw pot:Account a:Account b:Account c:Account amount:Int
+  uses ledger.write clock audit rand
+  writes pot a b c
+  fails SameAccount BadAmount Insufficient(Int)
+  need distinct pot a b c else SameAccount
+  need amount > 0 else BadAmount
+  need ledger.balance pot >= amount else Insufficient (amount - ledger.balance pot)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' pot = ledger.balance pot - amount
+  emit Moved pot _ amount clock.now
+  emit Won _ amount clock.now
+  eg P:100@u0 A:0@u1 B:0@u2 C:0@u3 | draw P A B C 30 -> ok | P:70
+  eg P:10@u0 A:0@u1 B:0@u2 C:0@u3 | draw P A B C 30 -> Insufficient 20
+body
+  r = rand.below 3
+  if r = 0
+    transfer pot a amount
+    audit.emit (Won a amount clock.now)
+  else
+    if r = 1
+      transfer pot b amount
+      audit.emit (Won b amount clock.now)
+    else
+      transfer pot c amount
+      audit.emit (Won c amount clock.now)
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/lottery transfer --as iface   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/lottery transfer --as spec   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/lottery transfer --as editor   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  eg A:500@u1 B:0@u2 | transfer A B 100 -> ok | A:400 B:100
+  eg A:50@u1 B:0@u2 | transfer A B 100 -> Insufficient 50
+body
+  ledger.debit from amount
+  ledger.credit to amount
+  audit.emit (Moved from to amount clock.now)
+
+$ kern view examples/lottery buy_ticket --as iface   (exit 0)
+buy_ticket player:Int buyer:Account pot:Account
+  uses ledger.write clock audit tickets.write
+  writes buyer pot tickets.player
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/lottery buy_ticket --as spec   (exit 0)
+buy_ticket player:Int buyer:Account pot:Account
+  uses ledger.write clock audit tickets.write
+  writes buyer pot tickets.player
+  fails BadAmount SameAccount Insufficient(Int)
+  need 10 > 0 else BadAmount
+  need buyer != pot else SameAccount
+  need ledger.balance buyer >= 10 else Insufficient (10 - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure tickets.get' player = tickets.get player + 1
+  emit Moved buyer pot 10 clock.now
+  proof ok
+
+$ kern view examples/lottery buy_ticket --as editor   (exit 0)
+buy_ticket player:Int buyer:Account pot:Account
+  uses ledger.write clock audit tickets.write
+  writes buyer pot tickets.player
+  fails BadAmount SameAccount Insufficient(Int)
+  need as transfer buyer pot 10
+  ok otherwise
+  keep ledger.total
+  ensure tickets.get' player = tickets.get player + 1
+  emit as transfer buyer pot 10
+  eg B:25@u1 P:0@u0 | buy_ticket 4 B P -> ok | B:15 P:10 tickets.4:1
+  eg B:5@u1 P:0@u0 | buy_ticket 4 B P -> Insufficient 5
+body
+  transfer buyer pot 10
+  tickets.set player (tickets.get player + 1)
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/lottery loyalty_bonus --as iface   (exit 0)
+loyalty_bonus lo:Int hi:Int
+  uses tickets.write
+  writes tickets.[lo,hi)
+
+$ kern view examples/lottery loyalty_bonus --as spec   (exit 0)
+loyalty_bonus lo:Int hi:Int
+  uses tickets.write
+  writes tickets.[lo,hi)
+  ok otherwise
+  ensure tickets.get' j = tickets.get j + 1 when tickets.get j >= 5 for j from lo to hi
+  ensure tickets.get' j = tickets.get j when tickets.get j < 5 for j from lo to hi
+  proof ok
+
+$ kern view examples/lottery loyalty_bonus --as editor   (exit 0)
+loyalty_bonus lo:Int hi:Int
+  uses tickets.write
+  writes tickets.[lo,hi)
+  ok otherwise
+  ensure tickets.get' j = tickets.get j + 1 when tickets.get j >= 5 for j from lo to hi
+  ensure tickets.get' j = tickets.get j when tickets.get j < 5 for j from lo to hi
+  eg tickets.1:5 tickets.2:4 | loyalty_bonus 1 3 -> ok | tickets.1:6 tickets.2:4
+body
+  for k from lo to hi
+    invariant tickets.get' j = tickets.get j + 1 when tickets.get j >= 5 for j from lo to k
+    invariant tickets.get' j = tickets.get j when tickets.get j < 5 for j from lo to k
+    if tickets.get k >= 5
+      tickets.set k (tickets.get k + 1)

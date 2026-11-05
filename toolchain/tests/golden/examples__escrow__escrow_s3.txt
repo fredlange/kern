@@ -1,0 +1,3649 @@
+$ kern check examples/escrow/escrow_s3.k   (exit 0)
+fee_for [4ea76285]  All guarantees proven
+  ✔ ensure result = 0 when amount < 100
+  ✔ ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ✔ ensure result = amount / 100 + 10 when amount >= 1000
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 13/15 (prover 13, random tests 11); examples 0/15; together 13/15
+      survived: `<` → `<=` in `if amount < 1000`
+      survived: `1000` → `1001` in `if amount < 1000`
+
+vat_of [86eaa343]  All guarantees proven
+  ✔ ensure result = amount / 4
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 0/2; together 2/2
+
+points_for [f100f7cd]  All guarantees proven
+  ✔ ensure result = amount / 100 when amount >= 0
+  ✔ ensure result = 0 when amount < 0
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 4/6 (prover 4, random tests 4); examples 0/6; together 4/6
+      survived: `>=` → `>` in `if amount >= 0`
+      survived: `0` → `1` in `if amount >= 0`
+
+holdback_for [6e66f341]  All guarantees proven
+  ✔ ensure result = amount / 10
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 0/2; together 2/2
+
+late_fee [b6e607a5]  All guarantees proven
+  ✔ ensure result = 0 when days <= 0
+  ✔ ensure result = days * 5 when days > 0 and days <= 10
+  ✔ ensure result = 50 when days > 10
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 8/10 (prover 8, random tests 7); examples 0/10; together 8/10
+      survived: `<=` → `<` in `if days <= 0`
+      survived: `<=` → `<` in `if days <= 10`
+
+transfer [27367a3f]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount
+  ✔ ensure ledger.balance' to = ledger.balance to + amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved from to amount clock.now
+  writes from to
+  examples 4/4   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+
+move [f812f27e]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount
+  ✔ ensure ledger.balance' to = ledger.balance to + amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved from to amount clock.now when amount > 0
+  writes from to
+  examples 3/3   random tests 221/500 reached success, 0 violations
+  spec strength: guarantees 7/7 (prover 7, random tests 7); examples 6/7; together 7/7
+
+reserve [f7259baf]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer - amount
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow + amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now
+  writes buyer escrow
+  examples 2/2   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+
+release [28c1a300]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer + amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved escrow buyer amount clock.now, then Released buyer amount clock.now
+  writes escrow buyer
+  examples 1/1   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+
+capture [fe412ad6]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ✔ ensure ledger.balance' seller = ledger.balance seller + amount - fee_for amount
+  ✔ ensure ledger.balance' house = ledger.balance house + fee_for amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now
+  writes escrow seller house
+  examples 4/4   random tests 69/500 reached success, 0 violations
+  spec strength: guarantees 24/24 (prover 24, random tests 24); examples 20/24; together 24/24
+
+purchase [f15444ee]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now
+  writes buyer escrow seller house   (no guarantee about the new balance of seller, house)
+  examples 1/1   random tests 36/500 reached success, 0 violations
+  spec strength: guarantees 17/17 (prover 17, random tests 17); examples 17/17; together 17/17
+
+cancel [12c9e4f6]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer + amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved escrow buyer amount clock.now, then Released buyer amount clock.now, then Cancelled buyer clock.now
+  writes escrow buyer   (no guarantee about the new balance of escrow)
+  examples 1/1   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+
+refund [1e4ab4c6]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow - amount when buyer != seller and buyer != house
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer + part when buyer != seller and buyer != house
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved escrow buyer amount clock.now when part = amount, then Released buyer amount clock.now when part = amount, then Moved escrow buyer part clock.now when part < amount, then Moved escrow seller (amount - part) clock.now when part < amount and fee_for (amount - part) = 0, then Moved escrow seller (amount - part - fee_for (amount - part)) clock.now when part < amount and fee_for (amount - part) > 0, then Moved escrow house (fee_for (amount - part)) clock.now when part < amount and fee_for (amount - part) > 0, then Captured seller (amount - part) clock.now when part < amount
+  writes escrow buyer seller house   (no guarantee about the new balance of seller, house)
+  examples 2/2   random tests 0/500 reached success, 0 violations
+  spec strength: guarantees 33/34 (prover 33, random tests 0); examples 33/34; together 33/34
+      survived: `amount` → `part` in `release escrow buyer amount`
+
+split [e0a17086]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ✔ ensure ledger.balance' a = ledger.balance a + part
+  ✔ ensure ledger.balance' b = ledger.balance b + amount - part
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved escrow a part clock.now when part > 0, then Moved escrow b (amount - part) clock.now when amount - part > 0
+  writes escrow a b
+  examples 2/2   random tests 24/500 reached success, 0 violations
+  spec strength: guarantees 14/14 (prover 14, random tests 14); examples 14/14; together 14/14
+
+tip [0a3bb90f]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' seller = ledger.balance seller + amount
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer - amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved buyer seller amount clock.now when amount > 0, then Tipped seller amount clock.now
+  writes buyer seller
+  examples 2/2   random tests 221/500 reached success, 0 violations
+  spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+
+open_order [d606d59e]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure hold.get' id = amount
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow + amount
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer - amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Opened id amount clock.now
+  writes buyer escrow hold.id
+  examples 3/3   random tests 79/500 reached success, 0 violations
+  spec strength: guarantees 11/11 (prover 11, random tests 11); examples 7/11; together 11/11
+
+capture_order [52085654]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure hold.get' id = 0
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow - hold.get id
+  ✔ ensure ledger.balance' seller = ledger.balance seller + hold.get id - fee_for (hold.get id)
+  ✔ ensure captured.get' id = hold.get id
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ invariant o:Int captured.get o >= 0
+  ✔ emit Moved escrow seller (hold.get id) clock.now when fee_for (hold.get id) = 0, then Moved escrow seller (hold.get id - fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0, then Moved escrow house (fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0, then Captured seller (hold.get id) clock.now
+  writes escrow seller house captured.id hold.id   (no guarantee about the new balance of house)
+  examples 3/3   random tests 7/500 reached success, 0 violations
+  spec strength: guarantees 10/10 (prover 10, random tests 10); examples 10/10; together 10/10
+
+cancel_order [0e853947]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure hold.get' id = 0
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer + hold.get id
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ emit Moved escrow buyer (hold.get id) clock.now, then Released buyer (hold.get id) clock.now, then Cancelled buyer clock.now
+  writes escrow buyer hold.id   (no guarantee about the new balance of escrow)
+  examples 1/1   random tests 24/500 reached success, 0 violations
+  spec strength: guarantees 5/5 (prover 5, random tests 5); examples 5/5; together 5/5
+
+refund_order [8347fea4]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure hold.get' id = 0
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer + part when buyer != seller and buyer != house
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ emit Moved escrow buyer (hold.get id) clock.now when part = hold.get id, then Released buyer (hold.get id) clock.now when part = hold.get id, then Moved escrow buyer part clock.now when part < hold.get id, then Moved escrow seller (hold.get id - part) clock.now when part < hold.get id and fee_for (hold.get id - part) = 0, then Moved escrow seller (hold.get id - part - fee_for (hold.get id - part)) clock.now when part < hold.get id and fee_for (hold.get id - part) > 0, then Moved escrow house (fee_for (hold.get id - part)) clock.now when part < hold.get id and fee_for (hold.get id - part) > 0, then Captured seller (hold.get id - part) clock.now when part < hold.get id
+  writes escrow buyer seller house hold.id   (no guarantee about the new balance of escrow, seller, house)
+  examples 1/1   random tests 0/500 reached success, 0 violations
+  spec strength: guarantees 18/18 (prover 18, random tests 0); examples 18/18; together 18/18
+
+open_dispute [c9390920]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure disputed.get' id = 1
+  ✔ ensure hold.get' id = hold.get id
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ emit DisputeOpened id clock.now
+  writes disputed.id
+  examples 2/2   random tests 35/500 reached success, 0 violations
+  spec strength: guarantees 4/4 (prover 4, random tests 4); examples 2/4; together 4/4
+
+resolve_for_buyer [d5cfabae]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure hold.get' id = 0
+  ✔ ensure disputed.get' id = 0
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer + hold.get id
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ emit Moved escrow buyer (hold.get id) clock.now, then Released buyer (hold.get id) clock.now, then Resolved id clock.now
+  writes escrow buyer disputed.id hold.id   (no guarantee about the new balance of escrow)
+  examples 1/1   random tests 13/500 reached success, 0 violations
+  spec strength: guarantees 9/9 (prover 9, random tests 9); examples 7/9; together 9/9
+
+resolve_for_seller [9a3b6892]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure hold.get' id = 0
+  ✔ ensure disputed.get' id = 0
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow - hold.get id
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ emit Moved escrow seller (hold.get id) clock.now when fee_for (hold.get id) = 0, then Moved escrow seller (hold.get id - fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0, then Moved escrow house (fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0, then Captured seller (hold.get id) clock.now, then Resolved id clock.now
+  writes escrow seller house disputed.id hold.id   (no guarantee about the new balance of seller, house)
+  examples 1/1   random tests 6/500 reached success, 0 violations
+  spec strength: guarantees 13/13 (prover 13, random tests 13); examples 9/13; together 13/13
+
+resolve_split [dcd599c7]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure hold.get' id = 0
+  ✔ ensure disputed.get' id = 0
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer + part
+  ✔ ensure ledger.balance' seller = ledger.balance seller + hold.get id - part
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ emit Moved escrow buyer part clock.now when part > 0, then Moved escrow seller (hold.get id - part) clock.now when hold.get id - part > 0, then Resolved id clock.now
+  writes escrow buyer seller disputed.id hold.id   (no guarantee about the new balance of escrow)
+  examples 1/1   random tests 1/500 reached success, 0 violations
+  spec strength: guarantees 18/18 (prover 18, random tests 0); examples 12/18; together 18/18
+
+set_limit [7496f246]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure limit.get' a = n
+  writes limit.a
+  examples 1/1   random tests 422/500 reached success, 0 violations
+  spec strength: guarantees 1/1 (prover 1, random tests 1); examples 1/1; together 1/1
+
+freeze [b3972af7]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure frozen.get' a = 1
+  ✔ emit Froze a clock.now
+  writes frozen.a
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 4/4 (prover 4, random tests 4); examples 2/4; together 4/4
+
+unfreeze [d3d20587]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure frozen.get' a = 0
+  ✔ emit Unfroze a clock.now
+  writes frozen.a
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 4/4 (prover 4, random tests 4); examples 2/4; together 4/4
+
+withdraw [20495466]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure spent.get' a = spent.get a + amount
+  ✔ ensure ledger.balance' a = ledger.balance a - amount
+  ✔ ensure ledger.balance' bank = ledger.balance bank + amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved a bank amount clock.now
+  writes a bank spent.a
+  examples 3/3   random tests 7/500 reached success, 0 violations
+  spec strength: guarantees 7/7 (prover 7, random tests 7); examples 6/7; together 7/7
+
+reset_day [36d79103]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure spent.get' a = 0
+  writes spent.a
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 2/2; together 2/2
+
+payout_seller [5af1ba5e]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' seller = ledger.balance seller - amount
+  ✔ ensure spent.get' seller = spent.get seller + amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved seller bank amount clock.now, then PaidOut seller amount clock.now
+  writes seller bank spent.seller   (no guarantee about the new balance of bank)
+  examples 1/1   random tests 7/500 reached success, 0 violations
+  spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+
+deposit [48c57699]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' a = ledger.balance a + amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved bank a amount clock.now, then Deposited a amount clock.now
+  writes bank a   (no guarantee about the new balance of bank)
+  examples 1/1   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+
+purchase_order [05a3f601]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure hold.get' id = 0
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ invariant o:Int captured.get o >= 0
+  ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Opened id amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now
+  writes buyer escrow seller house captured.id hold.id   (no guarantee about the new balance of seller, house, captured.id)
+  examples 1/1   random tests 21/500 reached success, 0 violations
+  spec strength: guarantees 20/20 (prover 20, random tests 20); examples 20/20; together 20/20
+
+verify [431233e0]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure verified.get' a = 1
+  ✔ emit Verified a clock.now
+  writes verified.a
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 4/4 (prover 4, random tests 4); examples 2/4; together 4/4
+
+unverify [fa183b0c]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure verified.get' a = 0
+  ✔ emit Unverified a clock.now
+  writes verified.a
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 4/4 (prover 4, random tests 4); examples 2/4; together 4/4
+
+earn_points [cb4e99cd]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure points.get' a = points.get a + points_for amount
+  ✔ invariant a:Account points.get a >= 0
+  writes points.a
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 2/2; together 2/2
+
+redeem_points [8dab20bc]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure points.get' a = points.get a - n
+  ✔ ensure ledger.balance' a = ledger.balance a + n
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant a:Account points.get a >= 0
+  ✔ emit Moved house a n clock.now, then Redeemed a n clock.now
+  writes a house points.a   (no guarantee about the new balance of house)
+  examples 2/2   random tests 45/500 reached success, 0 violations
+  spec strength: guarantees 10/10 (prover 10, random tests 10); examples 7/10; together 10/10
+
+clear_points [6e3a08ae]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure points.get' a = 0
+  ✔ invariant a:Account points.get a >= 0
+  writes points.a
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 2/2; together 2/2
+
+transfer_points [e04aa6a5]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure points.get' a = points.get a - n
+  ✔ ensure points.get' b = points.get b + n
+  ✔ invariant a:Account points.get a >= 0
+  writes points.a points.b
+  examples 1/1   random tests 45/500 reached success, 0 violations
+  spec strength: guarantees 8/8 (prover 8, random tests 8); examples 8/8; together 8/8
+
+purchase_earning [5e54f141]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure points.get' buyer = points.get buyer + points_for amount
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant a:Account points.get a >= 0
+  ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now
+  writes buyer escrow seller house points.buyer   (no guarantee about the new balance of buyer, seller, house)
+  examples 1/1   random tests 36/500 reached success, 0 violations
+  spec strength: guarantees 17/17 (prover 17, random tests 17); examples 17/17; together 17/17
+
+subscribe [cb15dc87]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure sub_amount.get' id = amount
+  ✔ ensure sub_due.get' id = clock.now + 30
+  ✔ invariant o:Int sub_amount.get o >= 0
+  ✔ emit Subscribed id buyer amount clock.now
+  writes sub_amount.id sub_due.id
+  examples 1/1   random tests 178/500 reached success, 0 violations
+  spec strength: guarantees 12/12 (prover 12, random tests 12); examples 8/12; together 12/12
+
+change_sub [657bc3af]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure sub_amount.get' id = amount
+  ✔ invariant o:Int sub_amount.get o >= 0
+  writes sub_amount.id
+  examples 1/1   random tests 79/500 reached success, 0 violations
+  spec strength: guarantees 3/3 (prover 3, random tests 3); examples 3/3; together 3/3
+
+cancel_sub [17881b9f]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure sub_amount.get' id = 0
+  ✔ ensure paused.get' id = 0
+  ✔ invariant o:Int sub_amount.get o >= 0
+  ✔ emit SubCancelled id clock.now
+  writes paused.id sub_amount.id
+  examples 1/1   random tests 71/500 reached success, 0 violations
+  spec strength: guarantees 6/6 (prover 6, random tests 6); examples 2/6; together 6/6
+
+pause_sub [5051c15e]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure paused.get' id = 1
+  writes paused.id
+  examples 1/1   random tests 40/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 2/2; together 2/2
+
+resume_sub [5e36b178]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure paused.get' id = 0
+  ✔ ensure sub_due.get' id = clock.now + 30
+  writes paused.id sub_due.id
+  examples 1/1   random tests 40/500 reached success, 0 violations
+  spec strength: guarantees 6/6 (prover 6, random tests 6); examples 6/6; together 6/6
+
+charge_sub [5d66877b]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure sub_due.get' id = sub_due.get id + 30
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved buyer escrow (sub_amount.get id) clock.now, then Reserved buyer (sub_amount.get id) clock.now, then Moved escrow seller (sub_amount.get id) clock.now when fee_for (sub_amount.get id) = 0, then Moved escrow seller (sub_amount.get id - fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0, then Moved escrow house (fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0, then Captured seller (sub_amount.get id) clock.now, then Charged id clock.now
+  writes buyer escrow seller house sub_due.id   (no guarantee about the new balance of buyer, seller, house)
+  examples 2/2   random tests 7/500 reached success, 0 violations
+  spec strength: guarantees 18/18 (prover 18, random tests 16); examples 16/18; together 18/18
+
+charge_sub_with_points [ffd520e2]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure points.get' buyer = points.get buyer + points_for (sub_amount.get id)
+  ✔ ensure sub_due.get' id = sub_due.get id + 30
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant a:Account points.get a >= 0
+  ✔ emit Moved buyer escrow (sub_amount.get id) clock.now, then Reserved buyer (sub_amount.get id) clock.now, then Moved escrow seller (sub_amount.get id) clock.now when fee_for (sub_amount.get id) = 0, then Moved escrow seller (sub_amount.get id - fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0, then Moved escrow house (fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0, then Captured seller (sub_amount.get id) clock.now, then Charged id clock.now
+  writes buyer escrow seller house points.buyer sub_due.id   (no guarantee about the new balance of buyer, escrow, seller, house)
+  examples 1/1   random tests 7/500 reached success, 0 violations
+  spec strength: guarantees 17/17 (prover 17, random tests 11); examples 17/17; together 17/17
+
+charge_late [bdee2257]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' house = ledger.balance house + late_fee days
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved buyer house (late_fee days) clock.now when late_fee days > 0
+  writes buyer house   (no guarantee about the new balance of buyer)
+  examples 2/2   random tests 75/500 reached success, 0 violations
+  spec strength: guarantees 4/4 (prover 4, random tests 4); examples 4/4; together 4/4
+
+chargeback [c20ae420]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure captured.get' id = 0
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer + captured.get id
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int captured.get o >= 0
+  ✔ emit Moved seller buyer (captured.get id) clock.now, then ChargedBack id clock.now
+  writes seller buyer captured.id   (no guarantee about the new balance of seller)
+  examples 2/2   random tests 55/500 reached success, 0 violations
+  spec strength: guarantees 7/7 (prover 7, random tests 7); examples 5/7; together 7/7
+
+payout_holdback [5b499501]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' seller = ledger.balance seller - amount
+  ✔ ensure ledger.balance' reserve = ledger.balance reserve + holdback_for amount
+  ✔ ensure spent.get' seller = spent.get seller + amount - holdback_for amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved seller reserve (holdback_for amount) clock.now when holdback_for amount > 0, then Moved seller bank (amount - holdback_for amount) clock.now, then Held seller (holdback_for amount) clock.now
+  writes seller reserve bank spent.seller   (no guarantee about the new balance of bank)
+  examples 1/1   random tests 4/500 reached success, 0 violations
+  spec strength: guarantees 15/15 (prover 15, random tests 9); examples 11/15; together 15/15
+
+release_holdback [7e971853]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' seller = ledger.balance seller + amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ emit Moved reserve seller amount clock.now, then HoldbackReleased seller amount clock.now
+  writes reserve seller   (no guarantee about the new balance of reserve)
+  examples 1/1   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+
+checkout2 [61b9acc3]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer - a1 - a2
+  ✔ ensure ledger.balance' escrow = ledger.balance escrow
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ invariant o:Int captured.get o >= 0
+  ✔ emit Moved buyer escrow a1 clock.now, then Reserved buyer a1 clock.now, then Opened id1 a1 clock.now, then Moved escrow seller1 a1 clock.now when fee_for a1 = 0, then Moved escrow seller1 (a1 - fee_for a1) clock.now when fee_for a1 > 0, then Moved escrow house (fee_for a1) clock.now when fee_for a1 > 0, then Captured seller1 a1 clock.now, then Moved buyer escrow a2 clock.now, then Reserved buyer a2 clock.now, then Opened id2 a2 clock.now, then Moved escrow seller2 a2 clock.now when fee_for a2 = 0, then Moved escrow seller2 (a2 - fee_for a2) clock.now when fee_for a2 > 0, then Moved escrow house (fee_for a2) clock.now when fee_for a2 > 0, then Captured seller2 a2 clock.now, then CheckedOut buyer (a1 + a2) clock.now
+  writes buyer escrow seller1 seller2 house captured.id1 captured.id2 hold.id1 hold.id2   (no guarantee about the new balance of seller1, seller2, house, captured.id1, captured.id2, hold.id1, hold.id2)
+  examples 2/2   random tests 0/500 reached success, 0 violations
+  spec strength: guarantees 59/59 (prover 59, random tests 0); examples 38/59; together 59/59
+
+checkout_vat [1fd2f4ea]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer - amount - vat_of amount
+  ✔ ensure ledger.balance' tax = ledger.balance tax + vat_of amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ invariant o:Int captured.get o >= 0
+  ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Opened id amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now, then Moved buyer tax (vat_of amount) clock.now when vat_of amount > 0
+  writes buyer escrow seller house tax captured.id hold.id   (no guarantee about the new balance of escrow, seller, house, captured.id, hold.id)
+  examples 1/1   random tests 0/500 reached success, 0 violations
+  spec strength: guarantees 29/29 (prover 29, random tests 0); examples 27/29; together 29/29
+
+checkout_tip [713f9ad9]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer - amount - extra
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ invariant o:Int captured.get o >= 0
+  ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Opened id amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now, then Moved buyer seller extra clock.now when extra > 0, then Tipped seller extra clock.now
+  writes buyer escrow seller house captured.id hold.id   (no guarantee about the new balance of escrow, seller, house, captured.id, hold.id)
+  examples 1/1   random tests 0/500 reached success, 0 violations
+  spec strength: guarantees 26/26 (prover 26, random tests 0); examples 24/26; together 26/26
+
+checkout_points [f8f61c99]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure points.get' buyer = points.get buyer + points_for amount
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer - amount
+  ✔ invariant a:Account ledger.balance a >= 0
+  ✔ invariant o:Int hold.get o >= 0
+  ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
+  ✔ invariant o:Int captured.get o >= 0
+  ✔ invariant a:Account points.get a >= 0
+  ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Opened id amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now
+  writes buyer escrow seller house captured.id hold.id points.buyer   (no guarantee about the new balance of escrow, seller, house, captured.id, hold.id)
+  examples 1/1   random tests 0/500 reached success, 0 violations
+  spec strength: guarantees 20/20 (prover 20, random tests 0); examples 19/20; together 20/20
+
+close_account [4535776a]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure frozen.get' a = 1
+  ✔ ensure verified.get' a = 0
+  ✔ emit Closed a clock.now
+  writes frozen.a verified.a
+  examples 2/2   random tests 1/500 reached success, 0 violations
+  spec strength: guarantees 6/6 (prover 6, random tests 6); examples 4/6; together 6/6
+
+reopen_account [714b117b]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure frozen.get' a = 0
+  ✔ emit Unfroze a clock.now, then Reopened a clock.now
+  writes frozen.a
+  examples 1/1   random tests 107/500 reached success, 0 violations
+  spec strength: guarantees 3/3 (prover 3, random tests 3); examples 1/3; together 3/3
+
+
+$ kern view examples/escrow/escrow_s3.k fee_for --as iface   (exit 0)
+fee_for amount:Int -> Int
+  uses 
+
+$ kern view examples/escrow/escrow_s3.k fee_for --as spec   (exit 0)
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k fee_for --as editor   (exit 0)
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  eg | fee_for 250 -> ok
+body
+  if amount < 100
+    result = 0
+  else
+    if amount < 1000
+      result = amount * 2 / 100
+    else
+      result = amount / 100 + 10
+
+$ kern view examples/escrow/escrow_s3.k vat_of --as iface   (exit 0)
+vat_of amount:Int -> Int
+  uses 
+
+$ kern view examples/escrow/escrow_s3.k vat_of --as spec   (exit 0)
+vat_of amount:Int -> Int
+  uses 
+  ensure result = amount / 4
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k vat_of --as editor   (exit 0)
+vat_of amount:Int -> Int
+  uses 
+  ensure result = amount / 4
+  eg | vat_of 100 -> ok
+body
+  result = amount / 4
+
+$ kern view examples/escrow/escrow_s3.k points_for --as iface   (exit 0)
+points_for amount:Int -> Int
+  uses 
+
+$ kern view examples/escrow/escrow_s3.k points_for --as spec   (exit 0)
+points_for amount:Int -> Int
+  uses 
+  ensure result = amount / 100 when amount >= 0
+  ensure result = 0 when amount < 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k points_for --as editor   (exit 0)
+points_for amount:Int -> Int
+  uses 
+  ensure result = amount / 100 when amount >= 0
+  ensure result = 0 when amount < 0
+  eg | points_for 250 -> ok
+body
+  if amount >= 0
+    result = amount / 100
+  else
+    result = 0
+
+$ kern view examples/escrow/escrow_s3.k holdback_for --as iface   (exit 0)
+holdback_for amount:Int -> Int
+  uses 
+
+$ kern view examples/escrow/escrow_s3.k holdback_for --as spec   (exit 0)
+holdback_for amount:Int -> Int
+  uses 
+  ensure result = amount / 10
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k holdback_for --as editor   (exit 0)
+holdback_for amount:Int -> Int
+  uses 
+  ensure result = amount / 10
+  eg | holdback_for 250 -> ok
+body
+  result = amount / 10
+
+$ kern view examples/escrow/escrow_s3.k late_fee --as iface   (exit 0)
+late_fee days:Int -> Int
+  uses 
+
+$ kern view examples/escrow/escrow_s3.k late_fee --as spec   (exit 0)
+late_fee days:Int -> Int
+  uses 
+  ensure result = 0 when days <= 0
+  ensure result = days * 5 when days > 0 and days <= 10
+  ensure result = 50 when days > 10
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k late_fee --as editor   (exit 0)
+late_fee days:Int -> Int
+  uses 
+  ensure result = 0 when days <= 0
+  ensure result = days * 5 when days > 0 and days <= 10
+  ensure result = 50 when days > 10
+  eg | late_fee 3 -> ok
+body
+  if days <= 0
+    result = 0
+  else
+    if days <= 10
+      result = days * 5
+    else
+      result = 50
+
+$ kern view examples/escrow/escrow_s3.k transfer --as iface   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k transfer --as spec   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k transfer --as editor   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  eg A:500@u1 B:0@u2 | transfer A B 100 -> ok | A:400 B:100
+  eg A:50@u1 B:0@u2 | transfer A B 100 -> Insufficient 50
+  eg A:500@u1 B:0@u2 | transfer A A 100 -> SameAccount
+  eg A:500@u1 B:0@u2 | transfer A B 0 -> BadAmount
+body
+  ledger.debit from amount
+  ledger.credit to amount
+  audit.emit (Moved from to amount clock.now)
+
+$ kern view examples/escrow/escrow_s3.k move --as iface   (exit 0)
+move from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k move --as spec   (exit 0)
+move from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount >= 0 else BadAmount
+  need amount = 0 or from != to else SameAccount
+  need amount = 0 or ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now when amount > 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k move --as editor   (exit 0)
+move from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount >= 0 else BadAmount
+  need amount = 0 or from != to else SameAccount
+  need amount = 0 or ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now when amount > 0
+  eg A:500@u1 B:0@u2 | move A B 0 -> ok | A:500 B:0
+  eg A:500@u1 B:0@u2 | move A B 100 -> ok | A:400 B:100
+  eg A:0@u1 | move A A 0 -> ok | A:0
+body
+  if amount > 0
+    transfer from to amount
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k reserve --as iface   (exit 0)
+reserve buyer:Account escrow:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k reserve --as spec   (exit 0)
+reserve buyer:Account escrow:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  ensure ledger.balance' escrow = ledger.balance escrow + amount
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k reserve --as editor   (exit 0)
+reserve buyer:Account escrow:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow
+  fails BadAmount SameAccount Insufficient(Int)
+  need as transfer buyer escrow amount
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  ensure ledger.balance' escrow = ledger.balance escrow + amount
+  emit as transfer buyer escrow amount
+  emit Reserved buyer amount clock.now
+  eg A:500@u1 E:0@u0 | reserve A E 100 -> ok | A:400 E:100
+  eg A:50@u1 E:0@u0 | reserve A E 100 -> Insufficient 50
+body
+  transfer buyer escrow amount
+  audit.emit (Reserved buyer amount clock.now)
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k release --as iface   (exit 0)
+release escrow:Account buyer:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow buyer
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k release --as spec   (exit 0)
+release escrow:Account buyer:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow buyer
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need escrow != buyer else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' buyer = ledger.balance buyer + amount
+  emit Moved escrow buyer amount clock.now
+  emit Released buyer amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k release --as editor   (exit 0)
+release escrow:Account buyer:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow buyer
+  fails BadAmount SameAccount Insufficient(Int)
+  need as transfer escrow buyer amount
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' buyer = ledger.balance buyer + amount
+  emit as transfer escrow buyer amount
+  emit Released buyer amount clock.now
+  eg A:400@u1 E:100@u0 | release E A 100 -> ok | A:500 E:0
+body
+  transfer escrow buyer amount
+  audit.emit (Released buyer amount clock.now)
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k capture --as iface   (exit 0)
+capture escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k capture --as spec   (exit 0)
+capture escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need distinct escrow seller house else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' seller = ledger.balance seller + amount - fee_for amount
+  ensure ledger.balance' house = ledger.balance house + fee_for amount
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k capture --as editor   (exit 0)
+capture escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need distinct escrow seller house else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' seller = ledger.balance seller + amount - fee_for amount
+  ensure ledger.balance' house = ledger.balance house + fee_for amount
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  eg E:100@u0 B:0@u2 H:0@u9 | capture E B H 50 -> ok | E:50 B:50 H:0
+  eg E:500@u0 B:0@u2 H:0@u9 | capture E B H 250 -> ok | E:250 B:245 H:5
+  eg E:50@u0 B:0@u2 H:0@u9 | capture E B H 250 -> Insufficient 200
+  eg E:5000@u0 B:0@u2 H:0@u9 | capture E B H 2000 -> ok | E:3000 B:1970 H:30
+body
+  fee = fee_for amount
+  if fee = 0
+    transfer escrow seller amount
+  else
+    transfer escrow seller (amount - fee)
+    transfer escrow house fee
+  audit.emit (Captured seller amount clock.now)
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k purchase --as iface   (exit 0)
+purchase buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k purchase --as spec   (exit 0)
+purchase buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  ensure ledger.balance' escrow = ledger.balance escrow
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k purchase --as editor   (exit 0)
+purchase buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+  need as reserve buyer escrow amount
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  ensure ledger.balance' escrow = ledger.balance escrow
+  emit as reserve buyer escrow amount
+  emit as capture escrow seller house amount
+  eg A:500@u1 E:0@u0 B:0@u2 H:0@u9 | purchase A E B H 200 -> ok | A:300 E:0 B:196 H:4
+body
+  reserve buyer escrow amount
+  capture escrow seller house amount
+
+reserve buyer:Account escrow:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  ensure ledger.balance' escrow = ledger.balance escrow + amount
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  proof ok
+
+capture escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need distinct escrow seller house else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' seller = ledger.balance seller + amount - fee_for amount
+  ensure ledger.balance' house = ledger.balance house + fee_for amount
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k cancel --as iface   (exit 0)
+cancel escrow:Account buyer:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow buyer
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k cancel --as spec   (exit 0)
+cancel escrow:Account buyer:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow buyer
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need escrow != buyer else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer + amount
+  emit Moved escrow buyer amount clock.now
+  emit Released buyer amount clock.now
+  emit Cancelled buyer clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k cancel --as editor   (exit 0)
+cancel escrow:Account buyer:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow buyer
+  fails BadAmount SameAccount Insufficient(Int)
+  need as release escrow buyer amount
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer + amount
+  emit as release escrow buyer amount
+  emit Cancelled buyer clock.now
+  eg A:400@u1 E:100@u0 | cancel E A 100 -> ok | A:500 E:0
+body
+  release escrow buyer amount
+  audit.emit (Cancelled buyer clock.now)
+
+release escrow:Account buyer:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow buyer
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need escrow != buyer else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' buyer = ledger.balance buyer + amount
+  emit Moved escrow buyer amount clock.now
+  emit Released buyer amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k refund --as iface   (exit 0)
+refund escrow:Account buyer:Account seller:Account house:Account amount:Int part:Int
+  uses ledger.write clock audit
+  writes escrow buyer seller house
+  fails BadPart SameAccount Insufficient(Int) BadAmount
+
+$ kern view examples/escrow/escrow_s3.k refund --as spec   (exit 0)
+refund escrow:Account buyer:Account seller:Account house:Account amount:Int part:Int
+  uses ledger.write clock audit
+  writes escrow buyer seller house
+  fails BadPart SameAccount Insufficient(Int) BadAmount
+  need part > 0 and part <= amount else BadPart
+  need distinct escrow buyer seller house else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount when buyer != seller and buyer != house
+  ensure ledger.balance' buyer = ledger.balance buyer + part when buyer != seller and buyer != house
+  emit Moved escrow buyer amount clock.now when part = amount
+  emit Released buyer amount clock.now when part = amount
+  emit Moved escrow buyer part clock.now when part < amount
+  emit Moved escrow seller (amount - part) clock.now when part < amount and fee_for (amount - part) = 0
+  emit Moved escrow seller (amount - part - fee_for (amount - part)) clock.now when part < amount and fee_for (amount - part) > 0
+  emit Moved escrow house (fee_for (amount - part)) clock.now when part < amount and fee_for (amount - part) > 0
+  emit Captured seller (amount - part) clock.now when part < amount
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k refund --as editor   (exit 0)
+refund escrow:Account buyer:Account seller:Account house:Account amount:Int part:Int
+  uses ledger.write clock audit
+  writes escrow buyer seller house
+  fails BadPart SameAccount Insufficient(Int) BadAmount
+  need part > 0 and part <= amount else BadPart
+  need distinct escrow buyer seller house else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount when buyer != seller and buyer != house
+  ensure ledger.balance' buyer = ledger.balance buyer + part when buyer != seller and buyer != house
+  emit as release escrow buyer amount when part = amount
+  emit Moved escrow buyer part clock.now when part < amount
+  emit as capture escrow seller house (amount - part) when part < amount
+  eg E:100@u0 A:0@u1 B:0@u2 H:0@u9 | refund E A B H 100 100 -> ok | E:0 A:100 B:0 H:0
+  eg E:300@u0 A:0@u1 B:0@u2 H:0@u9 | refund E A B H 300 100 -> ok | E:0 A:100 B:196 H:4
+body
+  if part = amount
+    release escrow buyer amount
+  else
+    transfer escrow buyer part
+    capture escrow seller house (amount - part)
+
+release escrow:Account buyer:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow buyer
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need escrow != buyer else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' buyer = ledger.balance buyer + amount
+  emit Moved escrow buyer amount clock.now
+  emit Released buyer amount clock.now
+  proof ok
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+capture escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need distinct escrow seller house else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' seller = ledger.balance seller + amount - fee_for amount
+  ensure ledger.balance' house = ledger.balance house + fee_for amount
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k split --as iface   (exit 0)
+split escrow:Account a:Account b:Account amount:Int part:Int
+  uses ledger.write clock audit
+  writes escrow a b
+  fails BadPart SameAccount Insufficient(Int) BadAmount
+
+$ kern view examples/escrow/escrow_s3.k split --as spec   (exit 0)
+split escrow:Account a:Account b:Account amount:Int part:Int
+  uses ledger.write clock audit
+  writes escrow a b
+  fails BadPart SameAccount Insufficient(Int) BadAmount
+  need part >= 0 and part <= amount else BadPart
+  need distinct escrow a b else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' a = ledger.balance a + part
+  ensure ledger.balance' b = ledger.balance b + amount - part
+  emit Moved escrow a part clock.now when part > 0
+  emit Moved escrow b (amount - part) clock.now when amount - part > 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k split --as editor   (exit 0)
+split escrow:Account a:Account b:Account amount:Int part:Int
+  uses ledger.write clock audit
+  writes escrow a b
+  fails BadPart SameAccount Insufficient(Int) BadAmount
+  need part >= 0 and part <= amount else BadPart
+  need distinct escrow a b else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' a = ledger.balance a + part
+  ensure ledger.balance' b = ledger.balance b + amount - part
+  emit as move escrow a part
+  emit as move escrow b (amount - part)
+  eg E:100@u0 A:0@u1 B:0@u2 | split E A B 100 30 -> ok | E:0 A:30 B:70
+  eg E:100@u0 A:0@u1 B:0@u2 | split E A B 100 100 -> ok | E:0 A:100 B:0
+body
+  move escrow a part
+  move escrow b (amount - part)
+
+move from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount >= 0 else BadAmount
+  need amount = 0 or from != to else SameAccount
+  need amount = 0 or ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now when amount > 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k tip --as iface   (exit 0)
+tip buyer:Account seller:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer seller
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k tip --as spec   (exit 0)
+tip buyer:Account seller:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer seller
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount >= 0 else BadAmount
+  need amount = 0 or buyer != seller else SameAccount
+  need amount = 0 or ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' seller = ledger.balance seller + amount
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  emit Moved buyer seller amount clock.now when amount > 0
+  emit Tipped seller amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k tip --as editor   (exit 0)
+tip buyer:Account seller:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer seller
+  fails BadAmount SameAccount Insufficient(Int)
+  need as move buyer seller amount
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' seller = ledger.balance seller + amount
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  emit as move buyer seller amount
+  emit Tipped seller amount clock.now
+  eg A:10@u1 B:0@u2 | tip A B 0 -> ok | A:10 B:0
+  eg A:10@u1 B:0@u2 | tip A B 5 -> ok | A:5 B:5
+body
+  move buyer seller amount
+  audit.emit (Tipped seller amount clock.now)
+
+move from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount >= 0 else BadAmount
+  need amount = 0 or from != to else SameAccount
+  need amount = 0 or ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now when amount > 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k open_order --as iface   (exit 0)
+open_order id:Int buyer:Account escrow:Account amount:Int
+  uses ledger.write clock audit frozen.read hold.write
+  writes buyer escrow hold.id
+  fails OrderExists Frozen BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k open_order --as spec   (exit 0)
+open_order id:Int buyer:Account escrow:Account amount:Int
+  uses ledger.write clock audit frozen.read hold.write
+  writes buyer escrow hold.id
+  fails OrderExists Frozen BadAmount SameAccount Insufficient(Int)
+  need hold.get id = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = amount
+  ensure ledger.balance' escrow = ledger.balance escrow + amount
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Opened id amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k open_order --as editor   (exit 0)
+open_order id:Int buyer:Account escrow:Account amount:Int
+  uses ledger.write clock audit frozen.read hold.write
+  writes buyer escrow hold.id
+  fails OrderExists Frozen BadAmount SameAccount Insufficient(Int)
+  need hold.get id = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need as reserve buyer escrow amount
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = amount
+  ensure ledger.balance' escrow = ledger.balance escrow + amount
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  emit as reserve buyer escrow amount
+  emit Opened id amount clock.now
+  eg A:500@u1 E:0@u0 | open_order 7 A E 100 -> ok | A:400 E:100 hold.7:100
+  eg A:500@u1 E:0@u0 hold.7:5 | open_order 7 A E 100 -> OrderExists
+  eg A:500@u1 E:0@u0 frozen.A:1 | open_order 7 A E 100 -> Frozen
+body
+  reserve buyer escrow amount
+  hold.set id amount
+  audit.emit (Opened id amount clock.now)
+
+reserve buyer:Account escrow:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  ensure ledger.balance' escrow = ledger.balance escrow + amount
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k capture_order --as iface   (exit 0)
+capture_order id:Int escrow:Account seller:Account house:Account
+  uses ledger.write clock audit captured.write disputed.read hold.write
+  writes escrow seller house captured.id hold.id
+  fails NoOrder Disputed BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k capture_order --as spec   (exit 0)
+capture_order id:Int escrow:Account seller:Account house:Account
+  uses ledger.write clock audit captured.write disputed.read hold.write
+  writes escrow seller house captured.id hold.id
+  fails NoOrder Disputed BadAmount SameAccount Insufficient(Int)
+  need hold.get id > 0 else NoOrder
+  need disputed.get id = 0 else Disputed
+  need hold.get id > 0 else BadAmount
+  need distinct escrow seller house else SameAccount
+  need ledger.balance escrow >= hold.get id else Insufficient (hold.get id - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' escrow = ledger.balance escrow - hold.get id
+  ensure ledger.balance' seller = ledger.balance seller + hold.get id - fee_for (hold.get id)
+  emit Moved escrow seller (hold.get id) clock.now when fee_for (hold.get id) = 0
+  emit Moved escrow seller (hold.get id - fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0
+  emit Moved escrow house (fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0
+  emit Captured seller (hold.get id) clock.now
+  ensure captured.get' id = hold.get id
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k capture_order --as editor   (exit 0)
+capture_order id:Int escrow:Account seller:Account house:Account
+  uses ledger.write clock audit captured.write disputed.read hold.write
+  writes escrow seller house captured.id hold.id
+  fails NoOrder Disputed BadAmount SameAccount Insufficient(Int)
+  need hold.get id > 0 else NoOrder
+  need disputed.get id = 0 else Disputed
+  need as capture escrow seller house (hold.get id)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' escrow = ledger.balance escrow - hold.get id
+  ensure ledger.balance' seller = ledger.balance seller + hold.get id - fee_for (hold.get id)
+  emit as capture escrow seller house (hold.get id)
+  ensure captured.get' id = hold.get id
+  eg E:300@u0 B:0@u2 H:0@u9 hold.7:250 | capture_order 7 E B H -> ok | E:50 B:245 H:5 hold.7:0 captured.7:250
+  eg E:300@u0 B:0@u2 H:0@u9 hold.7:250 disputed.7:1 | capture_order 7 E B H -> Disputed
+  eg E:300@u0 B:0@u2 H:0@u9 | capture_order 7 E B H -> NoOrder
+body
+  captured.set id (hold.get id)
+  capture escrow seller house (hold.get id)
+  hold.set id 0
+
+capture escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need distinct escrow seller house else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' seller = ledger.balance seller + amount - fee_for amount
+  ensure ledger.balance' house = ledger.balance house + fee_for amount
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k cancel_order --as iface   (exit 0)
+cancel_order id:Int escrow:Account buyer:Account
+  uses ledger.write clock audit disputed.read hold.write
+  writes escrow buyer hold.id
+  fails NoOrder Disputed BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k cancel_order --as spec   (exit 0)
+cancel_order id:Int escrow:Account buyer:Account
+  uses ledger.write clock audit disputed.read hold.write
+  writes escrow buyer hold.id
+  fails NoOrder Disputed BadAmount SameAccount Insufficient(Int)
+  need hold.get id > 0 else NoOrder
+  need disputed.get id = 0 else Disputed
+  need hold.get id > 0 else BadAmount
+  need escrow != buyer else SameAccount
+  need ledger.balance escrow >= hold.get id else Insufficient (hold.get id - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' buyer = ledger.balance buyer + hold.get id
+  emit Moved escrow buyer (hold.get id) clock.now
+  emit Released buyer (hold.get id) clock.now
+  emit Cancelled buyer clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k cancel_order --as editor   (exit 0)
+cancel_order id:Int escrow:Account buyer:Account
+  uses ledger.write clock audit disputed.read hold.write
+  writes escrow buyer hold.id
+  fails NoOrder Disputed BadAmount SameAccount Insufficient(Int)
+  need hold.get id > 0 else NoOrder
+  need disputed.get id = 0 else Disputed
+  need as cancel escrow buyer (hold.get id)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' buyer = ledger.balance buyer + hold.get id
+  emit as cancel escrow buyer (hold.get id)
+  eg E:100@u0 A:0@u1 hold.3:100 | cancel_order 3 E A -> ok | E:0 A:100 hold.3:0
+body
+  cancel escrow buyer (hold.get id)
+  hold.set id 0
+
+cancel escrow:Account buyer:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow buyer
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need escrow != buyer else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer + amount
+  emit Moved escrow buyer amount clock.now
+  emit Released buyer amount clock.now
+  emit Cancelled buyer clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k refund_order --as iface   (exit 0)
+refund_order id:Int escrow:Account buyer:Account seller:Account house:Account part:Int
+  uses ledger.write clock audit disputed.read hold.write
+  writes escrow buyer seller house hold.id
+  fails NoOrder Disputed BadPart SameAccount Insufficient(Int) BadAmount
+
+$ kern view examples/escrow/escrow_s3.k refund_order --as spec   (exit 0)
+refund_order id:Int escrow:Account buyer:Account seller:Account house:Account part:Int
+  uses ledger.write clock audit disputed.read hold.write
+  writes escrow buyer seller house hold.id
+  fails NoOrder Disputed BadPart SameAccount Insufficient(Int) BadAmount
+  need hold.get id > 0 else NoOrder
+  need disputed.get id = 0 else Disputed
+  need part > 0 and part <= hold.get id else BadPart
+  need distinct escrow buyer seller house else SameAccount
+  need ledger.balance escrow >= hold.get id else Insufficient (hold.get id - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' buyer = ledger.balance buyer + part when buyer != seller and buyer != house
+  emit Moved escrow buyer (hold.get id) clock.now when part = hold.get id
+  emit Released buyer (hold.get id) clock.now when part = hold.get id
+  emit Moved escrow buyer part clock.now when part < hold.get id
+  emit Moved escrow seller (hold.get id - part) clock.now when part < hold.get id and fee_for (hold.get id - part) = 0
+  emit Moved escrow seller (hold.get id - part - fee_for (hold.get id - part)) clock.now when part < hold.get id and fee_for (hold.get id - part) > 0
+  emit Moved escrow house (fee_for (hold.get id - part)) clock.now when part < hold.get id and fee_for (hold.get id - part) > 0
+  emit Captured seller (hold.get id - part) clock.now when part < hold.get id
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k refund_order --as editor   (exit 0)
+refund_order id:Int escrow:Account buyer:Account seller:Account house:Account part:Int
+  uses ledger.write clock audit disputed.read hold.write
+  writes escrow buyer seller house hold.id
+  fails NoOrder Disputed BadPart SameAccount Insufficient(Int) BadAmount
+  need hold.get id > 0 else NoOrder
+  need disputed.get id = 0 else Disputed
+  need as refund escrow buyer seller house (hold.get id) part
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' buyer = ledger.balance buyer + part when buyer != seller and buyer != house
+  emit as refund escrow buyer seller house (hold.get id) part
+  eg E:300@u0 A:0@u1 B:0@u2 H:0@u9 hold.4:300 | refund_order 4 E A B H 100 -> ok | E:0 A:100 B:196 H:4 hold.4:0
+body
+  refund escrow buyer seller house (hold.get id) part
+  hold.set id 0
+
+refund escrow:Account buyer:Account seller:Account house:Account amount:Int part:Int
+  uses ledger.write clock audit
+  writes escrow buyer seller house
+  fails BadPart SameAccount Insufficient(Int) BadAmount
+  need part > 0 and part <= amount else BadPart
+  need distinct escrow buyer seller house else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount when buyer != seller and buyer != house
+  ensure ledger.balance' buyer = ledger.balance buyer + part when buyer != seller and buyer != house
+  emit Moved escrow buyer amount clock.now when part = amount
+  emit Released buyer amount clock.now when part = amount
+  emit Moved escrow buyer part clock.now when part < amount
+  emit Moved escrow seller (amount - part) clock.now when part < amount and fee_for (amount - part) = 0
+  emit Moved escrow seller (amount - part - fee_for (amount - part)) clock.now when part < amount and fee_for (amount - part) > 0
+  emit Moved escrow house (fee_for (amount - part)) clock.now when part < amount and fee_for (amount - part) > 0
+  emit Captured seller (amount - part) clock.now when part < amount
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k open_dispute --as iface   (exit 0)
+open_dispute id:Int
+  uses clock audit disputed.write hold.read
+  writes disputed.id
+  fails NoOrder Disputed
+
+$ kern view examples/escrow/escrow_s3.k open_dispute --as spec   (exit 0)
+open_dispute id:Int
+  uses clock audit disputed.write hold.read
+  writes disputed.id
+  fails NoOrder Disputed
+  need hold.get id > 0 else NoOrder
+  need disputed.get id = 0 else Disputed
+  ok otherwise
+  keep ledger.total
+  ensure disputed.get' id = 1
+  ensure hold.get' id = hold.get id
+  emit DisputeOpened id clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k open_dispute --as editor   (exit 0)
+open_dispute id:Int
+  uses clock audit disputed.write hold.read
+  writes disputed.id
+  fails NoOrder Disputed
+  need hold.get id > 0 else NoOrder
+  need disputed.get id = 0 else Disputed
+  ok otherwise
+  keep ledger.total
+  ensure disputed.get' id = 1
+  ensure hold.get' id = hold.get id
+  emit DisputeOpened id clock.now
+  eg hold.5:100 | open_dispute 5 -> ok | disputed.5:1
+  eg | open_dispute 5 -> NoOrder
+body
+  disputed.set id 1
+  audit.emit (DisputeOpened id clock.now)
+
+$ kern view examples/escrow/escrow_s3.k resolve_for_buyer --as iface   (exit 0)
+resolve_for_buyer id:Int escrow:Account buyer:Account
+  uses ledger.write clock audit disputed.write hold.write
+  writes escrow buyer disputed.id hold.id
+  fails NotDisputed BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k resolve_for_buyer --as spec   (exit 0)
+resolve_for_buyer id:Int escrow:Account buyer:Account
+  uses ledger.write clock audit disputed.write hold.write
+  writes escrow buyer disputed.id hold.id
+  fails NotDisputed BadAmount SameAccount Insufficient(Int)
+  need disputed.get id = 1 else NotDisputed
+  need hold.get id > 0 else BadAmount
+  need escrow != buyer else SameAccount
+  need ledger.balance escrow >= hold.get id else Insufficient (hold.get id - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure disputed.get' id = 0
+  ensure ledger.balance' buyer = ledger.balance buyer + hold.get id
+  emit Moved escrow buyer (hold.get id) clock.now
+  emit Released buyer (hold.get id) clock.now
+  emit Resolved id clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k resolve_for_buyer --as editor   (exit 0)
+resolve_for_buyer id:Int escrow:Account buyer:Account
+  uses ledger.write clock audit disputed.write hold.write
+  writes escrow buyer disputed.id hold.id
+  fails NotDisputed BadAmount SameAccount Insufficient(Int)
+  need disputed.get id = 1 else NotDisputed
+  need as release escrow buyer (hold.get id)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure disputed.get' id = 0
+  ensure ledger.balance' buyer = ledger.balance buyer + hold.get id
+  emit as release escrow buyer (hold.get id)
+  emit Resolved id clock.now
+  eg E:100@u0 A:0@u1 hold.5:100 disputed.5:1 | resolve_for_buyer 5 E A -> ok | E:0 A:100 hold.5:0 disputed.5:0
+body
+  release escrow buyer (hold.get id)
+  hold.set id 0
+  disputed.set id 0
+  audit.emit (Resolved id clock.now)
+
+release escrow:Account buyer:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow buyer
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need escrow != buyer else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' buyer = ledger.balance buyer + amount
+  emit Moved escrow buyer amount clock.now
+  emit Released buyer amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k resolve_for_seller --as iface   (exit 0)
+resolve_for_seller id:Int escrow:Account seller:Account house:Account
+  uses ledger.write clock audit disputed.write hold.write
+  writes escrow seller house disputed.id hold.id
+  fails NotDisputed BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k resolve_for_seller --as spec   (exit 0)
+resolve_for_seller id:Int escrow:Account seller:Account house:Account
+  uses ledger.write clock audit disputed.write hold.write
+  writes escrow seller house disputed.id hold.id
+  fails NotDisputed BadAmount SameAccount Insufficient(Int)
+  need disputed.get id = 1 else NotDisputed
+  need hold.get id > 0 else BadAmount
+  need distinct escrow seller house else SameAccount
+  need ledger.balance escrow >= hold.get id else Insufficient (hold.get id - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure disputed.get' id = 0
+  ensure ledger.balance' escrow = ledger.balance escrow - hold.get id
+  emit Moved escrow seller (hold.get id) clock.now when fee_for (hold.get id) = 0
+  emit Moved escrow seller (hold.get id - fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0
+  emit Moved escrow house (fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0
+  emit Captured seller (hold.get id) clock.now
+  emit Resolved id clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k resolve_for_seller --as editor   (exit 0)
+resolve_for_seller id:Int escrow:Account seller:Account house:Account
+  uses ledger.write clock audit disputed.write hold.write
+  writes escrow seller house disputed.id hold.id
+  fails NotDisputed BadAmount SameAccount Insufficient(Int)
+  need disputed.get id = 1 else NotDisputed
+  need as capture escrow seller house (hold.get id)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure disputed.get' id = 0
+  ensure ledger.balance' escrow = ledger.balance escrow - hold.get id
+  emit as capture escrow seller house (hold.get id)
+  emit Resolved id clock.now
+  eg E:300@u0 B:0@u2 H:0@u9 hold.5:250 disputed.5:1 | resolve_for_seller 5 E B H -> ok | E:50 B:245 H:5 hold.5:0
+body
+  capture escrow seller house (hold.get id)
+  hold.set id 0
+  disputed.set id 0
+  audit.emit (Resolved id clock.now)
+
+capture escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need distinct escrow seller house else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' seller = ledger.balance seller + amount - fee_for amount
+  ensure ledger.balance' house = ledger.balance house + fee_for amount
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k resolve_split --as iface   (exit 0)
+resolve_split id:Int escrow:Account buyer:Account seller:Account part:Int
+  uses ledger.write clock audit disputed.write hold.write
+  writes escrow buyer seller disputed.id hold.id
+  fails NotDisputed BadPart SameAccount Insufficient(Int) BadAmount
+
+$ kern view examples/escrow/escrow_s3.k resolve_split --as spec   (exit 0)
+resolve_split id:Int escrow:Account buyer:Account seller:Account part:Int
+  uses ledger.write clock audit disputed.write hold.write
+  writes escrow buyer seller disputed.id hold.id
+  fails NotDisputed BadPart SameAccount Insufficient(Int) BadAmount
+  need disputed.get id = 1 else NotDisputed
+  need part >= 0 and part <= hold.get id else BadPart
+  need distinct escrow buyer seller else SameAccount
+  need ledger.balance escrow >= hold.get id else Insufficient (hold.get id - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure disputed.get' id = 0
+  ensure ledger.balance' buyer = ledger.balance buyer + part
+  ensure ledger.balance' seller = ledger.balance seller + hold.get id - part
+  emit Moved escrow buyer part clock.now when part > 0
+  emit Moved escrow seller (hold.get id - part) clock.now when hold.get id - part > 0
+  emit Resolved id clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k resolve_split --as editor   (exit 0)
+resolve_split id:Int escrow:Account buyer:Account seller:Account part:Int
+  uses ledger.write clock audit disputed.write hold.write
+  writes escrow buyer seller disputed.id hold.id
+  fails NotDisputed BadPart SameAccount Insufficient(Int) BadAmount
+  need disputed.get id = 1 else NotDisputed
+  need as split escrow buyer seller (hold.get id) part
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure disputed.get' id = 0
+  ensure ledger.balance' buyer = ledger.balance buyer + part
+  ensure ledger.balance' seller = ledger.balance seller + hold.get id - part
+  emit as split escrow buyer seller (hold.get id) part
+  emit Resolved id clock.now
+  eg E:100@u0 A:0@u1 B:0@u2 hold.5:100 disputed.5:1 | resolve_split 5 E A B 40 -> ok | E:0 A:40 B:60 hold.5:0
+body
+  split escrow buyer seller (hold.get id) part
+  hold.set id 0
+  disputed.set id 0
+  audit.emit (Resolved id clock.now)
+
+split escrow:Account a:Account b:Account amount:Int part:Int
+  uses ledger.write clock audit
+  writes escrow a b
+  fails BadPart SameAccount Insufficient(Int) BadAmount
+  need part >= 0 and part <= amount else BadPart
+  need distinct escrow a b else SameAccount
+  need ledger.balance escrow >= amount else Insufficient (amount - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' escrow = ledger.balance escrow - amount
+  ensure ledger.balance' a = ledger.balance a + part
+  ensure ledger.balance' b = ledger.balance b + amount - part
+  emit Moved escrow a part clock.now when part > 0
+  emit Moved escrow b (amount - part) clock.now when amount - part > 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k set_limit --as iface   (exit 0)
+set_limit a:Account n:Int
+  uses limit.write
+  writes limit.a
+  fails BadLimit
+
+$ kern view examples/escrow/escrow_s3.k set_limit --as spec   (exit 0)
+set_limit a:Account n:Int
+  uses limit.write
+  writes limit.a
+  fails BadLimit
+  need n >= 0 else BadLimit
+  ok otherwise
+  keep ledger.total
+  ensure limit.get' a = n
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k set_limit --as editor   (exit 0)
+set_limit a:Account n:Int
+  uses limit.write
+  writes limit.a
+  fails BadLimit
+  need n >= 0 else BadLimit
+  ok otherwise
+  keep ledger.total
+  ensure limit.get' a = n
+  eg A:0@u1 | set_limit A 500 -> ok | limit.A:500
+body
+  limit.set a n
+
+$ kern view examples/escrow/escrow_s3.k freeze --as iface   (exit 0)
+freeze a:Account
+  uses clock audit frozen.write
+  writes frozen.a
+
+$ kern view examples/escrow/escrow_s3.k freeze --as spec   (exit 0)
+freeze a:Account
+  uses clock audit frozen.write
+  writes frozen.a
+  ok otherwise
+  keep ledger.total
+  ensure frozen.get' a = 1
+  emit Froze a clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k freeze --as editor   (exit 0)
+freeze a:Account
+  uses clock audit frozen.write
+  writes frozen.a
+  ok otherwise
+  keep ledger.total
+  ensure frozen.get' a = 1
+  emit Froze a clock.now
+  eg A:0@u1 | freeze A -> ok | frozen.A:1
+body
+  frozen.set a 1
+  audit.emit (Froze a clock.now)
+
+$ kern view examples/escrow/escrow_s3.k unfreeze --as iface   (exit 0)
+unfreeze a:Account
+  uses clock audit frozen.write
+  writes frozen.a
+
+$ kern view examples/escrow/escrow_s3.k unfreeze --as spec   (exit 0)
+unfreeze a:Account
+  uses clock audit frozen.write
+  writes frozen.a
+  ok otherwise
+  keep ledger.total
+  ensure frozen.get' a = 0
+  emit Unfroze a clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k unfreeze --as editor   (exit 0)
+unfreeze a:Account
+  uses clock audit frozen.write
+  writes frozen.a
+  ok otherwise
+  keep ledger.total
+  ensure frozen.get' a = 0
+  emit Unfroze a clock.now
+  eg A:0@u1 frozen.A:1 | unfreeze A -> ok | frozen.A:0
+body
+  frozen.set a 0
+  audit.emit (Unfroze a clock.now)
+
+$ kern view examples/escrow/escrow_s3.k withdraw --as iface   (exit 0)
+withdraw a:Account bank:Account amount:Int
+  uses ledger.write clock audit frozen.read limit.read spent.write verified.read
+  writes a bank spent.a
+  fails Frozen Unverified OverLimit(Int) BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k withdraw --as spec   (exit 0)
+withdraw a:Account bank:Account amount:Int
+  uses ledger.write clock audit frozen.read limit.read spent.write verified.read
+  writes a bank spent.a
+  fails Frozen Unverified OverLimit(Int) BadAmount SameAccount Insufficient(Int)
+  need frozen.get a = 0 else Frozen
+  need verified.get a = 1 else Unverified
+  need spent.get a + amount <= limit.get a else OverLimit (spent.get a + amount - limit.get a)
+  need amount > 0 else BadAmount
+  need a != bank else SameAccount
+  need ledger.balance a >= amount else Insufficient (amount - ledger.balance a)
+  ok otherwise
+  keep ledger.total
+  ensure spent.get' a = spent.get a + amount
+  ensure ledger.balance' a = ledger.balance a - amount
+  ensure ledger.balance' bank = ledger.balance bank + amount
+  emit Moved a bank amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k withdraw --as editor   (exit 0)
+withdraw a:Account bank:Account amount:Int
+  uses ledger.write clock audit frozen.read limit.read spent.write verified.read
+  writes a bank spent.a
+  fails Frozen Unverified OverLimit(Int) BadAmount SameAccount Insufficient(Int)
+  need frozen.get a = 0 else Frozen
+  need verified.get a = 1 else Unverified
+  need spent.get a + amount <= limit.get a else OverLimit (spent.get a + amount - limit.get a)
+  need as transfer a bank amount
+  ok otherwise
+  keep ledger.total
+  ensure spent.get' a = spent.get a + amount
+  ensure ledger.balance' a = ledger.balance a - amount
+  ensure ledger.balance' bank = ledger.balance bank + amount
+  emit as transfer a bank amount
+  eg A:500@u1 K:0@u9 limit.A:300 verified.A:1 | withdraw A K 200 -> ok | A:300 K:200 spent.A:200
+  eg A:500@u1 K:0@u9 limit.A:300 spent.A:200 verified.A:1 | withdraw A K 200 -> OverLimit 100
+  eg A:500@u1 K:0@u9 limit.A:300 | withdraw A K 200 -> Unverified
+body
+  transfer a bank amount
+  spent.set a (spent.get a + amount)
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k reset_day --as iface   (exit 0)
+reset_day a:Account
+  uses spent.write
+  writes spent.a
+
+$ kern view examples/escrow/escrow_s3.k reset_day --as spec   (exit 0)
+reset_day a:Account
+  uses spent.write
+  writes spent.a
+  ok otherwise
+  keep ledger.total
+  ensure spent.get' a = 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k reset_day --as editor   (exit 0)
+reset_day a:Account
+  uses spent.write
+  writes spent.a
+  ok otherwise
+  keep ledger.total
+  ensure spent.get' a = 0
+  eg A:0@u1 spent.A:70 | reset_day A -> ok | spent.A:0
+body
+  spent.set a 0
+
+$ kern view examples/escrow/escrow_s3.k payout_seller --as iface   (exit 0)
+payout_seller seller:Account bank:Account amount:Int
+  uses ledger.write clock audit frozen.read limit.read spent.write verified.read
+  writes seller bank spent.seller
+  fails Frozen Unverified OverLimit(Int) BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k payout_seller --as spec   (exit 0)
+payout_seller seller:Account bank:Account amount:Int
+  uses ledger.write clock audit frozen.read limit.read spent.write verified.read
+  writes seller bank spent.seller
+  fails Frozen Unverified OverLimit(Int) BadAmount SameAccount Insufficient(Int)
+  need frozen.get seller = 0 else Frozen
+  need verified.get seller = 1 else Unverified
+  need spent.get seller + amount <= limit.get seller else OverLimit (spent.get seller + amount - limit.get seller)
+  need amount > 0 else BadAmount
+  need seller != bank else SameAccount
+  need ledger.balance seller >= amount else Insufficient (amount - ledger.balance seller)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' seller = ledger.balance seller - amount
+  ensure spent.get' seller = spent.get seller + amount
+  emit Moved seller bank amount clock.now
+  emit PaidOut seller amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k payout_seller --as editor   (exit 0)
+payout_seller seller:Account bank:Account amount:Int
+  uses ledger.write clock audit frozen.read limit.read spent.write verified.read
+  writes seller bank spent.seller
+  fails Frozen Unverified OverLimit(Int) BadAmount SameAccount Insufficient(Int)
+  need as withdraw seller bank amount
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' seller = ledger.balance seller - amount
+  ensure spent.get' seller = spent.get seller + amount
+  emit as withdraw seller bank amount
+  emit PaidOut seller amount clock.now
+  eg B:500@u2 K:0@u9 limit.B:1000 verified.B:1 | payout_seller B K 200 -> ok | B:300 K:200 spent.B:200
+body
+  withdraw seller bank amount
+  audit.emit (PaidOut seller amount clock.now)
+
+withdraw a:Account bank:Account amount:Int
+  uses ledger.write clock audit frozen.read limit.read spent.write verified.read
+  writes a bank spent.a
+  fails Frozen Unverified OverLimit(Int) BadAmount SameAccount Insufficient(Int)
+  need frozen.get a = 0 else Frozen
+  need verified.get a = 1 else Unverified
+  need spent.get a + amount <= limit.get a else OverLimit (spent.get a + amount - limit.get a)
+  need amount > 0 else BadAmount
+  need a != bank else SameAccount
+  need ledger.balance a >= amount else Insufficient (amount - ledger.balance a)
+  ok otherwise
+  keep ledger.total
+  ensure spent.get' a = spent.get a + amount
+  ensure ledger.balance' a = ledger.balance a - amount
+  ensure ledger.balance' bank = ledger.balance bank + amount
+  emit Moved a bank amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k deposit --as iface   (exit 0)
+deposit bank:Account a:Account amount:Int
+  uses ledger.write clock audit
+  writes bank a
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k deposit --as spec   (exit 0)
+deposit bank:Account a:Account amount:Int
+  uses ledger.write clock audit
+  writes bank a
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need bank != a else SameAccount
+  need ledger.balance bank >= amount else Insufficient (amount - ledger.balance bank)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' a = ledger.balance a + amount
+  emit Moved bank a amount clock.now
+  emit Deposited a amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k deposit --as editor   (exit 0)
+deposit bank:Account a:Account amount:Int
+  uses ledger.write clock audit
+  writes bank a
+  fails BadAmount SameAccount Insufficient(Int)
+  need as transfer bank a amount
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' a = ledger.balance a + amount
+  emit as transfer bank a amount
+  emit Deposited a amount clock.now
+  eg K:900@u9 A:0@u1 | deposit K A 100 -> ok | K:800 A:100
+body
+  transfer bank a amount
+  audit.emit (Deposited a amount clock.now)
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k purchase_order --as iface   (exit 0)
+purchase_order id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house captured.id hold.id
+  fails OrderExists Frozen BadAmount SameAccount Insufficient(Int) Disputed NoOrder
+
+$ kern view examples/escrow/escrow_s3.k purchase_order --as spec   (exit 0)
+purchase_order id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house captured.id hold.id
+  fails OrderExists Frozen BadAmount SameAccount Insufficient(Int) Disputed NoOrder
+  need hold.get id = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need disputed.get id = 0 else Disputed
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' escrow = ledger.balance escrow
+  ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Opened id amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k purchase_order --as editor   (exit 0)
+purchase_order id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house captured.id hold.id
+  fails OrderExists Frozen BadAmount SameAccount Insufficient(Int) Disputed NoOrder
+  need as open_order id buyer escrow amount
+  need disputed.get id = 0 else Disputed
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' escrow = ledger.balance escrow
+  ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  emit as open_order id buyer escrow amount
+  emit as capture escrow seller house amount
+  eg A:500@u1 E:0@u0 B:0@u2 H:0@u9 | purchase_order 9 A E B H 250 -> ok | A:250 E:0 B:245 H:5 hold.9:0
+body
+  open_order id buyer escrow amount
+  capture_order id escrow seller house
+
+open_order id:Int buyer:Account escrow:Account amount:Int
+  uses ledger.write clock audit frozen.read hold.write
+  writes buyer escrow hold.id
+  fails OrderExists Frozen BadAmount SameAccount Insufficient(Int)
+  need hold.get id = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = amount
+  ensure ledger.balance' escrow = ledger.balance escrow + amount
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Opened id amount clock.now
+  proof ok
+
+capture_order id:Int escrow:Account seller:Account house:Account
+  uses ledger.write clock audit captured.write disputed.read hold.write
+  writes escrow seller house captured.id hold.id
+  fails NoOrder Disputed BadAmount SameAccount Insufficient(Int)
+  need hold.get id > 0 else NoOrder
+  need disputed.get id = 0 else Disputed
+  need hold.get id > 0 else BadAmount
+  need distinct escrow seller house else SameAccount
+  need ledger.balance escrow >= hold.get id else Insufficient (hold.get id - ledger.balance escrow)
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' escrow = ledger.balance escrow - hold.get id
+  ensure ledger.balance' seller = ledger.balance seller + hold.get id - fee_for (hold.get id)
+  emit Moved escrow seller (hold.get id) clock.now when fee_for (hold.get id) = 0
+  emit Moved escrow seller (hold.get id - fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0
+  emit Moved escrow house (fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0
+  emit Captured seller (hold.get id) clock.now
+  ensure captured.get' id = hold.get id
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k verify --as iface   (exit 0)
+verify a:Account
+  uses clock audit verified.write
+  writes verified.a
+
+$ kern view examples/escrow/escrow_s3.k verify --as spec   (exit 0)
+verify a:Account
+  uses clock audit verified.write
+  writes verified.a
+  ok otherwise
+  keep ledger.total
+  ensure verified.get' a = 1
+  emit Verified a clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k verify --as editor   (exit 0)
+verify a:Account
+  uses clock audit verified.write
+  writes verified.a
+  ok otherwise
+  keep ledger.total
+  ensure verified.get' a = 1
+  emit Verified a clock.now
+  eg A:0@u1 | verify A -> ok | verified.A:1
+body
+  verified.set a 1
+  audit.emit (Verified a clock.now)
+
+$ kern view examples/escrow/escrow_s3.k unverify --as iface   (exit 0)
+unverify a:Account
+  uses clock audit verified.write
+  writes verified.a
+
+$ kern view examples/escrow/escrow_s3.k unverify --as spec   (exit 0)
+unverify a:Account
+  uses clock audit verified.write
+  writes verified.a
+  ok otherwise
+  keep ledger.total
+  ensure verified.get' a = 0
+  emit Unverified a clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k unverify --as editor   (exit 0)
+unverify a:Account
+  uses clock audit verified.write
+  writes verified.a
+  ok otherwise
+  keep ledger.total
+  ensure verified.get' a = 0
+  emit Unverified a clock.now
+  eg A:0@u1 verified.A:1 | unverify A -> ok | verified.A:0
+body
+  verified.set a 0
+  audit.emit (Unverified a clock.now)
+
+$ kern view examples/escrow/escrow_s3.k earn_points --as iface   (exit 0)
+earn_points a:Account amount:Int
+  uses points.write
+  writes points.a
+
+$ kern view examples/escrow/escrow_s3.k earn_points --as spec   (exit 0)
+earn_points a:Account amount:Int
+  uses points.write
+  writes points.a
+  ok otherwise
+  keep ledger.total
+  ensure points.get' a = points.get a + points_for amount
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k earn_points --as editor   (exit 0)
+earn_points a:Account amount:Int
+  uses points.write
+  writes points.a
+  ok otherwise
+  keep ledger.total
+  ensure points.get' a = points.get a + points_for amount
+  eg A:0@u1 points.A:3 | earn_points A 250 -> ok | points.A:5
+body
+  points.set a (points.get a + points_for amount)
+
+points_for amount:Int -> Int
+  uses 
+  ensure result = amount / 100 when amount >= 0
+  ensure result = 0 when amount < 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k redeem_points --as iface   (exit 0)
+redeem_points a:Account house:Account n:Int
+  uses ledger.write clock audit points.write
+  writes a house points.a
+  fails NotEnoughPoints(Int) BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k redeem_points --as spec   (exit 0)
+redeem_points a:Account house:Account n:Int
+  uses ledger.write clock audit points.write
+  writes a house points.a
+  fails NotEnoughPoints(Int) BadAmount SameAccount Insufficient(Int)
+  need points.get a >= n else NotEnoughPoints (n - points.get a)
+  need n > 0 else BadAmount
+  need house != a else SameAccount
+  need ledger.balance house >= n else Insufficient (n - ledger.balance house)
+  ok otherwise
+  keep ledger.total
+  ensure points.get' a = points.get a - n
+  ensure ledger.balance' a = ledger.balance a + n
+  emit Moved house a n clock.now
+  emit Redeemed a n clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k redeem_points --as editor   (exit 0)
+redeem_points a:Account house:Account n:Int
+  uses ledger.write clock audit points.write
+  writes a house points.a
+  fails NotEnoughPoints(Int) BadAmount SameAccount Insufficient(Int)
+  need points.get a >= n else NotEnoughPoints (n - points.get a)
+  need as transfer house a n
+  ok otherwise
+  keep ledger.total
+  ensure points.get' a = points.get a - n
+  ensure ledger.balance' a = ledger.balance a + n
+  emit as transfer house a n
+  emit Redeemed a n clock.now
+  eg A:0@u1 H:100@u9 points.A:30 | redeem_points A H 20 -> ok | A:20 H:80 points.A:10
+  eg A:0@u1 H:100@u9 points.A:5 | redeem_points A H 20 -> NotEnoughPoints 15
+body
+  transfer house a n
+  points.set a (points.get a - n)
+  audit.emit (Redeemed a n clock.now)
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k clear_points --as iface   (exit 0)
+clear_points a:Account
+  uses points.write
+  writes points.a
+
+$ kern view examples/escrow/escrow_s3.k clear_points --as spec   (exit 0)
+clear_points a:Account
+  uses points.write
+  writes points.a
+  ok otherwise
+  keep ledger.total
+  ensure points.get' a = 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k clear_points --as editor   (exit 0)
+clear_points a:Account
+  uses points.write
+  writes points.a
+  ok otherwise
+  keep ledger.total
+  ensure points.get' a = 0
+  eg A:0@u1 points.A:9 | clear_points A -> ok | points.A:0
+body
+  points.set a 0
+
+$ kern view examples/escrow/escrow_s3.k transfer_points --as iface   (exit 0)
+transfer_points a:Account b:Account n:Int
+  uses points.write
+  writes points.a points.b
+  fails BadAmount SameAccount NotEnoughPoints(Int)
+
+$ kern view examples/escrow/escrow_s3.k transfer_points --as spec   (exit 0)
+transfer_points a:Account b:Account n:Int
+  uses points.write
+  writes points.a points.b
+  fails BadAmount SameAccount NotEnoughPoints(Int)
+  need n > 0 else BadAmount
+  need a != b else SameAccount
+  need points.get a >= n else NotEnoughPoints (n - points.get a)
+  ok otherwise
+  keep ledger.total
+  ensure points.get' a = points.get a - n
+  ensure points.get' b = points.get b + n
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k transfer_points --as editor   (exit 0)
+transfer_points a:Account b:Account n:Int
+  uses points.write
+  writes points.a points.b
+  fails BadAmount SameAccount NotEnoughPoints(Int)
+  need n > 0 else BadAmount
+  need a != b else SameAccount
+  need points.get a >= n else NotEnoughPoints (n - points.get a)
+  ok otherwise
+  keep ledger.total
+  ensure points.get' a = points.get a - n
+  ensure points.get' b = points.get b + n
+  eg A:0@u1 B:0@u2 points.A:10 | transfer_points A B 4 -> ok | points.A:6 points.B:4
+body
+  points.set a (points.get a - n)
+  points.set b (points.get b + n)
+
+$ kern view examples/escrow/escrow_s3.k purchase_earning --as iface   (exit 0)
+purchase_earning buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit points.write
+  writes buyer escrow seller house points.buyer
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k purchase_earning --as spec   (exit 0)
+purchase_earning buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit points.write
+  writes buyer escrow seller house points.buyer
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure points.get' buyer = points.get buyer + points_for amount
+  ensure ledger.balance' escrow = ledger.balance escrow
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k purchase_earning --as editor   (exit 0)
+purchase_earning buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit points.write
+  writes buyer escrow seller house points.buyer
+  fails BadAmount SameAccount Insufficient(Int)
+  need as purchase buyer escrow seller house amount
+  ok otherwise
+  keep ledger.total
+  ensure points.get' buyer = points.get buyer + points_for amount
+  ensure ledger.balance' escrow = ledger.balance escrow
+  emit as purchase buyer escrow seller house amount
+  eg A:500@u1 E:0@u0 B:0@u2 H:0@u9 | purchase_earning A E B H 200 -> ok | A:300 B:196 H:4 points.A:2
+body
+  purchase buyer escrow seller house amount
+  earn_points buyer amount
+
+purchase buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  ensure ledger.balance' escrow = ledger.balance escrow
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+earn_points a:Account amount:Int
+  uses points.write
+  writes points.a
+  ok otherwise
+  keep ledger.total
+  ensure points.get' a = points.get a + points_for amount
+  proof ok
+
+points_for amount:Int -> Int
+  uses 
+  ensure result = amount / 100 when amount >= 0
+  ensure result = 0 when amount < 0
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k subscribe --as iface   (exit 0)
+subscribe id:Int buyer:Account amount:Int
+  uses clock audit frozen.read sub_amount.write sub_due.write
+  writes sub_amount.id sub_due.id
+  fails SubExists BadAmount Frozen
+
+$ kern view examples/escrow/escrow_s3.k subscribe --as spec   (exit 0)
+subscribe id:Int buyer:Account amount:Int
+  uses clock audit frozen.read sub_amount.write sub_due.write
+  writes sub_amount.id sub_due.id
+  fails SubExists BadAmount Frozen
+  need sub_amount.get id = 0 else SubExists
+  need amount > 0 else BadAmount
+  need frozen.get buyer = 0 else Frozen
+  ok otherwise
+  keep ledger.total
+  ensure sub_amount.get' id = amount
+  ensure sub_due.get' id = clock.now + 30
+  emit Subscribed id buyer amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k subscribe --as editor   (exit 0)
+subscribe id:Int buyer:Account amount:Int
+  uses clock audit frozen.read sub_amount.write sub_due.write
+  writes sub_amount.id sub_due.id
+  fails SubExists BadAmount Frozen
+  need sub_amount.get id = 0 else SubExists
+  need amount > 0 else BadAmount
+  need frozen.get buyer = 0 else Frozen
+  ok otherwise
+  keep ledger.total
+  ensure sub_amount.get' id = amount
+  ensure sub_due.get' id = clock.now + 30
+  emit Subscribed id buyer amount clock.now
+  eg A:0@u1 now:5 | subscribe 2 A 40 -> ok | sub_amount.2:40 sub_due.2:35
+body
+  sub_amount.set id amount
+  sub_due.set id (clock.now + 30)
+  audit.emit (Subscribed id buyer amount clock.now)
+
+$ kern view examples/escrow/escrow_s3.k change_sub --as iface   (exit 0)
+change_sub id:Int amount:Int
+  uses sub_amount.write
+  writes sub_amount.id
+  fails NoSub BadAmount
+
+$ kern view examples/escrow/escrow_s3.k change_sub --as spec   (exit 0)
+change_sub id:Int amount:Int
+  uses sub_amount.write
+  writes sub_amount.id
+  fails NoSub BadAmount
+  need sub_amount.get id > 0 else NoSub
+  need amount > 0 else BadAmount
+  ok otherwise
+  keep ledger.total
+  ensure sub_amount.get' id = amount
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k change_sub --as editor   (exit 0)
+change_sub id:Int amount:Int
+  uses sub_amount.write
+  writes sub_amount.id
+  fails NoSub BadAmount
+  need sub_amount.get id > 0 else NoSub
+  need amount > 0 else BadAmount
+  ok otherwise
+  keep ledger.total
+  ensure sub_amount.get' id = amount
+  eg sub_amount.2:40 | change_sub 2 60 -> ok | sub_amount.2:60
+body
+  sub_amount.set id amount
+
+$ kern view examples/escrow/escrow_s3.k cancel_sub --as iface   (exit 0)
+cancel_sub id:Int
+  uses clock audit paused.write sub_amount.write
+  writes paused.id sub_amount.id
+  fails NoSub
+
+$ kern view examples/escrow/escrow_s3.k cancel_sub --as spec   (exit 0)
+cancel_sub id:Int
+  uses clock audit paused.write sub_amount.write
+  writes paused.id sub_amount.id
+  fails NoSub
+  need sub_amount.get id > 0 else NoSub
+  ok otherwise
+  keep ledger.total
+  ensure sub_amount.get' id = 0
+  ensure paused.get' id = 0
+  emit SubCancelled id clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k cancel_sub --as editor   (exit 0)
+cancel_sub id:Int
+  uses clock audit paused.write sub_amount.write
+  writes paused.id sub_amount.id
+  fails NoSub
+  need sub_amount.get id > 0 else NoSub
+  ok otherwise
+  keep ledger.total
+  ensure sub_amount.get' id = 0
+  ensure paused.get' id = 0
+  emit SubCancelled id clock.now
+  eg sub_amount.2:40 | cancel_sub 2 -> ok | sub_amount.2:0
+body
+  sub_amount.set id 0
+  paused.set id 0
+  audit.emit (SubCancelled id clock.now)
+
+$ kern view examples/escrow/escrow_s3.k pause_sub --as iface   (exit 0)
+pause_sub id:Int
+  uses paused.write sub_amount.read
+  writes paused.id
+  fails NoSub Paused
+
+$ kern view examples/escrow/escrow_s3.k pause_sub --as spec   (exit 0)
+pause_sub id:Int
+  uses paused.write sub_amount.read
+  writes paused.id
+  fails NoSub Paused
+  need sub_amount.get id > 0 else NoSub
+  need paused.get id = 0 else Paused
+  ok otherwise
+  keep ledger.total
+  ensure paused.get' id = 1
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k pause_sub --as editor   (exit 0)
+pause_sub id:Int
+  uses paused.write sub_amount.read
+  writes paused.id
+  fails NoSub Paused
+  need sub_amount.get id > 0 else NoSub
+  need paused.get id = 0 else Paused
+  ok otherwise
+  keep ledger.total
+  ensure paused.get' id = 1
+  eg sub_amount.2:40 | pause_sub 2 -> ok | paused.2:1
+body
+  paused.set id 1
+
+$ kern view examples/escrow/escrow_s3.k resume_sub --as iface   (exit 0)
+resume_sub id:Int
+  uses clock paused.write sub_due.write
+  writes paused.id sub_due.id
+  fails NotPaused
+
+$ kern view examples/escrow/escrow_s3.k resume_sub --as spec   (exit 0)
+resume_sub id:Int
+  uses clock paused.write sub_due.write
+  writes paused.id sub_due.id
+  fails NotPaused
+  need paused.get id = 1 else NotPaused
+  ok otherwise
+  keep ledger.total
+  ensure paused.get' id = 0
+  ensure sub_due.get' id = clock.now + 30
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k resume_sub --as editor   (exit 0)
+resume_sub id:Int
+  uses clock paused.write sub_due.write
+  writes paused.id sub_due.id
+  fails NotPaused
+  need paused.get id = 1 else NotPaused
+  ok otherwise
+  keep ledger.total
+  ensure paused.get' id = 0
+  ensure sub_due.get' id = clock.now + 30
+  eg sub_amount.2:40 paused.2:1 now:50 | resume_sub 2 -> ok | paused.2:0 sub_due.2:80
+body
+  paused.set id 0
+  sub_due.set id (clock.now + 30)
+
+$ kern view examples/escrow/escrow_s3.k charge_sub --as iface   (exit 0)
+charge_sub id:Int buyer:Account escrow:Account seller:Account house:Account
+  uses ledger.write clock audit paused.read sub_amount.read sub_due.write
+  writes buyer escrow seller house sub_due.id
+  fails NoSub Paused NotDue(Int) BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k charge_sub --as spec   (exit 0)
+charge_sub id:Int buyer:Account escrow:Account seller:Account house:Account
+  uses ledger.write clock audit paused.read sub_amount.read sub_due.write
+  writes buyer escrow seller house sub_due.id
+  fails NoSub Paused NotDue(Int) BadAmount SameAccount Insufficient(Int)
+  need sub_amount.get id > 0 else NoSub
+  need paused.get id = 0 else Paused
+  need clock.now >= sub_due.get id else NotDue (sub_due.get id - clock.now)
+  need sub_amount.get id > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= sub_amount.get id else Insufficient (sub_amount.get id - ledger.balance buyer)
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure sub_due.get' id = sub_due.get id + 30
+  ensure ledger.balance' escrow = ledger.balance escrow
+  emit Moved buyer escrow (sub_amount.get id) clock.now
+  emit Reserved buyer (sub_amount.get id) clock.now
+  emit Moved escrow seller (sub_amount.get id) clock.now when fee_for (sub_amount.get id) = 0
+  emit Moved escrow seller (sub_amount.get id - fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0
+  emit Moved escrow house (fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0
+  emit Captured seller (sub_amount.get id) clock.now
+  emit Charged id clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k charge_sub --as editor   (exit 0)
+charge_sub id:Int buyer:Account escrow:Account seller:Account house:Account
+  uses ledger.write clock audit paused.read sub_amount.read sub_due.write
+  writes buyer escrow seller house sub_due.id
+  fails NoSub Paused NotDue(Int) BadAmount SameAccount Insufficient(Int)
+  need sub_amount.get id > 0 else NoSub
+  need paused.get id = 0 else Paused
+  need clock.now >= sub_due.get id else NotDue (sub_due.get id - clock.now)
+  need as purchase buyer escrow seller house (sub_amount.get id)
+  ok otherwise
+  keep ledger.total
+  ensure sub_due.get' id = sub_due.get id + 30
+  ensure ledger.balance' escrow = ledger.balance escrow
+  emit as purchase buyer escrow seller house (sub_amount.get id)
+  emit Charged id clock.now
+  eg A:500@u1 E:0@u0 B:0@u2 H:0@u9 sub_amount.2:200 sub_due.2:30 now:40 | charge_sub 2 A E B H -> ok | A:300 B:196 H:4 sub_due.2:60
+  eg A:500@u1 E:0@u0 B:0@u2 H:0@u9 sub_amount.2:200 sub_due.2:30 now:10 | charge_sub 2 A E B H -> NotDue 20
+body
+  purchase buyer escrow seller house (sub_amount.get id)
+  sub_due.set id (sub_due.get id + 30)
+  audit.emit (Charged id clock.now)
+
+purchase buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow seller house
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  ensure ledger.balance' escrow = ledger.balance escrow
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k charge_sub_with_points --as iface   (exit 0)
+charge_sub_with_points id:Int buyer:Account escrow:Account seller:Account house:Account
+  uses ledger.write clock audit paused.read points.write sub_amount.read sub_due.write
+  writes buyer escrow seller house points.buyer sub_due.id
+  fails NoSub Paused NotDue(Int) BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k charge_sub_with_points --as spec   (exit 0)
+charge_sub_with_points id:Int buyer:Account escrow:Account seller:Account house:Account
+  uses ledger.write clock audit paused.read points.write sub_amount.read sub_due.write
+  writes buyer escrow seller house points.buyer sub_due.id
+  fails NoSub Paused NotDue(Int) BadAmount SameAccount Insufficient(Int)
+  need sub_amount.get id > 0 else NoSub
+  need paused.get id = 0 else Paused
+  need clock.now >= sub_due.get id else NotDue (sub_due.get id - clock.now)
+  need sub_amount.get id > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= sub_amount.get id else Insufficient (sub_amount.get id - ledger.balance buyer)
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure points.get' buyer = points.get buyer + points_for (sub_amount.get id)
+  ensure sub_due.get' id = sub_due.get id + 30
+  emit Moved buyer escrow (sub_amount.get id) clock.now
+  emit Reserved buyer (sub_amount.get id) clock.now
+  emit Moved escrow seller (sub_amount.get id) clock.now when fee_for (sub_amount.get id) = 0
+  emit Moved escrow seller (sub_amount.get id - fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0
+  emit Moved escrow house (fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0
+  emit Captured seller (sub_amount.get id) clock.now
+  emit Charged id clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k charge_sub_with_points --as editor   (exit 0)
+charge_sub_with_points id:Int buyer:Account escrow:Account seller:Account house:Account
+  uses ledger.write clock audit paused.read points.write sub_amount.read sub_due.write
+  writes buyer escrow seller house points.buyer sub_due.id
+  fails NoSub Paused NotDue(Int) BadAmount SameAccount Insufficient(Int)
+  need as charge_sub id buyer escrow seller house
+  ok otherwise
+  keep ledger.total
+  ensure points.get' buyer = points.get buyer + points_for (sub_amount.get id)
+  ensure sub_due.get' id = sub_due.get id + 30
+  emit as charge_sub id buyer escrow seller house
+  eg A:500@u1 E:0@u0 B:0@u2 H:0@u9 sub_amount.2:200 sub_due.2:30 now:40 | charge_sub_with_points 2 A E B H -> ok | A:300 points.A:2
+body
+  earn_points buyer (sub_amount.get id)
+  charge_sub id buyer escrow seller house
+
+earn_points a:Account amount:Int
+  uses points.write
+  writes points.a
+  ok otherwise
+  keep ledger.total
+  ensure points.get' a = points.get a + points_for amount
+  proof ok
+
+charge_sub id:Int buyer:Account escrow:Account seller:Account house:Account
+  uses ledger.write clock audit paused.read sub_amount.read sub_due.write
+  writes buyer escrow seller house sub_due.id
+  fails NoSub Paused NotDue(Int) BadAmount SameAccount Insufficient(Int)
+  need sub_amount.get id > 0 else NoSub
+  need paused.get id = 0 else Paused
+  need clock.now >= sub_due.get id else NotDue (sub_due.get id - clock.now)
+  need sub_amount.get id > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= sub_amount.get id else Insufficient (sub_amount.get id - ledger.balance buyer)
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure sub_due.get' id = sub_due.get id + 30
+  ensure ledger.balance' escrow = ledger.balance escrow
+  emit Moved buyer escrow (sub_amount.get id) clock.now
+  emit Reserved buyer (sub_amount.get id) clock.now
+  emit Moved escrow seller (sub_amount.get id) clock.now when fee_for (sub_amount.get id) = 0
+  emit Moved escrow seller (sub_amount.get id - fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0
+  emit Moved escrow house (fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0
+  emit Captured seller (sub_amount.get id) clock.now
+  emit Charged id clock.now
+  proof ok
+
+points_for amount:Int -> Int
+  uses 
+  ensure result = amount / 100 when amount >= 0
+  ensure result = 0 when amount < 0
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k charge_late --as iface   (exit 0)
+charge_late id:Int buyer:Account house:Account days:Int
+  uses ledger.write clock audit sub_amount.read
+  writes buyer house
+  fails NoSub BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k charge_late --as spec   (exit 0)
+charge_late id:Int buyer:Account house:Account days:Int
+  uses ledger.write clock audit sub_amount.read
+  writes buyer house
+  fails NoSub BadAmount SameAccount Insufficient(Int)
+  need sub_amount.get id > 0 else NoSub
+  need late_fee days >= 0 else BadAmount
+  need late_fee days = 0 or buyer != house else SameAccount
+  need late_fee days = 0 or ledger.balance buyer >= late_fee days else Insufficient (late_fee days - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' house = ledger.balance house + late_fee days
+  emit Moved buyer house (late_fee days) clock.now when late_fee days > 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k charge_late --as editor   (exit 0)
+charge_late id:Int buyer:Account house:Account days:Int
+  uses ledger.write clock audit sub_amount.read
+  writes buyer house
+  fails NoSub BadAmount SameAccount Insufficient(Int)
+  need sub_amount.get id > 0 else NoSub
+  need as move buyer house (late_fee days)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' house = ledger.balance house + late_fee days
+  emit as move buyer house (late_fee days)
+  eg A:100@u1 H:0@u9 sub_amount.2:40 | charge_late 2 A H 3 -> ok | A:85 H:15
+  eg A:100@u1 H:0@u9 sub_amount.2:40 | charge_late 2 A H 0 -> ok | A:100 H:0
+body
+  move buyer house (late_fee days)
+
+late_fee days:Int -> Int
+  uses 
+  ensure result = 0 when days <= 0
+  ensure result = days * 5 when days > 0 and days <= 10
+  ensure result = 50 when days > 10
+  proof ok
+
+move from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount >= 0 else BadAmount
+  need amount = 0 or from != to else SameAccount
+  need amount = 0 or ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now when amount > 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k chargeback --as iface   (exit 0)
+chargeback id:Int seller:Account buyer:Account
+  uses ledger.write clock audit captured.write
+  writes seller buyer captured.id
+  fails NotCaptured BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k chargeback --as spec   (exit 0)
+chargeback id:Int seller:Account buyer:Account
+  uses ledger.write clock audit captured.write
+  writes seller buyer captured.id
+  fails NotCaptured BadAmount SameAccount Insufficient(Int)
+  need captured.get id > 0 else NotCaptured
+  need captured.get id > 0 else BadAmount
+  need seller != buyer else SameAccount
+  need ledger.balance seller >= captured.get id else Insufficient (captured.get id - ledger.balance seller)
+  ok otherwise
+  keep ledger.total
+  ensure captured.get' id = 0
+  ensure ledger.balance' buyer = ledger.balance buyer + captured.get id
+  emit Moved seller buyer (captured.get id) clock.now
+  emit ChargedBack id clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k chargeback --as editor   (exit 0)
+chargeback id:Int seller:Account buyer:Account
+  uses ledger.write clock audit captured.write
+  writes seller buyer captured.id
+  fails NotCaptured BadAmount SameAccount Insufficient(Int)
+  need captured.get id > 0 else NotCaptured
+  need as transfer seller buyer (captured.get id)
+  ok otherwise
+  keep ledger.total
+  ensure captured.get' id = 0
+  ensure ledger.balance' buyer = ledger.balance buyer + captured.get id
+  emit as transfer seller buyer (captured.get id)
+  emit ChargedBack id clock.now
+  eg B:300@u2 A:0@u1 captured.7:250 | chargeback 7 B A -> ok | B:50 A:250 captured.7:0
+  eg B:300@u2 A:0@u1 | chargeback 7 B A -> NotCaptured
+body
+  transfer seller buyer (captured.get id)
+  captured.set id 0
+  audit.emit (ChargedBack id clock.now)
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k payout_holdback --as iface   (exit 0)
+payout_holdback seller:Account reserve:Account bank:Account amount:Int
+  uses ledger.write clock audit frozen.read limit.read spent.write verified.read
+  writes seller reserve bank spent.seller
+  fails BadAmount SameAccount Insufficient(Int) Frozen Unverified OverLimit(Int)
+
+$ kern view examples/escrow/escrow_s3.k payout_holdback --as spec   (exit 0)
+payout_holdback seller:Account reserve:Account bank:Account amount:Int
+  uses ledger.write clock audit frozen.read limit.read spent.write verified.read
+  writes seller reserve bank spent.seller
+  fails BadAmount SameAccount Insufficient(Int) Frozen Unverified OverLimit(Int)
+  need amount > 0 else BadAmount
+  need distinct seller reserve bank else SameAccount
+  need ledger.balance seller >= amount else Insufficient (amount - ledger.balance seller)
+  need frozen.get seller = 0 else Frozen
+  need verified.get seller = 1 else Unverified
+  need spent.get seller + (amount - holdback_for amount) <= limit.get seller else OverLimit (spent.get seller + (amount - holdback_for amount) - limit.get seller)
+  need amount - holdback_for amount > 0 else BadAmount
+  need seller != bank else SameAccount
+  need ledger.balance seller >= amount - holdback_for amount else Insufficient (amount - holdback_for amount - ledger.balance seller)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' seller = ledger.balance seller - amount
+  ensure ledger.balance' reserve = ledger.balance reserve + holdback_for amount
+  ensure spent.get' seller = spent.get seller + amount - holdback_for amount
+  emit Moved seller reserve (holdback_for amount) clock.now when holdback_for amount > 0
+  emit Moved seller bank (amount - holdback_for amount) clock.now
+  emit Held seller (holdback_for amount) clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k payout_holdback --as editor   (exit 0)
+payout_holdback seller:Account reserve:Account bank:Account amount:Int
+  uses ledger.write clock audit frozen.read limit.read spent.write verified.read
+  writes seller reserve bank spent.seller
+  fails BadAmount SameAccount Insufficient(Int) Frozen Unverified OverLimit(Int)
+  need amount > 0 else BadAmount
+  need distinct seller reserve bank else SameAccount
+  need ledger.balance seller >= amount else Insufficient (amount - ledger.balance seller)
+  need as withdraw seller bank (amount - holdback_for amount)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' seller = ledger.balance seller - amount
+  ensure ledger.balance' reserve = ledger.balance reserve + holdback_for amount
+  ensure spent.get' seller = spent.get seller + amount - holdback_for amount
+  emit as move seller reserve (holdback_for amount)
+  emit as withdraw seller bank (amount - holdback_for amount)
+  emit Held seller (holdback_for amount) clock.now
+  eg B:500@u2 R:0@u9 K:0@u9 limit.B:1000 verified.B:1 | payout_holdback B R K 200 -> ok | B:300 R:20 K:180 spent.B:180
+body
+  move seller reserve (holdback_for amount)
+  withdraw seller bank (amount - holdback_for amount)
+  audit.emit (Held seller (holdback_for amount) clock.now)
+
+reserve buyer:Account escrow:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  ensure ledger.balance' escrow = ledger.balance escrow + amount
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  proof ok
+
+holdback_for amount:Int -> Int
+  uses 
+  ensure result = amount / 10
+  proof ok
+
+move from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount >= 0 else BadAmount
+  need amount = 0 or from != to else SameAccount
+  need amount = 0 or ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now when amount > 0
+  proof ok
+
+withdraw a:Account bank:Account amount:Int
+  uses ledger.write clock audit frozen.read limit.read spent.write verified.read
+  writes a bank spent.a
+  fails Frozen Unverified OverLimit(Int) BadAmount SameAccount Insufficient(Int)
+  need frozen.get a = 0 else Frozen
+  need verified.get a = 1 else Unverified
+  need spent.get a + amount <= limit.get a else OverLimit (spent.get a + amount - limit.get a)
+  need amount > 0 else BadAmount
+  need a != bank else SameAccount
+  need ledger.balance a >= amount else Insufficient (amount - ledger.balance a)
+  ok otherwise
+  keep ledger.total
+  ensure spent.get' a = spent.get a + amount
+  ensure ledger.balance' a = ledger.balance a - amount
+  ensure ledger.balance' bank = ledger.balance bank + amount
+  emit Moved a bank amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k release_holdback --as iface   (exit 0)
+release_holdback reserve:Account seller:Account amount:Int
+  uses ledger.write clock audit
+  writes reserve seller
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/escrow/escrow_s3.k release_holdback --as spec   (exit 0)
+release_holdback reserve:Account seller:Account amount:Int
+  uses ledger.write clock audit
+  writes reserve seller
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need reserve != seller else SameAccount
+  need ledger.balance reserve >= amount else Insufficient (amount - ledger.balance reserve)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' seller = ledger.balance seller + amount
+  emit Moved reserve seller amount clock.now
+  emit HoldbackReleased seller amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k release_holdback --as editor   (exit 0)
+release_holdback reserve:Account seller:Account amount:Int
+  uses ledger.write clock audit
+  writes reserve seller
+  fails BadAmount SameAccount Insufficient(Int)
+  need as transfer reserve seller amount
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' seller = ledger.balance seller + amount
+  emit as transfer reserve seller amount
+  emit HoldbackReleased seller amount clock.now
+  eg R:20@u9 B:0@u2 | release_holdback R B 20 -> ok | R:0 B:20
+body
+  transfer reserve seller amount
+  audit.emit (HoldbackReleased seller amount clock.now)
+
+reserve buyer:Account escrow:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer escrow
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  ensure ledger.balance' escrow = ledger.balance escrow + amount
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  proof ok
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k checkout2 --as iface   (exit 0)
+checkout2 id1:Int id2:Int buyer:Account escrow:Account seller1:Account seller2:Account house:Account a1:Int a2:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller1 seller2 house captured.id1 captured.id2 hold.id1 hold.id2
+  fails SameOrder SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+
+$ kern view examples/escrow/escrow_s3.k checkout2 --as spec   (exit 0)
+checkout2 id1:Int id2:Int buyer:Account escrow:Account seller1:Account seller2:Account house:Account a1:Int a2:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller1 seller2 house captured.id1 captured.id2 hold.id1 hold.id2
+  fails SameOrder SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+  need id1 != id2 else SameOrder
+  need distinct buyer escrow seller1 house and distinct buyer escrow seller2 house else SameAccount
+  need hold.get id1 = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need a1 > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= a1 else Insufficient (a1 - ledger.balance buyer)
+  need disputed.get id1 = 0 else Disputed
+  need distinct escrow seller1 house else SameAccount
+  need hold.get id2 = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need a2 > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= a2 else Insufficient (a2 - ledger.balance buyer)
+  need disputed.get id2 = 0 else Disputed
+  need distinct escrow seller2 house else SameAccount
+  need ledger.balance buyer >= a1 + a2 else Insufficient (a1 + a2 - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - a1 - a2
+  ensure ledger.balance' escrow = ledger.balance escrow
+  emit Moved buyer escrow a1 clock.now
+  emit Reserved buyer a1 clock.now
+  emit Opened id1 a1 clock.now
+  emit Moved escrow seller1 a1 clock.now when fee_for a1 = 0
+  emit Moved escrow seller1 (a1 - fee_for a1) clock.now when fee_for a1 > 0
+  emit Moved escrow house (fee_for a1) clock.now when fee_for a1 > 0
+  emit Captured seller1 a1 clock.now
+  emit Moved buyer escrow a2 clock.now
+  emit Reserved buyer a2 clock.now
+  emit Opened id2 a2 clock.now
+  emit Moved escrow seller2 a2 clock.now when fee_for a2 = 0
+  emit Moved escrow seller2 (a2 - fee_for a2) clock.now when fee_for a2 > 0
+  emit Moved escrow house (fee_for a2) clock.now when fee_for a2 > 0
+  emit Captured seller2 a2 clock.now
+  emit CheckedOut buyer (a1 + a2) clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k checkout2 --as editor   (exit 0)
+checkout2 id1:Int id2:Int buyer:Account escrow:Account seller1:Account seller2:Account house:Account a1:Int a2:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller1 seller2 house captured.id1 captured.id2 hold.id1 hold.id2
+  fails SameOrder SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+  need id1 != id2 else SameOrder
+  need distinct buyer escrow seller1 house and distinct buyer escrow seller2 house else SameAccount
+  need as purchase_order id1 buyer escrow seller1 house a1
+  need as purchase_order id2 buyer escrow seller2 house a2
+  need ledger.balance buyer >= a1 + a2 else Insufficient (a1 + a2 - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - a1 - a2
+  ensure ledger.balance' escrow = ledger.balance escrow
+  emit as purchase_order id1 buyer escrow seller1 house a1
+  emit as purchase_order id2 buyer escrow seller2 house a2
+  emit CheckedOut buyer (a1 + a2) clock.now
+  eg A:500@u1 E:0@u0 B:0@u2 C:0@u3 H:0@u9 | checkout2 1 2 A E B C H 200 100 -> ok | A:200 B:196 C:98 H:6
+  eg A:250@u1 E:0@u0 B:0@u2 C:0@u3 H:0@u9 | checkout2 1 2 A E B C H 200 100 -> Insufficient 50
+body
+  purchase_order id1 buyer escrow seller1 house a1
+  purchase_order id2 buyer escrow seller2 house a2
+  audit.emit (CheckedOut buyer (a1 + a2) clock.now)
+
+purchase_order id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house captured.id hold.id
+  fails OrderExists Frozen BadAmount SameAccount Insufficient(Int) Disputed NoOrder
+  need hold.get id = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need disputed.get id = 0 else Disputed
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' escrow = ledger.balance escrow
+  ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Opened id amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k checkout_vat --as iface   (exit 0)
+checkout_vat id:Int buyer:Account escrow:Account seller:Account house:Account tax:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house tax captured.id hold.id
+  fails SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+
+$ kern view examples/escrow/escrow_s3.k checkout_vat --as spec   (exit 0)
+checkout_vat id:Int buyer:Account escrow:Account seller:Account house:Account tax:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house tax captured.id hold.id
+  fails SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+  need distinct buyer escrow seller house tax else SameAccount
+  need hold.get id = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need disputed.get id = 0 else Disputed
+  need distinct escrow seller house else SameAccount
+  need ledger.balance buyer >= amount + vat_of amount else Insufficient (amount + vat_of amount - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount - vat_of amount
+  ensure ledger.balance' tax = ledger.balance tax + vat_of amount
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Opened id amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  emit Moved buyer tax (vat_of amount) clock.now when vat_of amount > 0
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k checkout_vat --as editor   (exit 0)
+checkout_vat id:Int buyer:Account escrow:Account seller:Account house:Account tax:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house tax captured.id hold.id
+  fails SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+  need distinct buyer escrow seller house tax else SameAccount
+  need as purchase_order id buyer escrow seller house amount
+  need ledger.balance buyer >= amount + vat_of amount else Insufficient (amount + vat_of amount - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount - vat_of amount
+  ensure ledger.balance' tax = ledger.balance tax + vat_of amount
+  emit as purchase_order id buyer escrow seller house amount
+  emit as move buyer tax (vat_of amount)
+  eg A:500@u1 E:0@u0 B:0@u2 H:0@u9 T:0@u8 | checkout_vat 1 A E B H T 200 -> ok | A:250 B:196 H:4 T:50
+body
+  purchase_order id buyer escrow seller house amount
+  move buyer tax (vat_of amount)
+
+vat_of amount:Int -> Int
+  uses 
+  ensure result = amount / 4
+  proof ok
+
+purchase_order id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house captured.id hold.id
+  fails OrderExists Frozen BadAmount SameAccount Insufficient(Int) Disputed NoOrder
+  need hold.get id = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need disputed.get id = 0 else Disputed
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' escrow = ledger.balance escrow
+  ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Opened id amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+move from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount >= 0 else BadAmount
+  need amount = 0 or from != to else SameAccount
+  need amount = 0 or ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now when amount > 0
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k checkout_tip --as iface   (exit 0)
+checkout_tip id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int extra:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house captured.id hold.id
+  fails SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+
+$ kern view examples/escrow/escrow_s3.k checkout_tip --as spec   (exit 0)
+checkout_tip id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int extra:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house captured.id hold.id
+  fails SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+  need distinct buyer escrow seller house else SameAccount
+  need hold.get id = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need disputed.get id = 0 else Disputed
+  need distinct escrow seller house else SameAccount
+  need extra >= 0 else BadAmount
+  need ledger.balance buyer >= amount + extra else Insufficient (amount + extra - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount - extra
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Opened id amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  emit Moved buyer seller extra clock.now when extra > 0
+  emit Tipped seller extra clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k checkout_tip --as editor   (exit 0)
+checkout_tip id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int extra:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house captured.id hold.id
+  fails SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+  need distinct buyer escrow seller house else SameAccount
+  need as purchase_order id buyer escrow seller house amount
+  need extra >= 0 else BadAmount
+  need ledger.balance buyer >= amount + extra else Insufficient (amount + extra - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' buyer = ledger.balance buyer - amount - extra
+  emit as purchase_order id buyer escrow seller house amount
+  emit as tip buyer seller extra
+  eg A:500@u1 E:0@u0 B:0@u2 H:0@u9 | checkout_tip 1 A E B H 200 10 -> ok | A:290 B:206 H:4
+body
+  purchase_order id buyer escrow seller house amount
+  tip buyer seller extra
+
+purchase_order id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house captured.id hold.id
+  fails OrderExists Frozen BadAmount SameAccount Insufficient(Int) Disputed NoOrder
+  need hold.get id = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need disputed.get id = 0 else Disputed
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' escrow = ledger.balance escrow
+  ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Opened id amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+tip buyer:Account seller:Account amount:Int
+  uses ledger.write clock audit
+  writes buyer seller
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount >= 0 else BadAmount
+  need amount = 0 or buyer != seller else SameAccount
+  need amount = 0 or ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' seller = ledger.balance seller + amount
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  emit Moved buyer seller amount clock.now when amount > 0
+  emit Tipped seller amount clock.now
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k checkout_points --as iface   (exit 0)
+checkout_points id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write points.write
+  writes buyer escrow seller house captured.id hold.id points.buyer
+  fails SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+
+$ kern view examples/escrow/escrow_s3.k checkout_points --as spec   (exit 0)
+checkout_points id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write points.write
+  writes buyer escrow seller house captured.id hold.id points.buyer
+  fails SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+  need distinct buyer escrow seller house else SameAccount
+  need hold.get id = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need disputed.get id = 0 else Disputed
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure points.get' buyer = points.get buyer + points_for amount
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Opened id amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k checkout_points --as editor   (exit 0)
+checkout_points id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write points.write
+  writes buyer escrow seller house captured.id hold.id points.buyer
+  fails SameAccount OrderExists Frozen BadAmount Insufficient(Int) Disputed NoOrder
+  need distinct buyer escrow seller house else SameAccount
+  need as purchase_order id buyer escrow seller house amount
+  ok otherwise
+  keep ledger.total
+  ensure points.get' buyer = points.get buyer + points_for amount
+  ensure ledger.balance' buyer = ledger.balance buyer - amount
+  emit as purchase_order id buyer escrow seller house amount
+  eg A:500@u1 E:0@u0 B:0@u2 H:0@u9 | checkout_points 1 A E B H 200 -> ok | A:300 points.A:2
+body
+  purchase_order id buyer escrow seller house amount
+  earn_points buyer amount
+
+purchase_order id:Int buyer:Account escrow:Account seller:Account house:Account amount:Int
+  uses ledger.write clock audit captured.write disputed.read frozen.read hold.write
+  writes buyer escrow seller house captured.id hold.id
+  fails OrderExists Frozen BadAmount SameAccount Insufficient(Int) Disputed NoOrder
+  need hold.get id = 0 else OrderExists
+  need frozen.get buyer = 0 else Frozen
+  need amount > 0 else BadAmount
+  need buyer != escrow else SameAccount
+  need ledger.balance buyer >= amount else Insufficient (amount - ledger.balance buyer)
+  need disputed.get id = 0 else Disputed
+  need distinct escrow seller house else SameAccount
+  ok otherwise
+  keep ledger.total
+  ensure hold.get' id = 0
+  ensure ledger.balance' escrow = ledger.balance escrow
+  ensure ledger.balance' buyer = ledger.balance buyer - amount when buyer != seller and buyer != house
+  emit Moved buyer escrow amount clock.now
+  emit Reserved buyer amount clock.now
+  emit Opened id amount clock.now
+  emit Moved escrow seller amount clock.now when fee_for amount = 0
+  emit Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0
+  emit Moved escrow house (fee_for amount) clock.now when fee_for amount > 0
+  emit Captured seller amount clock.now
+  proof ok
+
+earn_points a:Account amount:Int
+  uses points.write
+  writes points.a
+  ok otherwise
+  keep ledger.total
+  ensure points.get' a = points.get a + points_for amount
+  proof ok
+
+points_for amount:Int -> Int
+  uses 
+  ensure result = amount / 100 when amount >= 0
+  ensure result = 0 when amount < 0
+  proof ok
+
+fee_for amount:Int -> Int
+  uses 
+  ensure result = 0 when amount < 100
+  ensure result = amount * 2 / 100 when amount >= 100 and amount < 1000
+  ensure result = amount / 100 + 10 when amount >= 1000
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k close_account --as iface   (exit 0)
+close_account a:Account
+  uses ledger.read clock audit frozen.write verified.write
+  writes frozen.a verified.a
+  fails NotEmpty(Int)
+
+$ kern view examples/escrow/escrow_s3.k close_account --as spec   (exit 0)
+close_account a:Account
+  uses ledger.read clock audit frozen.write verified.write
+  writes frozen.a verified.a
+  fails NotEmpty(Int)
+  need ledger.balance a = 0 else NotEmpty (ledger.balance a)
+  ok otherwise
+  keep ledger.total
+  ensure frozen.get' a = 1
+  ensure verified.get' a = 0
+  emit Closed a clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k close_account --as editor   (exit 0)
+close_account a:Account
+  uses ledger.read clock audit frozen.write verified.write
+  writes frozen.a verified.a
+  fails NotEmpty(Int)
+  need ledger.balance a = 0 else NotEmpty (ledger.balance a)
+  ok otherwise
+  keep ledger.total
+  ensure frozen.get' a = 1
+  ensure verified.get' a = 0
+  emit Closed a clock.now
+  eg A:0@u1 verified.A:1 | close_account A -> ok | frozen.A:1 verified.A:0
+  eg A:5@u1 | close_account A -> NotEmpty 5
+body
+  frozen.set a 1
+  verified.set a 0
+  audit.emit (Closed a clock.now)
+
+$ kern view examples/escrow/escrow_s3.k reopen_account --as iface   (exit 0)
+reopen_account a:Account
+  uses clock audit frozen.write
+  writes frozen.a
+  fails NotFrozen
+
+$ kern view examples/escrow/escrow_s3.k reopen_account --as spec   (exit 0)
+reopen_account a:Account
+  uses clock audit frozen.write
+  writes frozen.a
+  fails NotFrozen
+  need frozen.get a = 1 else NotFrozen
+  ok otherwise
+  keep ledger.total
+  ensure frozen.get' a = 0
+  emit Unfroze a clock.now
+  emit Reopened a clock.now
+  proof ok
+
+$ kern view examples/escrow/escrow_s3.k reopen_account --as editor   (exit 0)
+reopen_account a:Account
+  uses clock audit frozen.write
+  writes frozen.a
+  fails NotFrozen
+  need frozen.get a = 1 else NotFrozen
+  ok otherwise
+  keep ledger.total
+  ensure frozen.get' a = 0
+  emit as unfreeze a
+  emit Reopened a clock.now
+  eg A:0@u1 frozen.A:1 | reopen_account A -> ok | frozen.A:0
+body
+  unfreeze a
+  audit.emit (Reopened a clock.now)
+
+unfreeze a:Account
+  uses clock audit frozen.write
+  writes frozen.a
+  ok otherwise
+  keep ledger.total
+  ensure frozen.get' a = 0
+  emit Unfroze a clock.now
+  proof ok

@@ -1,0 +1,197 @@
+$ kern check examples/raffle/raffle.k   (exit 0)
+ASSUMES rand.below n:Int -> Int: need n > 0; ensure result >= 0 and result < n   (spec satisfiable; the host provides it and checks it on every call)
+
+transfer [27367a3f]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount
+  ✔ ensure ledger.balance' to = ledger.balance to + amount
+  ✔ emit Moved from to amount clock.now
+  writes from to
+  examples 1/1   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+
+draw_winner [12db448c]  Proven, assuming rand.below
+  ⊙ ok otherwise   (assuming rand.below)
+  ⊙ keep ledger.total   (assuming rand.below)
+  ⊙ ensure ledger.balance' pot = ledger.balance pot - amount   (assuming rand.below)
+  ✔ pre rand.below: need n > 0 (at a call)
+  ⊙ emit Moved pot _ amount clock.now, then Won _ amount clock.now   (assuming rand.below)
+  writes pot a b c   (no guarantee about the new balance of a, b, c)
+  examples 2/2   random tests 0/500 reached success, 0 violations
+  spec strength: guarantees 19/45 (prover 19, random tests 0); examples 7/45; together 19/45
+      survived: `3` → `4` in `r = rand.below 3`
+      survived: `=` → `!=` in `if r = 0`
+      survived: `0` → `1` in `if r = 0`
+      survived: swap the branches of `if r = 0`
+      survived: `pot` → `a` in `transfer pot a amount`
+      survived: `a` → `pot` in `transfer pot a amount`
+      survived: `a` → `b` in `transfer pot a amount`
+      survived: `a` → `c` in `transfer pot a amount`
+      survived: `a` → `pot` in `audit.emit (Won a amount clock.now)`
+      survived: `a` → `b` in `audit.emit (Won a amount clock.now)`
+      survived: `a` → `c` in `audit.emit (Won a amount clock.now)`
+      survived: `=` → `!=` in `if r = 1`
+      survived: `1` → `2` in `if r = 1`
+      survived: swap the branches of `if r = 1`
+      survived: `b` → `a` in `transfer pot b amount`
+      survived: `b` → `c` in `transfer pot b amount`
+      survived: `b` → `pot` in `audit.emit (Won b amount clock.now)`
+      survived: `b` → `a` in `audit.emit (Won b amount clock.now)`
+      survived: `b` → `c` in `audit.emit (Won b amount clock.now)`
+      survived: `pot` → `c` in `transfer pot c amount`
+      survived: `c` → `pot` in `transfer pot c amount`
+      survived: `c` → `a` in `transfer pot c amount`
+      survived: `c` → `b` in `transfer pot c amount`
+      survived: `c` → `pot` in `audit.emit (Won c amount clock.now)`
+      survived: `c` → `a` in `audit.emit (Won c amount clock.now)`
+      survived: `c` → `b` in `audit.emit (Won c amount clock.now)`
+
+pick_order [af4bf745]  Proven, assuming rand.below
+  ⊙ ok otherwise   (assuming rand.below)
+  ⊙ keep ledger.total   (assuming rand.below)
+  ⊙ ensure picked.get' 0 >= lo and picked.get' 0 < hi   (assuming rand.below)
+  ✔ pre rand.below: need n > 0 (at a call)
+  ⊙ emit Picked _ clock.now   (assuming rand.below)
+  writes picked.*   (no guarantee about the new value of picked.*)
+  examples 2/2   random tests 256/500 reached success, 0 violations
+  spec strength: guarantees 9/9 (prover 9, random tests 9); examples 2/9; together 9/9
+
+
+$ kern view examples/raffle/raffle.k transfer --as iface   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/raffle/raffle.k transfer --as spec   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/raffle/raffle.k transfer --as editor   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  eg A:500@u1 B:0@u2 | transfer A B 100 -> ok | A:400 B:100
+body
+  ledger.debit from amount
+  ledger.credit to amount
+  audit.emit (Moved from to amount clock.now)
+
+$ kern view examples/raffle/raffle.k draw_winner --as iface   (exit 0)
+draw_winner pot:Account a:Account b:Account c:Account amount:Int
+  uses ledger.write clock audit rand
+  writes pot a b c
+  fails SameAccount BadAmount Insufficient(Int)
+
+$ kern view examples/raffle/raffle.k draw_winner --as spec   (exit 0)
+draw_winner pot:Account a:Account b:Account c:Account amount:Int
+  uses ledger.write clock audit rand
+  writes pot a b c
+  fails SameAccount BadAmount Insufficient(Int)
+  need distinct pot a b c else SameAccount
+  need amount > 0 else BadAmount
+  need ledger.balance pot >= amount else Insufficient (amount - ledger.balance pot)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' pot = ledger.balance pot - amount
+  emit Moved pot _ amount clock.now
+  emit Won _ amount clock.now
+  proof ok
+
+$ kern view examples/raffle/raffle.k draw_winner --as editor   (exit 0)
+draw_winner pot:Account a:Account b:Account c:Account amount:Int
+  uses ledger.write clock audit rand
+  writes pot a b c
+  fails SameAccount BadAmount Insufficient(Int)
+  need distinct pot a b c else SameAccount
+  need amount > 0 else BadAmount
+  need ledger.balance pot >= amount else Insufficient (amount - ledger.balance pot)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' pot = ledger.balance pot - amount
+  emit Moved pot _ amount clock.now
+  emit Won _ amount clock.now
+  eg P:100@u0 A:0@u1 B:0@u2 C:0@u3 | draw_winner P A B C 30 -> ok | P:70
+  eg P:10@u0 A:0@u1 B:0@u2 C:0@u3 | draw_winner P A B C 30 -> Insufficient 20
+body
+  r = rand.below 3
+  if r = 0
+    transfer pot a amount
+    audit.emit (Won a amount clock.now)
+  else
+    if r = 1
+      transfer pot b amount
+      audit.emit (Won b amount clock.now)
+    else
+      transfer pot c amount
+      audit.emit (Won c amount clock.now)
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/raffle/raffle.k pick_order --as iface   (exit 0)
+pick_order lo:Int hi:Int
+  uses clock audit picked.write rand
+  writes picked.*
+  fails Empty
+
+$ kern view examples/raffle/raffle.k pick_order --as spec   (exit 0)
+pick_order lo:Int hi:Int
+  uses clock audit picked.write rand
+  writes picked.*
+  fails Empty
+  need lo < hi else Empty
+  ok otherwise
+  keep ledger.total
+  ensure picked.get' 0 >= lo and picked.get' 0 < hi
+  emit Picked _ clock.now
+  proof ok
+
+$ kern view examples/raffle/raffle.k pick_order --as editor   (exit 0)
+pick_order lo:Int hi:Int
+  uses clock audit picked.write rand
+  writes picked.*
+  fails Empty
+  need lo < hi else Empty
+  ok otherwise
+  keep ledger.total
+  ensure picked.get' 0 >= lo and picked.get' 0 < hi
+  emit Picked _ clock.now
+  eg | pick_order 5 9 -> ok
+  eg | pick_order 5 5 -> Empty
+body
+  k = lo + rand.below (hi - lo)
+  picked.set 0 k
+  audit.emit (Picked k clock.now)

@@ -1,0 +1,34 @@
+$ kern check tests/probes/p3.k   (exit 1)
+bump [bae5db5a]  Broken guarantees
+  ! ensure hold.get' j = hold.get j + 2 for j from lo to hi   (relies on loop invariant hold.get' j = hold.get j + 2 for j from lo to k  (kept by every iteration), which is not proven)
+  ! loop hold.get' j = hold.get j + 2 for j from lo to k  (holds when the loop starts)   (relies on invariant on hold, which is not proven)
+  ✔ loop module invariant o:Int hold.get o >= 0  (holds when the loop starts)
+  ✗ loop hold.get' j = hold.get j + 2 for j from lo to k  (kept by every iteration)
+      counterexample: eg  hold.734:582 hold.736:253 hold.733:18457 | bump 734 736 -> ok |  hold.734:583 hold.735:1
+  ! loop module invariant o:Int hold.get o >= 0  (kept by every iteration)   (relies on loop invariant hold.get' j = hold.get j + 2 for j from lo to k  (kept by every iteration), which is not proven)
+  ! invariant o:Int hold.get o >= 0   (relies on loop invariant hold.get' j = hold.get j + 2 for j from lo to k  (kept by every iteration), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  writes hold.[lo,hi)
+  examples 0/0   random tests 500/500 reached success, 3 violations
+
+
+$ kern view tests/probes/p3.k bump --as iface   (exit 0)
+bump lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+
+$ kern view tests/probes/p3.k bump --as spec   (exit 0)
+bump lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+  ensure hold.get' j = hold.get j + 2 for j from lo to hi
+  proof 5 open
+
+$ kern view tests/probes/p3.k bump --as editor   (exit 0)
+bump lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+  ensure hold.get' j = hold.get j + 2 for j from lo to hi
+body
+  for k from lo to hi
+    invariant hold.get' j = hold.get j + 2 for j from lo to k
+    hold.set k (hold.get k + 1)

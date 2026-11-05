@@ -1,0 +1,360 @@
+$ kern check examples/ledger-large/ledger_large.k   (exit 0)
+transfer [fcb2ea04]  All guarantees proven
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount
+  ✔ ensure ledger.balance' to = ledger.balance to + amount
+  ✔ emit TransferDone from to amount _
+  writes from to
+  examples 4/4   random tests 96/500 reached success, 0 violations
+  spec strength: guarantees 9/14 (prover 9, random tests 9); examples 10/14; together 13/14
+      missed: `from` → `to` in `have = ledger.balance from`   (an example catches it)
+      missed: drop `need have >= amount else Insufficient (amount - have)`   (an example catches it)
+      missed: `>=` → `>` in `need have >= amount else Insufficient (amount - have)`   (an example catches it)
+      missed: `-` → `+` in payload of `need have >= amount else Insufficient (amount - have)`   (an example catches it)
+      survived: `clock.now` → `0` in `audit.emit (TransferDone from to amount clock.now)`
+
+payout [c87360bc]  All guarantees proven
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount - fee
+  ✔ emit TransferDone from to amount _, then TransferDone from house fee _
+  writes from to house   (no guarantee about the new balance of to, house)
+  examples 1/1   random tests 29/500 reached success, 0 violations
+  spec strength: guarantees 12/12 (prover 12, random tests 8); examples 12/12; together 12/12
+
+settle [459060be]  All guarantees proven
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount - fee
+  ✔ emit TransferDone from to amount _, then TransferDone from house fee _, then Settled from to _
+  writes from to house   (no guarantee about the new balance of to, house)
+  examples 2/2   random tests 17/500 reached success, 0 violations
+  spec strength: guarantees 14/15 (prover 14, random tests 9); examples 9/15; together 14/15
+      survived: `clock.now` → `0` in `audit.emit (Settled from to clock.now)`
+
+deposit [5a327f7a]  All guarantees proven
+  ✔ ensure ledger.balance' to = ledger.balance to + amount
+  ✔ ensure ledger.total' = ledger.total + amount
+  ✔ emit Deposited to amount _
+  writes to
+  examples 1/1   random tests 407/500 reached success, 0 violations
+  spec strength: guarantees 3/4 (prover 3, random tests 3); examples 2/4; together 3/4
+      survived: `clock.now` → `0` in `audit.emit (Deposited to amount clock.now)`
+
+withdraw [ebff303a]  All guarantees proven
+  ✔ ensure ledger.balance' from = ledger.balance from - amount
+  ✔ ensure ledger.total' = ledger.total - amount
+  writes from
+  examples 2/2   random tests 307/500 reached success, 0 violations
+  spec strength: guarantees 2/5 (prover 2, random tests 2); examples 4/5; together 4/5
+      missed: drop `need have >= amount else Insufficient (amount - have)`   (an example catches it)
+      survived: `>=` → `>` in `need have >= amount else Insufficient (amount - have)`
+      missed: `-` → `+` in payload of `need have >= amount else Insufficient (amount - have)`   (an example catches it)
+
+rebalance [4a0aa2e0]  All guarantees proven
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' to = ledger.balance to + amount
+  writes from to   (no guarantee about the new balance of from)
+  examples 1/1   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 4/4 (prover 4, random tests 4); examples 4/4; together 4/4
+
+month_end [6d447468]  All guarantees proven
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount - fee
+  ✔ emit TransferDone from to amount _, then TransferDone from house fee _, then Settled from to _
+  writes from to house   (no guarantee about the new balance of to, house)
+  examples 1/1   random tests 17/500 reached success, 0 violations
+  spec strength: guarantees 9/9 (prover 9, random tests 5); examples 9/9; together 9/9
+
+
+$ kern view examples/ledger-large/ledger_large.k transfer --as iface   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+
+$ kern view examples/ledger-large/ledger_large.k transfer --as spec   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.owner from = ledger.owner to else SameOwner
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit TransferDone from to amount _
+  body need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  proof ok
+
+$ kern view examples/ledger-large/ledger_large.k transfer --as editor   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.owner from = ledger.owner to else SameOwner
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit TransferDone from to amount _
+  eg A:500@u1 B:0@u1 | transfer A B 100 -> ok | A:400 B:100
+  eg A:500@u1 B:0@u1 | transfer A B 600 -> Insufficient 100
+  eg A:100@u1 B:0@u1 | transfer A B 100 -> ok | A:0 B:100
+  eg A:500@u1 B:0@u2 | transfer A B 100 -> SameOwner
+body
+  have = ledger.balance from
+  need have >= amount else Insufficient (amount - have)
+  ledger.debit from amount
+  ledger.credit to amount
+  audit.emit (TransferDone from to amount clock.now)
+
+$ kern view examples/ledger-large/ledger_large.k payout --as iface   (exit 0)
+payout from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+
+$ kern view examples/ledger-large/ledger_large.k payout --as spec   (exit 0)
+payout from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  need fee >= 0 else BadAmount
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+  emit TransferDone from to amount _
+  emit TransferDone from house fee _
+  proof ok
+
+$ kern view examples/ledger-large/ledger_large.k payout --as editor   (exit 0)
+payout from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  need fee >= 0 else BadAmount
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+  emit TransferDone from to amount _
+  emit TransferDone from house fee _
+  eg A:500@u1 B:0@u1 H:0@u1 | payout A B H 100 5 -> ok | A:395 B:100 H:5
+body
+  transfer from to amount
+  transfer from house fee
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.owner from = ledger.owner to else SameOwner
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit TransferDone from to amount _
+  body need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  proof ok
+
+$ kern view examples/ledger-large/ledger_large.k settle --as iface   (exit 0)
+settle from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails FeeTooLarge BadAmount SameAccount SameOwner Insufficient(Int)
+
+$ kern view examples/ledger-large/ledger_large.k settle --as spec   (exit 0)
+settle from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails FeeTooLarge BadAmount SameAccount SameOwner Insufficient(Int)
+  need fee <= amount else FeeTooLarge
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+  emit TransferDone from to amount _
+  emit TransferDone from house fee _
+  emit Settled from to _
+  proof ok
+
+$ kern view examples/ledger-large/ledger_large.k settle --as editor   (exit 0)
+settle from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails FeeTooLarge BadAmount SameAccount SameOwner Insufficient(Int)
+  need fee <= amount else FeeTooLarge
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+  emit TransferDone from to amount _
+  emit TransferDone from house fee _
+  emit Settled from to _
+  eg A:500@u1 B:0@u1 H:0@u1 | settle A B H 100 5 -> ok | A:395 B:100 H:5
+  eg A:500@u1 B:0@u1 H:0@u1 | settle A B H 5 100 -> FeeTooLarge
+body
+  payout from to house amount fee
+  audit.emit (Settled from to clock.now)
+
+payout from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  need fee >= 0 else BadAmount
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+  emit TransferDone from to amount _
+  emit TransferDone from house fee _
+  proof ok
+
+$ kern view examples/ledger-large/ledger_large.k deposit --as iface   (exit 0)
+deposit to:Account amount:Int
+  uses ledger.write clock audit
+  writes to
+  fails BadAmount
+
+$ kern view examples/ledger-large/ledger_large.k deposit --as spec   (exit 0)
+deposit to:Account amount:Int
+  uses ledger.write clock audit
+  writes to
+  fails BadAmount
+  need amount > 0 else BadAmount
+  ensure ledger.balance' to = ledger.balance to + amount
+  ensure ledger.total' = ledger.total + amount
+  emit Deposited to amount _
+  proof ok
+
+$ kern view examples/ledger-large/ledger_large.k deposit --as editor   (exit 0)
+deposit to:Account amount:Int
+  uses ledger.write clock audit
+  writes to
+  fails BadAmount
+  need amount > 0 else BadAmount
+  ensure ledger.balance' to = ledger.balance to + amount
+  ensure ledger.total' = ledger.total + amount
+  emit Deposited to amount _
+  eg A:0@u1 | deposit A 50 -> ok | A:50
+body
+  ledger.credit to amount
+  audit.emit (Deposited to amount clock.now)
+
+$ kern view examples/ledger-large/ledger_large.k withdraw --as iface   (exit 0)
+withdraw from:Account amount:Int
+  uses ledger.write
+  writes from
+  fails BadAmount Insufficient(Int)
+
+$ kern view examples/ledger-large/ledger_large.k withdraw --as spec   (exit 0)
+withdraw from:Account amount:Int
+  uses ledger.write
+  writes from
+  fails BadAmount Insufficient(Int)
+  need amount > 0 else BadAmount
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.total' = ledger.total - amount
+  body need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  proof ok
+
+$ kern view examples/ledger-large/ledger_large.k withdraw --as editor   (exit 0)
+withdraw from:Account amount:Int
+  uses ledger.write
+  writes from
+  fails BadAmount Insufficient(Int)
+  need amount > 0 else BadAmount
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.total' = ledger.total - amount
+  eg A:80@u1 | withdraw A 50 -> ok | A:30
+  eg A:80@u1 | withdraw A 90 -> Insufficient 10
+body
+  have = ledger.balance from
+  need have >= amount else Insufficient (amount - have)
+  ledger.debit from amount
+
+$ kern view examples/ledger-large/ledger_large.k rebalance --as iface   (exit 0)
+rebalance from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails SameAccount BadAmount Insufficient(Int)
+
+$ kern view examples/ledger-large/ledger_large.k rebalance --as spec   (exit 0)
+rebalance from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails SameAccount BadAmount Insufficient(Int)
+  need from != to else SameAccount
+  keep ledger.total
+  ensure ledger.balance' to = ledger.balance to + amount
+  proof ok
+
+$ kern view examples/ledger-large/ledger_large.k rebalance --as editor   (exit 0)
+rebalance from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails SameAccount BadAmount Insufficient(Int)
+  need from != to else SameAccount
+  keep ledger.total
+  ensure ledger.balance' to = ledger.balance to + amount
+  eg A:80@u1 B:0@u2 | rebalance A B 50 -> ok | A:30 B:50
+body
+  withdraw from amount
+  deposit to amount
+
+withdraw from:Account amount:Int
+  uses ledger.write
+  writes from
+  fails BadAmount Insufficient(Int)
+  need amount > 0 else BadAmount
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.total' = ledger.total - amount
+  body need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  proof ok
+
+deposit to:Account amount:Int
+  uses ledger.write clock audit
+  writes to
+  fails BadAmount
+  need amount > 0 else BadAmount
+  ensure ledger.balance' to = ledger.balance to + amount
+  ensure ledger.total' = ledger.total + amount
+  emit Deposited to amount _
+  proof ok
+
+$ kern view examples/ledger-large/ledger_large.k month_end --as iface   (exit 0)
+month_end from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails FeeTooLarge BadAmount SameAccount SameOwner Insufficient(Int)
+
+$ kern view examples/ledger-large/ledger_large.k month_end --as spec   (exit 0)
+month_end from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails FeeTooLarge BadAmount SameAccount SameOwner Insufficient(Int)
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+  emit TransferDone from to amount _
+  emit TransferDone from house fee _
+  emit Settled from to _
+  proof ok
+
+$ kern view examples/ledger-large/ledger_large.k month_end --as editor   (exit 0)
+month_end from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails FeeTooLarge BadAmount SameAccount SameOwner Insufficient(Int)
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+  emit TransferDone from to amount _
+  emit TransferDone from house fee _
+  emit Settled from to _
+  eg A:500@u1 B:0@u1 H:0@u1 | month_end A B H 100 5 -> ok | A:395 B:100 H:5
+body
+  settle from to house amount fee
+
+settle from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails FeeTooLarge BadAmount SameAccount SameOwner Insufficient(Int)
+  need fee <= amount else FeeTooLarge
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+  emit TransferDone from to amount _
+  emit TransferDone from house fee _
+  emit Settled from to _
+  proof ok

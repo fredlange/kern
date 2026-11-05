@@ -1,0 +1,63 @@
+$ kern check tests/probes/fz2.k   (exit 1)
+f [15c9c786]  Broken guarantees
+  ! ok otherwise   (relies on invariant on hold, loop invariant aux.get' j = hold.get j for j from 0 to k  (kept by every iteration), which is not proven)
+  ! ensure hold.get' j = 7 when hold.get j > 0 for j from 0 to (hi - 1)   (relies on invariant on hold, loop invariant aux.get' j = hold.get j for j from 0 to k  (kept by every iteration), which is not proven)
+  ! ensure hold.get' j = hold.get j when hold.get j <= 0 for j from 0 to (hi - 1)   (relies on invariant on hold, loop invariant aux.get' j = hold.get j for j from 0 to k  (kept by every iteration), which is not proven)
+      refuted only via that broken spec; not reproduced in the interpreter
+  ! ensure aux.get' j <= hold.get j for j from 0 to (hi - 1)   (relies on invariant on hold, loop invariant aux.get' j = hold.get j for j from 0 to k  (kept by every iteration), which is not proven)
+  ! ensure hold.get' other = hold.get other   (relies on invariant on hold, loop invariant aux.get' j = hold.get j for j from 0 to k  (kept by every iteration), which is not proven)
+  ! loop hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (holds when the loop starts)   (relies on invariant on hold, which is not proven)
+  ! loop aux.get' j = hold.get j for j from 0 to k  (holds when the loop starts)   (relies on invariant on hold, which is not proven)
+  ✔ loop module invariant o:Int hold.get o >= 0  (holds when the loop starts)
+  ! loop hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (kept by every iteration)   (relies on invariant on hold, loop invariant hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (holds when the loop starts), loop invariant aux.get' j = hold.get j for j from 0 to k  (holds when the loop starts), loop invariant aux.get' j = hold.get j for j from 0 to k  (kept by every iteration), which is not proven)
+  ✗ loop aux.get' j = hold.get j for j from 0 to k  (kept by every iteration)
+      counterexample: eg  hold.2:218 hold.5:5 hold.4:6 aux.2:861 aux.5:859 aux.4:860 aux.1:23 aux.-30087:25 | f 2 5 4 -> ok |  hold.2:7 aux.2:7 aux.1:0
+  ! loop module invariant o:Int hold.get o >= 0  (kept by every iteration)   (relies on loop invariant hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (holds when the loop starts), loop invariant aux.get' j = hold.get j for j from 0 to k  (holds when the loop starts), loop invariant hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (kept by every iteration), loop invariant aux.get' j = hold.get j for j from 0 to k  (kept by every iteration), which is not proven)
+  ! loop hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (kept by every iteration)   (relies on invariant on hold, loop invariant hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (holds when the loop starts), loop invariant aux.get' j = hold.get j for j from 0 to k  (holds when the loop starts), loop invariant hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (kept by every iteration), loop invariant aux.get' j = hold.get j for j from 0 to k  (kept by every iteration), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  ! loop aux.get' j = hold.get j for j from 0 to k  (kept by every iteration)   (relies on invariant on hold, loop invariant hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (holds when the loop starts), loop invariant aux.get' j = hold.get j for j from 0 to k  (holds when the loop starts), loop invariant hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (kept by every iteration), loop invariant aux.get' j = hold.get j for j from 0 to k  (kept by every iteration), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  ! loop module invariant o:Int hold.get o >= 0  (kept by every iteration)   (relies on loop invariant hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (holds when the loop starts), loop invariant aux.get' j = hold.get j for j from 0 to k  (holds when the loop starts), loop invariant hold.get' j = 7 when hold.get j > 0 for j from 0 to k  (kept by every iteration), loop invariant aux.get' j = hold.get j for j from 0 to k  (kept by every iteration), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  ? invariant o:Int hold.get o >= 0
+      cannot be proven: it writes a computed key, so the invariant can't be checked key by key
+  writes aux.* hold.*   (no guarantee about the new value of aux.*, hold.*)
+  examples 0/0   random tests 236/500 reached success, 3 violations
+
+
+$ kern view tests/probes/fz2.k f --as iface   (exit 0)
+f lo:Int hi:Int other:Int
+  uses aux.write hold.write
+  writes aux.* hold.*
+  fails Empty InRange
+
+$ kern view tests/probes/fz2.k f --as spec   (exit 0)
+f lo:Int hi:Int other:Int
+  uses aux.write hold.write
+  writes aux.* hold.*
+  fails Empty InRange
+  need 0 <= (hi - 1) else Empty
+  need other < 0 or other >= (hi - 1) else InRange
+  ok otherwise
+  ensure hold.get' j = 7 when hold.get j > 0 for j from 0 to (hi - 1)
+  ensure hold.get' j = hold.get j when hold.get j <= 0 for j from 0 to (hi - 1)
+  ensure aux.get' j <= hold.get j for j from 0 to (hi - 1)
+  ensure hold.get' other = hold.get other
+  proof 14 open
+
+$ kern view tests/probes/fz2.k f --as editor   (exit 0)
+f lo:Int hi:Int other:Int
+  uses aux.write hold.write
+  writes aux.* hold.*
+  fails Empty InRange
+  need 0 <= (hi - 1) else Empty
+  need other < 0 or other >= (hi - 1) else InRange
+  ok otherwise
+  ensure hold.get' j = 7 when hold.get j > 0 for j from 0 to (hi - 1)
+  ensure hold.get' j = hold.get j when hold.get j <= 0 for j from 0 to (hi - 1)
+  ensure aux.get' j <= hold.get j for j from 0 to (hi - 1)
+  ensure hold.get' other = hold.get other
+body
+  for k from 0 to (hi - 1)
+    invariant hold.get' j = 7 when hold.get j > 0 for j from 0 to k
+    invariant aux.get' j = hold.get j for j from 0 to k
+    if hold.get k > 0
+      hold.set k 7
+    aux.set k (hold.get k)

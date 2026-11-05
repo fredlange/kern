@@ -1,0 +1,34 @@
+$ kern check tests/probes/p4.k   (exit 1)
+drain [238eb04a]  Broken guarantees
+  ! ok otherwise   (relies on invariant on hold, loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  ! loop 1 = 1  (holds when the loop starts)   (relies on invariant on hold, which is not proven)
+  ✔ loop module invariant o:Int hold.get o >= 0  (holds when the loop starts)
+  ! loop 1 = 1  (kept by every iteration)   (relies on invariant on hold, loop invariant 1 = 1  (holds when the loop starts), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  ✗ loop module invariant o:Int hold.get o >= 0  (kept by every iteration)
+      counterexample: eg  hold.697:848 hold.695:1324 | drain 694 697 -> ok |  hold.694:-1 hold.696:-1 hold.695:1323
+  ! invariant o:Int hold.get o >= 0   (relies on loop invariant 1 = 1  (holds when the loop starts), loop invariant 1 = 1  (kept by every iteration), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  writes hold.[lo,hi)   (no guarantee about the new value of hold.[lo,hi))
+  examples 0/0   random tests 500/500 reached success, 3 violations
+
+
+$ kern view tests/probes/p4.k drain --as iface   (exit 0)
+drain lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+
+$ kern view tests/probes/p4.k drain --as spec   (exit 0)
+drain lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+  ok otherwise
+  proof 5 open
+
+$ kern view tests/probes/p4.k drain --as editor   (exit 0)
+drain lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+  ok otherwise
+body
+  for k from lo to hi
+    invariant 1 = 1
+    hold.set k (hold.get k - 1)

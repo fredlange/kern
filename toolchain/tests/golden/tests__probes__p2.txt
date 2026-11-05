@@ -1,0 +1,41 @@
+$ kern check tests/probes/p2.k   (exit 1)
+shifted [835f5629]  Broken guarantees
+  ✗ ensure hold.get' other = hold.get other
+      counterexample: eg  hold.286:2 hold.284:14681 | shifted 285 286 286 -> ok |  hold.286:0
+  ! loop hold.get' j = 0 for j from lo to k  (holds when the loop starts)   (relies on invariant on hold, which is not proven)
+  ✔ loop module invariant o:Int hold.get o >= 0  (holds when the loop starts)
+  ✗ loop hold.get' j = 0 for j from lo to k  (kept by every iteration)
+      counterexample: eg  hold.0:1 hold.1:451 hold.2:613 | shifted 0 1 2 -> ok |  hold.1:0
+  ! loop module invariant o:Int hold.get o >= 0  (kept by every iteration)   (relies on loop invariant hold.get' j = 0 for j from lo to k  (holds when the loop starts), loop invariant hold.get' j = 0 for j from lo to k  (kept by every iteration), which is not proven)
+  ? invariant o:Int hold.get o >= 0
+      cannot be proven: it writes a computed key, so the invariant can't be checked key by key
+  writes hold.*   (no guarantee about the new value of hold.*)
+  examples 0/0   random tests 246/500 reached success, 1 violations
+
+
+$ kern view tests/probes/p2.k shifted --as iface   (exit 0)
+shifted lo:Int hi:Int other:Int
+  uses hold.write
+  writes hold.*
+  fails InRange
+
+$ kern view tests/probes/p2.k shifted --as spec   (exit 0)
+shifted lo:Int hi:Int other:Int
+  uses hold.write
+  writes hold.*
+  fails InRange
+  need other >= hi else InRange
+  ensure hold.get' other = hold.get other
+  proof 5 open
+
+$ kern view tests/probes/p2.k shifted --as editor   (exit 0)
+shifted lo:Int hi:Int other:Int
+  uses hold.write
+  writes hold.*
+  fails InRange
+  need other >= hi else InRange
+  ensure hold.get' other = hold.get other
+body
+  for k from lo to hi
+    invariant hold.get' j = 0 for j from lo to k
+    hold.set (k + 1) 0

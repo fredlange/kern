@@ -1,0 +1,62 @@
+$ kern check tests/probes/fz1.k   (exit 1)
+f [dfe85bd8]  Broken guarantees
+  ! ok otherwise   (relies on loop invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration), loop invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration), which is not proven)
+  ! ensure hold.get' j = 5 when hold.get j > 0 for j from lo to hi   (relies on loop invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration), loop invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration), which is not proven)
+      refuted only via that broken spec; not reproduced in the interpreter
+  ! ensure hold.get' j = hold.get j when hold.get j <= 0 for j from (lo - 1) to hi   (relies on loop invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration), loop invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration), which is not proven)
+  ! ensure ledger.total' = ledger.total   (relies on loop invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration), loop invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration), which is not proven)
+  ! loop hold.get' j = 6 when hold.get j > 0 for j from lo to k  (holds when the loop starts)   (relies on invariant on hold, which is not proven)
+  ! loop hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (holds when the loop starts)   (relies on invariant on hold, which is not proven)
+  ! loop ledger.total' = ledger.total  (holds when the loop starts)   (relies on invariant on hold, which is not proven)
+  ✔ loop module invariant o:Int hold.get o >= 0  (holds when the loop starts)
+  ✗ loop hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration)
+      counterexample: eg  hold.281:4 | f 281 282 -> ok |  hold.281:5
+  ✗ loop hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration)
+      counterexample: eg  hold.681:995 | f 680 681 -> ok |  hold.680:5
+  ! loop ledger.total' = ledger.total  (kept by every iteration)   (relies on loop invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration), loop invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration), which is not proven)
+  ! loop module invariant o:Int hold.get o >= 0  (kept by every iteration)   (relies on loop invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration), loop invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration), loop invariant ledger.total' = ledger.total  (kept by every iteration), which is not proven)
+  ! loop hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration)   (relies on invariant on hold, loop invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration), loop invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration), loop invariant ledger.total' = ledger.total  (kept by every iteration), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  ! loop hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration)   (relies on invariant on hold, loop invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration), loop invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration), loop invariant ledger.total' = ledger.total  (kept by every iteration), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  ! loop ledger.total' = ledger.total  (kept by every iteration)   (relies on invariant on hold, loop invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration), loop invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration), loop invariant ledger.total' = ledger.total  (kept by every iteration), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  ! loop module invariant o:Int hold.get o >= 0  (kept by every iteration)   (relies on loop invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration), loop invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration), loop invariant ledger.total' = ledger.total  (kept by every iteration), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  ! invariant o:Int hold.get o >= 0   (relies on loop invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k  (kept by every iteration), loop invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k  (kept by every iteration), loop invariant ledger.total' = ledger.total  (kept by every iteration), loop invariant module invariant o:Int hold.get o >= 0  (kept by every iteration), which is not proven)
+  writes hold.lo hold.[lo,hi)   (no guarantee about the new value of hold.lo)
+  examples 0/0   random tests 264/500 reached success, 3 violations
+
+
+$ kern view tests/probes/fz1.k f --as iface   (exit 0)
+f lo:Int hi:Int
+  uses hold.write
+  writes hold.lo hold.[lo,hi)
+  fails Empty
+
+$ kern view tests/probes/fz1.k f --as spec   (exit 0)
+f lo:Int hi:Int
+  uses hold.write
+  writes hold.lo hold.[lo,hi)
+  fails Empty
+  need lo <= hi else Empty
+  ok otherwise
+  ensure hold.get' j = 5 when hold.get j > 0 for j from lo to hi
+  ensure hold.get' j = hold.get j when hold.get j <= 0 for j from (lo - 1) to hi
+  ensure ledger.total' = ledger.total
+  proof 16 open
+
+$ kern view tests/probes/fz1.k f --as editor   (exit 0)
+f lo:Int hi:Int
+  uses hold.write
+  writes hold.lo hold.[lo,hi)
+  fails Empty
+  need lo <= hi else Empty
+  ok otherwise
+  ensure hold.get' j = 5 when hold.get j > 0 for j from lo to hi
+  ensure hold.get' j = hold.get j when hold.get j <= 0 for j from (lo - 1) to hi
+  ensure ledger.total' = ledger.total
+body
+  hold.set lo 5
+  for k from lo to hi
+    invariant hold.get' j = 6 when hold.get j > 0 for j from lo to k
+    invariant hold.get' j = hold.get j when hold.get j <= 0 for j from lo to k
+    invariant ledger.total' = ledger.total
+    if hold.get k > 0
+      hold.set k 5

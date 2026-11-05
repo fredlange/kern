@@ -1,0 +1,34 @@
+$ kern check tests/probes/p6.k   (exit 1)
+touch_first [0da113bd]  Broken guarantees
+  ✗ ensure hold.get' lo = 7
+      counterexample: eg  hold.282:8 | touch_first 282 281 -> ok | 
+  ✔ loop hold.get' j = 7 for j from lo to k  (holds when the loop starts)
+  ✔ loop module invariant o:Int hold.get o >= 0  (holds when the loop starts)
+  ✔ loop hold.get' j = 7 for j from lo to k  (kept by every iteration)
+  ✔ loop module invariant o:Int hold.get o >= 0  (kept by every iteration)
+  ✔ invariant o:Int hold.get o >= 0
+  writes hold.[lo,hi)   (no guarantee about the new value of hold.[lo,hi))
+  examples 0/0   random tests 500/500 reached success, 3 violations
+
+
+$ kern view tests/probes/p6.k touch_first --as iface   (exit 0)
+touch_first lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+
+$ kern view tests/probes/p6.k touch_first --as spec   (exit 0)
+touch_first lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+  ensure hold.get' lo = 7
+  proof 1 open
+
+$ kern view tests/probes/p6.k touch_first --as editor   (exit 0)
+touch_first lo:Int hi:Int
+  uses hold.write
+  writes hold.[lo,hi)
+  ensure hold.get' lo = 7
+body
+  for k from lo to hi
+    invariant hold.get' j = 7 for j from lo to k
+    hold.set k 7

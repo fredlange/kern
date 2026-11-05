@@ -1,0 +1,123 @@
+$ kern check examples/ledger-tour/ledger_v5.k   (exit 0)
+transfer [683e3393]  All guarantees proven
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount
+  ✔ ensure ledger.balance' to = ledger.balance to + amount
+  ✔ emit TransferDone from to amount clock.now
+  writes from to
+  examples 4/4   random tests 96/500 reached success, 0 violations
+  spec strength: guarantees 10/14 (prover 10, random tests 10); examples 10/14; together 14/14
+      missed: `from` → `to` in `have = ledger.balance from`   (an example catches it)
+      missed: drop `need have >= amount else Insufficient (amount - have)`   (an example catches it)
+      missed: `>=` → `>` in `need have >= amount else Insufficient (amount - have)`   (an example catches it)
+      missed: `-` → `+` in payload of `need have >= amount else Insufficient (amount - have)`   (an example catches it)
+  why 2
+      why reads like an obligation (move it to the spec?): same-owner rule: cross-customer transfers must go through payments.send, which runs AML screening
+
+payout [9b00a7f7]  All guarantees proven
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount - fee
+  ✔ emit TransferDone from to amount clock.now, then TransferDone from house fee clock.now
+  writes from to house   (no guarantee about the new balance of to, house)
+  examples 1/1   random tests 29/500 reached success, 0 violations
+  spec strength: guarantees 12/12 (prover 12, random tests 8); examples 12/12; together 12/12
+  why 1
+
+
+$ kern view examples/ledger-tour/ledger_v5.k transfer --as iface   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  why 2
+
+$ kern view examples/ledger-tour/ledger_v5.k transfer --as spec   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  why 2
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.owner from = ledger.owner to else SameOwner
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit TransferDone from to amount clock.now
+  body need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  proof ok
+
+$ kern view examples/ledger-tour/ledger_v5.k transfer --as editor   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  why 2
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.owner from = ledger.owner to else SameOwner
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit TransferDone from to amount clock.now
+  eg A:500@u1 B:0@u1 | transfer A B 100 -> ok | A:400 B:100
+  eg A:500@u1 B:0@u1 | transfer A B 600 -> Insufficient 100
+  eg A:100@u1 B:0@u1 | transfer A B 100 -> ok | A:0 B:100
+  eg A:500@u1 B:0@u2 | transfer A B 100 -> SameOwner
+body
+  have = ledger.balance from
+  need have >= amount else Insufficient (amount - have)
+  ledger.debit from amount
+  ledger.credit to amount
+  audit.emit (TransferDone from to amount clock.now)
+
+$ kern view examples/ledger-tour/ledger_v5.k payout --as iface   (exit 0)
+payout from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  why 1
+
+$ kern view examples/ledger-tour/ledger_v5.k payout --as spec   (exit 0)
+payout from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  why 1
+  need fee >= 0 else BadAmount
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+  emit TransferDone from to amount clock.now
+  emit TransferDone from house fee clock.now
+  proof ok
+
+$ kern view examples/ledger-tour/ledger_v5.k payout --as editor   (exit 0)
+payout from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write clock audit
+  writes from to house
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  why 1
+  need fee >= 0 else BadAmount
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+  emit TransferDone from to amount clock.now
+  emit TransferDone from house fee clock.now
+  eg A:500@u1 B:0@u1 H:0@u1 | payout A B H 100 5 -> ok | A:395 B:100 H:5
+body
+  transfer from to amount
+  transfer from house fee
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount SameOwner Insufficient(Int)
+  why 2
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.owner from = ledger.owner to else SameOwner
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit TransferDone from to amount clock.now
+  body need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  proof ok

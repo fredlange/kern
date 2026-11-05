@@ -1,0 +1,343 @@
+$ kern check examples/shop   (exit 0)
+== inventory.catalog  (examples/shop/inventory/catalog.k)
+set_price [05298cae]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure price.get' item = amount
+  ✔ invariant i:Int price.get i >= 0
+  writes price.item
+  examples 2/2   random tests 428/500 reached success, 0 violations
+  spec strength: guarantees 3/3 (prover 3, random tests 3); examples 3/3; together 3/3
+
+restock [7129430f]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure stock.get' item = stock.get item + n
+  ✔ invariant i:Int stock.get i >= 0
+  writes stock.item
+  examples 1/1   random tests 408/500 reached success, 0 violations
+  spec strength: guarantees 5/5 (prover 5, random tests 5); examples 5/5; together 5/5
+
+restock_range [d9443d18]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure stock.get' j = stock.get j + n for j from lo to hi
+  ✔ loop stock.get' j = stock.get j + n for j from lo to k  (holds when the loop starts)
+  ✔ loop module invariant i:Int stock.get i >= 0  (holds when the loop starts)
+  ✔ loop stock.get' j = stock.get j + n for j from lo to k  (kept by every iteration)
+  ✔ loop module invariant i:Int stock.get i >= 0  (kept by every iteration)
+  ✔ invariant i:Int stock.get i >= 0
+  writes stock.[lo,hi)
+  examples 1/1   random tests 409/500 reached success, 0 violations
+  spec strength: guarantees 9/11 (prover 9, random tests 9); examples 9/11; together 9/11
+      survived: `lo` → `lo - 1` in `for k from lo to hi`
+      survived: `hi` → `hi + 1` in `for k from lo to hi`
+
+== inventory.promotions  (examples/shop/inventory/promotions.k)
+discount_range [00907e46]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure price.get' j = price.get j * 9 / 10 for j from lo to hi
+  ✔ loop price.get' j = price.get j * 9 / 10 for j from lo to k  (holds when the loop starts)
+  ✔ loop module invariant i:Int price.get i >= 0  (holds when the loop starts)
+  ✔ loop price.get' j = price.get j * 9 / 10 for j from lo to k  (kept by every iteration)
+  ✔ loop module invariant i:Int price.get i >= 0  (kept by every iteration)
+  ✔ invariant i:Int price.get i >= 0
+  writes price.[lo,hi)
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 10/12 (prover 9, random tests 10); examples 10/12; together 10/12
+      survived: `lo` → `lo - 1` in `for k from lo to hi`
+      survived: `hi` → `hi + 1` in `for k from lo to hi`
+
+== money.ledger  (examples/shop/money/ledger.k)
+transfer [27367a3f]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount
+  ✔ ensure ledger.balance' to = ledger.balance to + amount
+  ✔ emit Moved from to amount clock.now
+  writes from to
+  examples 2/2   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+
+== orders  (examples/shop/orders.k)
+buy [da94caa8]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure stock.get' item = stock.get item - 1
+  ✔ ensure ledger.balance' buyer = ledger.balance buyer - price.get item
+  ✔ invariant i:Int stock.get i >= 0
+  ✔ emit Moved buyer shop (price.get item) clock.now, then Sold item buyer clock.now
+  writes buyer shop stock.item   (no guarantee about the new balance of shop)
+  examples 3/3   random tests 31/500 reached success, 0 violations
+  spec strength: guarantees 9/9 (prover 9, random tests 9); examples 6/9; together 9/9
+
+refund [742f8ee5]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure stock.get' item = stock.get item + 1
+  ✔ invariant i:Int stock.get i >= 0
+  ✔ emit Moved shop buyer (price.get item) clock.now, then Returned item buyer clock.now
+  writes buyer shop stock.item   (no guarantee about the new balance of buyer, shop)
+  examples 1/1   random tests 54/500 reached success, 0 violations
+  spec strength: guarantees 9/9 (prover 9, random tests 9); examples 6/9; together 9/9
+
+
+$ kern view examples/shop set_price --as iface   (exit 0)
+set_price item:Int amount:Int
+  uses price.write
+  writes price.item
+  fails BadPrice
+
+$ kern view examples/shop set_price --as spec   (exit 0)
+set_price item:Int amount:Int
+  uses price.write
+  writes price.item
+  fails BadPrice
+  need amount >= 0 else BadPrice
+  ok otherwise
+  ensure price.get' item = amount
+  proof ok
+
+$ kern view examples/shop set_price --as editor   (exit 0)
+set_price item:Int amount:Int
+  uses price.write
+  writes price.item
+  fails BadPrice
+  need amount >= 0 else BadPrice
+  ok otherwise
+  ensure price.get' item = amount
+  eg | set_price 7 30 -> ok | price.7:30
+  eg | set_price 7 -1 -> BadPrice
+body
+  price.set item amount
+
+$ kern view examples/shop restock --as iface   (exit 0)
+restock item:Int n:Int
+  uses stock.write
+  writes stock.item
+  fails BadCount
+
+$ kern view examples/shop restock --as spec   (exit 0)
+restock item:Int n:Int
+  uses stock.write
+  writes stock.item
+  fails BadCount
+  need n > 0 else BadCount
+  ok otherwise
+  ensure stock.get' item = stock.get item + n
+  proof ok
+
+$ kern view examples/shop restock --as editor   (exit 0)
+restock item:Int n:Int
+  uses stock.write
+  writes stock.item
+  fails BadCount
+  need n > 0 else BadCount
+  ok otherwise
+  ensure stock.get' item = stock.get item + n
+  eg stock.7:2 | restock 7 3 -> ok | stock.7:5
+body
+  stock.set item (stock.get item + n)
+
+$ kern view examples/shop restock_range --as iface   (exit 0)
+restock_range lo:Int hi:Int n:Int
+  uses stock.write
+  writes stock.[lo,hi)
+  fails BadCount
+
+$ kern view examples/shop restock_range --as spec   (exit 0)
+restock_range lo:Int hi:Int n:Int
+  uses stock.write
+  writes stock.[lo,hi)
+  fails BadCount
+  need n > 0 else BadCount
+  ok otherwise
+  ensure stock.get' j = stock.get j + n for j from lo to hi
+  proof ok
+
+$ kern view examples/shop restock_range --as editor   (exit 0)
+restock_range lo:Int hi:Int n:Int
+  uses stock.write
+  writes stock.[lo,hi)
+  fails BadCount
+  need n > 0 else BadCount
+  ok otherwise
+  ensure stock.get' j = stock.get j + n for j from lo to hi
+  eg stock.1:2 stock.2:0 | restock_range 1 3 4 -> ok | stock.1:6 stock.2:4
+body
+  for k from lo to hi
+    invariant stock.get' j = stock.get j + n for j from lo to k
+    stock.set k (stock.get k + n)
+
+$ kern view examples/shop discount_range --as iface   (exit 0)
+discount_range lo:Int hi:Int
+  uses price.write
+  writes price.[lo,hi)
+
+$ kern view examples/shop discount_range --as spec   (exit 0)
+discount_range lo:Int hi:Int
+  uses price.write
+  writes price.[lo,hi)
+  ok otherwise
+  ensure price.get' j = price.get j * 9 / 10 for j from lo to hi
+  proof ok
+
+$ kern view examples/shop discount_range --as editor   (exit 0)
+discount_range lo:Int hi:Int
+  uses price.write
+  writes price.[lo,hi)
+  ok otherwise
+  ensure price.get' j = price.get j * 9 / 10 for j from lo to hi
+  eg price.1:100 price.2:35 | discount_range 1 3 -> ok | price.1:90 price.2:31
+body
+  for k from lo to hi
+    invariant price.get' j = price.get j * 9 / 10 for j from lo to k
+    price.set k (price.get k * 9 / 10)
+
+$ kern view examples/shop transfer --as iface   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/shop transfer --as spec   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/shop transfer --as editor   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  eg A:500@u1 B:0@u2 | transfer A B 100 -> ok | A:400 B:100
+  eg A:50@u1 B:0@u2 | transfer A B 100 -> Insufficient 50
+body
+  ledger.debit from amount
+  ledger.credit to amount
+  audit.emit (Moved from to amount clock.now)
+
+$ kern view examples/shop buy --as iface   (exit 0)
+buy buyer:Account shop:Account item:Int
+  uses ledger.write clock audit price.read stock.write
+  writes buyer shop stock.item
+  fails OutOfStock BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/shop buy --as spec   (exit 0)
+buy buyer:Account shop:Account item:Int
+  uses ledger.write clock audit price.read stock.write
+  writes buyer shop stock.item
+  fails OutOfStock BadAmount SameAccount Insufficient(Int)
+  need stock.get item > 0 else OutOfStock
+  need price.get item > 0 else BadAmount
+  need buyer != shop else SameAccount
+  need ledger.balance buyer >= price.get item else Insufficient (price.get item - ledger.balance buyer)
+  ok otherwise
+  keep ledger.total
+  ensure stock.get' item = stock.get item - 1
+  ensure ledger.balance' buyer = ledger.balance buyer - price.get item
+  emit Moved buyer shop (price.get item) clock.now
+  emit Sold item buyer clock.now
+  proof ok
+
+$ kern view examples/shop buy --as editor   (exit 0)
+buy buyer:Account shop:Account item:Int
+  uses ledger.write clock audit price.read stock.write
+  writes buyer shop stock.item
+  fails OutOfStock BadAmount SameAccount Insufficient(Int)
+  need stock.get item > 0 else OutOfStock
+  need as transfer buyer shop (price.get item)
+  ok otherwise
+  keep ledger.total
+  ensure stock.get' item = stock.get item - 1
+  ensure ledger.balance' buyer = ledger.balance buyer - price.get item
+  emit as transfer buyer shop (price.get item)
+  emit Sold item buyer clock.now
+  eg A:100@u1 S:0@u2 price.7:30 stock.7:2 | buy A S 7 -> ok | A:70 S:30 stock.7:1
+  eg A:10@u1 S:0@u2 price.7:30 stock.7:2 | buy A S 7 -> Insufficient 20
+  eg A:100@u1 S:0@u2 price.7:30 | buy A S 7 -> OutOfStock
+body
+  transfer buyer shop (price.get item)
+  stock.set item (stock.get item - 1)
+  audit.emit (Sold item buyer clock.now)
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/shop refund --as iface   (exit 0)
+refund buyer:Account shop:Account item:Int
+  uses ledger.write clock audit price.read stock.write
+  writes buyer shop stock.item
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/shop refund --as spec   (exit 0)
+refund buyer:Account shop:Account item:Int
+  uses ledger.write clock audit price.read stock.write
+  writes buyer shop stock.item
+  fails BadAmount SameAccount Insufficient(Int)
+  need price.get item > 0 else BadAmount
+  need shop != buyer else SameAccount
+  need ledger.balance shop >= price.get item else Insufficient (price.get item - ledger.balance shop)
+  ok otherwise
+  keep ledger.total
+  ensure stock.get' item = stock.get item + 1
+  emit Moved shop buyer (price.get item) clock.now
+  emit Returned item buyer clock.now
+  proof ok
+
+$ kern view examples/shop refund --as editor   (exit 0)
+refund buyer:Account shop:Account item:Int
+  uses ledger.write clock audit price.read stock.write
+  writes buyer shop stock.item
+  fails BadAmount SameAccount Insufficient(Int)
+  need as transfer shop buyer (price.get item)
+  ok otherwise
+  keep ledger.total
+  ensure stock.get' item = stock.get item + 1
+  emit as transfer shop buyer (price.get item)
+  emit Returned item buyer clock.now
+  eg A:0@u1 S:30@u2 price.7:30 stock.7:1 | refund A S 7 -> ok | A:30 S:0 stock.7:2
+body
+  transfer shop buyer (price.get item)
+  stock.set item (stock.get item + 1)
+  audit.emit (Returned item buyer clock.now)
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok

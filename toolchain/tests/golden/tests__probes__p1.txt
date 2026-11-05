@@ -1,0 +1,37 @@
+$ kern check tests/probes/p1.k   (exit 1)
+zero_all [9508b581]  Broken guarantees
+  ✗ ensure hold.get' j = 0 for j from lo to hi
+      counterexample: eg  hold.0:1 hold.998:286 hold.867:36411 expiry.0:666 expiry.998:956 expiry.953:28881 expiry.867:36412 expiry.641:12457 | zero_all 0 998 -> ok | 
+  ✔ loop hold.get' j = 0 when expiry.get j < clock.now for j from lo to k  (holds when the loop starts)
+  ✔ loop module invariant o:Int hold.get o >= 0  (holds when the loop starts)
+  ✔ loop hold.get' j = 0 when expiry.get j < clock.now for j from lo to k  (kept by every iteration)
+  ✔ loop module invariant o:Int hold.get o >= 0  (kept by every iteration)
+  ✔ loop hold.get' j = 0 when expiry.get j < clock.now for j from lo to k  (kept by every iteration)
+  ✔ loop module invariant o:Int hold.get o >= 0  (kept by every iteration)
+  ✔ invariant o:Int hold.get o >= 0
+  writes hold.[lo,hi)
+  examples 0/0   random tests 500/500 reached success, 3 violations
+
+
+$ kern view tests/probes/p1.k zero_all --as iface   (exit 0)
+zero_all lo:Int hi:Int
+  uses clock expiry.read hold.write
+  writes hold.[lo,hi)
+
+$ kern view tests/probes/p1.k zero_all --as spec   (exit 0)
+zero_all lo:Int hi:Int
+  uses clock expiry.read hold.write
+  writes hold.[lo,hi)
+  ensure hold.get' j = 0 for j from lo to hi
+  proof 1 open
+
+$ kern view tests/probes/p1.k zero_all --as editor   (exit 0)
+zero_all lo:Int hi:Int
+  uses clock expiry.read hold.write
+  writes hold.[lo,hi)
+  ensure hold.get' j = 0 for j from lo to hi
+body
+  for k from lo to hi
+    invariant hold.get' j = 0 when expiry.get j < clock.now for j from lo to k
+    if expiry.get k < clock.now
+      hold.set k 0

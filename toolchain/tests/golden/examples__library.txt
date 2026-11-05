@@ -1,0 +1,308 @@
+$ kern check examples/library   (exit 0)
+== catalog.books  (examples/library/catalog/books.k)
+add_copies [892c9ed0]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure copies.get' book = copies.get book + n
+  ✔ invariant b:Int copies.get b >= 0
+  writes copies.book
+  examples 1/1   random tests 408/500 reached success, 0 violations
+  spec strength: guarantees 5/5 (prover 5, random tests 5); examples 5/5; together 5/5
+
+== fines  (examples/library/fines.k)
+assess [1bd51bbc]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure fine.get' j = fine.get j + 5 when due.get j > 0 and due.get j < clock.now for j from lo to hi
+  ✔ ensure fine.get' j = fine.get j when due.get j = 0 or due.get j >= clock.now for j from lo to hi
+  ✔ loop fine.get' j = fine.get j + 5 when due.get j > 0 and due.get j < clock.now for j from lo to k  (holds when the loop starts)
+  ✔ loop fine.get' j = fine.get j when due.get j = 0 or due.get j >= clock.now for j from lo to k  (holds when the loop starts)
+  ✔ loop module invariant l:Int fine.get l >= 0  (holds when the loop starts)
+  ✔ loop fine.get' j = fine.get j + 5 when due.get j > 0 and due.get j < clock.now for j from lo to k  (kept by every iteration)
+  ✔ loop fine.get' j = fine.get j when due.get j = 0 or due.get j >= clock.now for j from lo to k  (kept by every iteration)
+  ✔ loop module invariant l:Int fine.get l >= 0  (kept by every iteration)
+  ✔ loop fine.get' j = fine.get j + 5 when due.get j > 0 and due.get j < clock.now for j from lo to k  (kept by every iteration)
+  ✔ loop fine.get' j = fine.get j when due.get j = 0 or due.get j >= clock.now for j from lo to k  (kept by every iteration)
+  ✔ loop module invariant l:Int fine.get l >= 0  (kept by every iteration)
+  ✔ invariant l:Int fine.get l >= 0
+  writes fine.[lo,hi)
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 14/16 (prover 14, random tests 14); examples 10/16; together 14/16
+      survived: `lo` → `lo - 1` in `for k from lo to hi`
+      survived: `hi` → `hi + 1` in `for k from lo to hi`
+
+pay_fine [2b6f5aa0]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure fine.get' loan = 0
+  ✔ ensure ledger.balance' member = ledger.balance member - fine.get loan
+  ✔ invariant l:Int fine.get l >= 0
+  ✔ emit Moved member library (fine.get loan) clock.now
+  writes member library fine.loan   (no guarantee about the new balance of library)
+  examples 2/2   random tests 48/500 reached success, 0 violations
+  spec strength: guarantees 5/5 (prover 5, random tests 5); examples 5/5; together 5/5
+
+== loans  (examples/library/loans.k)
+borrow [1d4b021b]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure copies.get' book = copies.get book - 1
+  ✔ ensure due.get' loan = clock.now + 14
+  ✔ ensure lent.get' loan = book
+  ✔ invariant b:Int copies.get b >= 0
+  ✔ invariant l:Int due.get l >= 0
+  ✔ emit Borrowed loan book clock.now
+  writes copies.book due.loan lent.loan
+  examples 2/2   random tests 62/500 reached success, 0 violations
+  spec strength: guarantees 17/17 (prover 17, random tests 17); examples 13/17; together 17/17
+
+give_back [f1ab4b2e]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure copies.get' book = copies.get book + 1
+  ✔ ensure due.get' loan = 0
+  ✔ invariant b:Int copies.get b >= 0
+  ✔ invariant l:Int due.get l >= 0
+  ✔ emit Returned loan book clock.now
+  writes copies.book due.loan
+  examples 2/2   random tests 1/500 reached success, 0 violations
+  spec strength: guarantees 12/12 (prover 12, random tests 0); examples 7/12; together 12/12
+
+== money.ledger  (examples/library/money/ledger.k)
+transfer [27367a3f]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount
+  ✔ ensure ledger.balance' to = ledger.balance to + amount
+  ✔ emit Moved from to amount clock.now
+  writes from to
+  examples 2/2   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+
+
+$ kern view examples/library add_copies --as iface   (exit 0)
+add_copies book:Int n:Int
+  uses copies.write
+  writes copies.book
+  fails BadCount
+
+$ kern view examples/library add_copies --as spec   (exit 0)
+add_copies book:Int n:Int
+  uses copies.write
+  writes copies.book
+  fails BadCount
+  need n > 0 else BadCount
+  ok otherwise
+  ensure copies.get' book = copies.get book + n
+  proof ok
+
+$ kern view examples/library add_copies --as editor   (exit 0)
+add_copies book:Int n:Int
+  uses copies.write
+  writes copies.book
+  fails BadCount
+  need n > 0 else BadCount
+  ok otherwise
+  ensure copies.get' book = copies.get book + n
+  eg copies.3:1 | add_copies 3 2 -> ok | copies.3:3
+body
+  copies.set book (copies.get book + n)
+
+$ kern view examples/library assess --as iface   (exit 0)
+assess lo:Int hi:Int
+  uses clock due.read fine.write
+  writes fine.[lo,hi)
+
+$ kern view examples/library assess --as spec   (exit 0)
+assess lo:Int hi:Int
+  uses clock due.read fine.write
+  writes fine.[lo,hi)
+  ok otherwise
+  ensure fine.get' j = fine.get j + 5 when due.get j > 0 and due.get j < clock.now for j from lo to hi
+  ensure fine.get' j = fine.get j when due.get j = 0 or due.get j >= clock.now for j from lo to hi
+  proof ok
+
+$ kern view examples/library assess --as editor   (exit 0)
+assess lo:Int hi:Int
+  uses clock due.read fine.write
+  writes fine.[lo,hi)
+  ok otherwise
+  ensure fine.get' j = fine.get j + 5 when due.get j > 0 and due.get j < clock.now for j from lo to hi
+  ensure fine.get' j = fine.get j when due.get j = 0 or due.get j >= clock.now for j from lo to hi
+  eg due.1:50 due.2:500 fine.1:0 now:100 | assess 1 3 -> ok | fine.1:5 fine.2:0
+body
+  for k from lo to hi
+    invariant fine.get' j = fine.get j + 5 when due.get j > 0 and due.get j < clock.now for j from lo to k
+    invariant fine.get' j = fine.get j when due.get j = 0 or due.get j >= clock.now for j from lo to k
+    if due.get k > 0 and due.get k < clock.now
+      fine.set k (fine.get k + 5)
+
+$ kern view examples/library pay_fine --as iface   (exit 0)
+pay_fine loan:Int member:Account library:Account
+  uses ledger.write clock audit fine.write
+  writes member library fine.loan
+  fails NoFine BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/library pay_fine --as spec   (exit 0)
+pay_fine loan:Int member:Account library:Account
+  uses ledger.write clock audit fine.write
+  writes member library fine.loan
+  fails NoFine BadAmount SameAccount Insufficient(Int)
+  need fine.get loan > 0 else NoFine
+  need fine.get loan > 0 else BadAmount
+  need member != library else SameAccount
+  need ledger.balance member >= fine.get loan else Insufficient (fine.get loan - ledger.balance member)
+  ok otherwise
+  keep ledger.total
+  ensure fine.get' loan = 0
+  ensure ledger.balance' member = ledger.balance member - fine.get loan
+  emit Moved member library (fine.get loan) clock.now
+  proof ok
+
+$ kern view examples/library pay_fine --as editor   (exit 0)
+pay_fine loan:Int member:Account library:Account
+  uses ledger.write clock audit fine.write
+  writes member library fine.loan
+  fails NoFine BadAmount SameAccount Insufficient(Int)
+  need fine.get loan > 0 else NoFine
+  need as transfer member library (fine.get loan)
+  ok otherwise
+  keep ledger.total
+  ensure fine.get' loan = 0
+  ensure ledger.balance' member = ledger.balance member - fine.get loan
+  emit as transfer member library (fine.get loan)
+  eg M:20@u1 L:0@u9 fine.4:15 | pay_fine 4 M L -> ok | M:5 L:15 fine.4:0
+  eg M:20@u1 L:0@u9 | pay_fine 4 M L -> NoFine
+body
+  transfer member library (fine.get loan)
+  fine.set loan 0
+
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/library borrow --as iface   (exit 0)
+borrow loan:Int book:Int
+  uses clock audit copies.write due.write lent.write
+  writes copies.book due.loan lent.loan
+  fails LoanExists NoCopy BadClock
+
+$ kern view examples/library borrow --as spec   (exit 0)
+borrow loan:Int book:Int
+  uses clock audit copies.write due.write lent.write
+  writes copies.book due.loan lent.loan
+  fails LoanExists NoCopy BadClock
+  need due.get loan = 0 else LoanExists
+  need copies.get book > 0 else NoCopy
+  need clock.now >= 0 else BadClock
+  ok otherwise
+  ensure copies.get' book = copies.get book - 1
+  ensure due.get' loan = clock.now + 14
+  ensure lent.get' loan = book
+  emit Borrowed loan book clock.now
+  proof ok
+
+$ kern view examples/library borrow --as editor   (exit 0)
+borrow loan:Int book:Int
+  uses clock audit copies.write due.write lent.write
+  writes copies.book due.loan lent.loan
+  fails LoanExists NoCopy BadClock
+  need due.get loan = 0 else LoanExists
+  need copies.get book > 0 else NoCopy
+  need clock.now >= 0 else BadClock
+  ok otherwise
+  ensure copies.get' book = copies.get book - 1
+  ensure due.get' loan = clock.now + 14
+  ensure lent.get' loan = book
+  emit Borrowed loan book clock.now
+  eg copies.3:1 now:100 | borrow 9 3 -> ok | copies.3:0 due.9:114 lent.9:3
+  eg copies.3:0 now:100 | borrow 9 3 -> NoCopy
+body
+  copies.set book (copies.get book - 1)
+  due.set loan (clock.now + 14)
+  lent.set loan book
+  audit.emit (Borrowed loan book clock.now)
+
+$ kern view examples/library give_back --as iface   (exit 0)
+give_back loan:Int book:Int
+  uses clock audit copies.write due.write lent.read
+  writes copies.book due.loan
+  fails NoLoan WrongBook
+
+$ kern view examples/library give_back --as spec   (exit 0)
+give_back loan:Int book:Int
+  uses clock audit copies.write due.write lent.read
+  writes copies.book due.loan
+  fails NoLoan WrongBook
+  need due.get loan > 0 else NoLoan
+  need lent.get loan = book else WrongBook
+  ok otherwise
+  ensure copies.get' book = copies.get book + 1
+  ensure due.get' loan = 0
+  emit Returned loan book clock.now
+  proof ok
+
+$ kern view examples/library give_back --as editor   (exit 0)
+give_back loan:Int book:Int
+  uses clock audit copies.write due.write lent.read
+  writes copies.book due.loan
+  fails NoLoan WrongBook
+  need due.get loan > 0 else NoLoan
+  need lent.get loan = book else WrongBook
+  ok otherwise
+  ensure copies.get' book = copies.get book + 1
+  ensure due.get' loan = 0
+  emit Returned loan book clock.now
+  eg copies.3:0 due.9:114 lent.9:3 now:120 | give_back 9 3 -> ok | copies.3:1 due.9:0
+  eg copies.3:0 due.9:114 lent.9:3 | give_back 9 4 -> WrongBook
+body
+  copies.set book (copies.get book + 1)
+  due.set loan 0
+  audit.emit (Returned loan book clock.now)
+
+$ kern view examples/library transfer --as iface   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/library transfer --as spec   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/library transfer --as editor   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  eg A:500@u1 B:0@u2 | transfer A B 100 -> ok | A:400 B:100
+  eg A:50@u1 B:0@u2 | transfer A B 100 -> Insufficient 50
+body
+  ledger.debit from amount
+  ledger.credit to amount
+  audit.emit (Moved from to amount clock.now)

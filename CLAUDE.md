@@ -142,7 +142,9 @@ tests/test_fundamentals.py  adversarial audit tests, one section per fundamental
 tests/probes/             small modules the tests and validation tools use
 toolchain/tests/          cargo tests of the Rust port (docs/research/RUST_PORT_PLAN.md): host.rs, mcp.rs,
                           package.rs, runtime.rs (compiled program vs interpreter), docs.rs (REFERENCE/GUIDE in step
-                          with the code); *_oracle.rs compare each module with the Python oracle's JSON
+                          with the code); *_oracle.rs compare each module with the Python oracle's JSON;
+                          golden.rs + golden/: recorded `check` output, views and some proof pages per module, the
+                          regression floor (re-record with KERN_BLESS=1, and say why in the commit)
 validation/tests/         cargo tests of the validation tools: difftest.rs (compiled program vs interpreter on every
                           example), fuzz.rs (port of test_fuzz.py: a small fuzz run is clean and deterministic; an
                           injected prover fault is found), digest.rs (both digests at their recorded values),
