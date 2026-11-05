@@ -132,7 +132,7 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   | ~~variable × variable~~ closed `59c9e66` (same entry) | `s5_variable_times_variable_checks` |
   | ~~named constants~~ closed `0acdb54` (Closed: "S5, named constants") | `s5_named_constants_check` |
   | ~~imports across packages~~ closed `b71848b` (Closed: "S5, imports across packages") | `s5_import_across_packages_loads` |
-  | effects that return values | not written yet |
+  | ~~effects that return values~~ closed `700e189` (Closed: "S5, effects that return values") | `s5_effects_that_return_values_check` |
   | records as state values, `-> Record`, nested records, record equality (added 2026-11-05) | not written yet |
   | Accounts as state values, iteration over accounts | not written yet |
   | decimals: exact fixed-point, not binary floats (added 2026-11-05) | not written yet |
@@ -217,6 +217,25 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S5, effects that return values (one row of S5)
+- **Kind:** code gap. **Closed** 2026-11-06 in `700e189`, under delegation (.party/DECISIONS.md, 2026-11-06, lang,
+  returning procedures); host `62e86f8` (runtime); generator `9c80863` (tester).
+- **Was:** only pure, total `-> Int` functions returned a value; a definition that writes, emits or refuses
+  couldn't, so an id allocation had to live in the caller.
+- **Decided by** rule 2 / F4 (never write what can be inferred): `-> Int` on any definition; whether it is a
+  function or a *returning procedure* is inferred from its effects and needs. A procedure is called only as a whole
+  statement (`loan = borrow book`), never in an expression, a condition, a bound or a spec. F2: the caller gets a
+  fresh `result` constrained by the callee's ensures. F7: the value is a function of pre-state, arguments and
+  recorded handler values, so replay is unchanged. `eg … -> ok N` asserts the returned value.
+- **Evidence:** `s5_effects_that_return_values_check` and
+  `s5_a_returning_procedure_is_called_on_a_line_of_its_own_and_eg_asserts_its_value` pass as ordinary tests.
+  Tester: by hand, difftest 0 divergences, host rollback; its generator catches a planted lost result (5,350).
+  Digests unchanged; fuzz seeds 1–3 0 contradictions. Tokens: examples/library's borrow 120 → 146 (the id
+  allocation moved into it).
+- **Found and fixed on the way (a false ✔):** a definition without parameters, called by its bare name, wasn't in
+  its caller's inferred writes, so a caller of that caller showed `keep c.get 0` ✔ while random tests broke it.
+  Test `a_call_to_a_definition_without_parameters_counts_as_its_writes`.
 
 ### S5, recursion with a termination measure (one row of S5)
 - **Kind:** code gap. **Closed** 2026-11-05 in `3700f8d`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
