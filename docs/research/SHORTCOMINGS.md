@@ -257,7 +257,12 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Fixed when:** one integer range for every path, either refused at the boundary (host input, literals)
   or carried through, with a gap test in `kern/tests/shortcomings.rs` (not written yet). Until then the host,
   not the interpreter, is wrong (AGENTS.md).
-- **Next:** not in this quest's list; raised to runtime (host boundary) and lang (literals).
+- **Progress, 2026-11-05:** host side done in `8e8f1b5` (tests `0a55c5e`): a non-i64 number is refused at
+  input (HTTP 400, repl, genesis world), and a call whose stored key or value, event, result or refusal payload
+  leaves i64 is a host fault, rolled back, logged and skipped by replay (tester: every path, replay matches).
+  The compiled runtime already faults on overflow. Still open: literals past i64 in Kern source (lang). The
+  prover still reasons over unbounded integers, so a ✔ call can end as a range fault at the edge; it fails
+  atomically and says so, but the page doesn't mention the range.
 
 ### S21. No iteration limit at run time: a huge loop or sum bound holds the host
 - **Kind:** code gap. **Weakens:** the host as a server (F7: one call can hold the SQLite write lock).
