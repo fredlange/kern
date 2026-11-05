@@ -1091,7 +1091,41 @@ body
     assert!(r.clean);
 }
 
+#[test]
+fn mutation_testing_of_a_quantified_text_loop_finishes() {
+    // app's booking #4: a full check ran 15+ minutes, Z3's Diophantine handler (lp.dio) growing bignums on a mutant's
+    // loop goal without checking the step limit; with it off (zz::setup) the same check takes seconds
+    let src = "const rooms 5
+const days 7
+const slots 35
+
+state slot Int
+state holder Int -> Text
+
+clear_day day:Int
+  need day >= 0 else NoSuchDay
+  need day < days else NoSuchDay
+  ok otherwise
+  ensure slot.get' (r * days + day) = 0 for r from 0 to rooms
+  ensure holder.get' (r * days + day) = \"\" for r from 0 to rooms
+  ensure slot.get' s = slot.get s when s - (s / days) * days != day for s from 0 to slots
+body
+  for r from 0 to rooms
+    invariant slot.get' (q * days + day) = 0 for q from 0 to r
+    invariant holder.get' (q * days + day) = \"\" for q from 0 to r
+    invariant slot.get' s = slot.get s when s - (s / days) * days != day or s / days >= r for s from 0 to slots
+    holder.set (r * days + day) \"\"
+    slot.set (r * days + day) 0
+";
+    let defs = parse(src);
+    let t = std::time::Instant::now();
+    let m = mutation_score(&defs, &defs.defs["clear_day"], 150);
+    assert!(m.total >= 10, "{m:?}");
+    eprintln!("clear_day: {} mutants scored in {:?}", m.total, t.elapsed());
+}
+
 // =====================================================================================
+// S7. Refusal conditions after a write// =====================================================================================
 // S7. Refusal conditions after a write// =====================================================================================
 // S7. Refusal conditions after a write (closed: lifted through direct writes, with aliasing)
 // =====================================================================================

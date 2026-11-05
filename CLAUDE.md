@@ -234,7 +234,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   context and fresh names (`kern/tests/determinism.rs`; `KERN_Z3_FRESH` switches it off for
   comparisons). In the Python toolchain, Z3's witness choice followed earlier solver calls in the same
   process, which could flip a mutant between refuted and unconfirmed. Across processes, results repeat
-  since 2026-11-04: solver limits are Z3 steps (`rlimit`), not wall-clock, and the prover no longer
+  since 2026-11-04: solver limits are Z3 steps (`rlimit`, on each solver and each fresh context; `lp.dio` is off,
+  zz::setup, since Z3's Diophantine handler ignored the limit), not wall-clock; a mutant's proof stops after 4 unknown
+  answers (prove::MUTANT_UNKNOWNS). The prover no longer
   iterates sets in hash order. Before that, CLI runs were *not* reliably reproducible (FZ finding 6).
 - Mutation tests use 150 random runs per mutant; the `settle` audit mutant needed 500
   to be caught by random tests (the prover now catches it).

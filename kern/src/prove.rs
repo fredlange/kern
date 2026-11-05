@@ -60,7 +60,12 @@ fn in_fresh_context<R>(f: impl FnOnce() -> R) -> R {
     unsafe impl<T> Send for Unchecked<T> {}
     unsafe impl<T> Sync for Unchecked<T> {}
     let ctx = unsafe {
+        zz::setup();
         let cfg = z3_sys::Z3_mk_config().expect("Z3 config");
+        // the step limit on the context too: a solver's own `rlimit` doesn't bound every quantified query (a
+        // mutant's loop goal ran for minutes in-process while `z3 rlimit=…` gives up in about a second)
+        let (k, v) = (std::ffi::CString::new("rlimit").unwrap(), std::ffi::CString::new(zz::RLIMIT.to_string()).unwrap());
+        z3_sys::Z3_set_param_value(cfg, k.as_ptr(), v.as_ptr());
         let raw = z3_sys::Z3_mk_context_rc(cfg).expect("Z3 context");
         z3_sys::Z3_del_config(cfg);
         z3_sys::Z3_set_error_handler(raw, None);
@@ -307,7 +312,13 @@ pub struct Prover<'m> {
     text_params: IndexMap<String, ZStr>,
     /// while its body runs: the definition being proved and its measure at its own parameters (`decreases`)
     measuring: Option<(String, Option<ZInt>)>,
+    /// scoring a mutant: how many more solver calls may come back unknown before the proof stops (each one spends
+    /// the whole step limit and can't kill the mutant); None outside mutation testing
+    unknowns_left: Option<u32>,
 }
+
+/// Unknown solver answers a mutant's proof may spend before it stops (a deterministic bound: steps, not time).
+pub const MUTANT_UNKNOWNS: u32 = 4;
 
 /// Bounds [lo, hi] (None = unbounded) of an Int term over every environment and state: interval arithmetic on its
 /// syntax, so a sum's lemma holds wherever it is applied. Reads, names and calls are unbounded.
@@ -447,6 +458,7 @@ impl<'m> Prover<'m> {
             sums: IndexMap::new(),
             text_params: IndexMap::new(),
             measuring: None,
+            unknowns_left: None,
         }
     }
 
@@ -1590,12 +1602,18 @@ impl<'m> Prover<'m> {
             return (out, self.relied_on.iter().cloned().collect());
         }
         let mut results = vec![];
+        self.unknowns_left = first_kill.then_some(MUTANT_UNKNOWNS);
         for g in &goals {
             results.push(self.solve(d, g, &params, &pre));
             if first_kill && results.last().unwrap().status == Status::Refuted {
+                self.unknowns_left = None;
                 return (results, self.relied_on.iter().cloned().collect());
             }
+            if self.unknowns_left == Some(0) {
+                break; // a mutant whose goals keep coming back unknown: the prover doesn't kill it
+            }
         }
+        self.unknowns_left = None;
         results.extend(unknowable);
         (results, self.relied_on.iter().cloned().collect())
     }
@@ -1614,6 +1632,12 @@ impl<'m> Prover<'m> {
                 zz::Check::Unsat => continue,
                 zz::Check::Unknown => {
                     unknown = true;
+                    if let Some(n) = self.unknowns_left.as_mut() {
+                        *n = n.saturating_sub(1);
+                        if *n == 0 {
+                            break;
+                        }
+                    }
                     continue;
                 }
                 zz::Check::Sat => {}

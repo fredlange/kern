@@ -340,8 +340,21 @@ fn limited() -> Params {
     p
 }
 
+/// Process-wide Z3 settings, once, before any context or solver: `lp.dio` off. Z3 5.3.3's Diophantine-equation
+/// handler grew bignum coefficients for minutes on a mutant's quantified loop goal without checking the step limit
+/// (a full check of examples/apps/booking/probes/clear_day_text_slow.k: 15+ min with it, 5.6 s without); with it
+/// off both results digests are unchanged.
+pub fn setup() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let (k, v) = (CString::new("lp.dio").unwrap(), CString::new("false").unwrap());
+        unsafe { z3_sys::Z3_global_param_set(k.as_ptr(), v.as_ptr()) };
+    });
+}
+
 /// z3.Solver() with s.set("rlimit", RLIMIT)
 pub fn solver() -> Solver {
+    setup();
     let s = Solver::new();
     s.set_params(&limited());
     s
@@ -349,6 +362,7 @@ pub fn solver() -> Solver {
 
 /// z3.Optimize() with o.set("rlimit", RLIMIT)
 pub fn optimize() -> Optimize {
+    setup();
     let o = Optimize::new();
     o.set_params(&limited());
     o
