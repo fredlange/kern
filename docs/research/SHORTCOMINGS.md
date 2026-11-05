@@ -254,22 +254,27 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   prover still reasons over unbounded integers, so a ✔ call can end as a range fault at the edge; it fails
   atomically and says so, but the page doesn't mention the range.
 
-### S21. No iteration limit at run time: a huge loop or sum bound holds the host
-- **Kind:** code gap. **Weakens:** the host as a server (F7: one call can hold the SQLite write lock).
-  Found 2026-11-05 by the tester (.party/notes/tester.md, `#TH2UWV33V6`); pre-existing for `for`, and `sum`
-  has it too.
-- **Evidence:** the interpreter iterates `for` and `sum` linearly; `REPLAY_BUDGET` (prove.rs) bounds only
-  counterexample replay. `sum j from 0 to n` with n = 10^8 takes 8 s; n = 3·10^9 or i64::MAX holds
-  `kern host` for minutes or forever, while `ok otherwise` is ✔ proven (the proof says the call succeeds,
-  not when).
-- **Fixed when:** a call that exceeds a stated iteration limit ends as an atomic fault in the host and the
-  compiled program alike, with a gap test (not written yet).
-- **Next:** not in this quest's list; raised to runtime.
-
 ## Closed
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S21. No iteration limit at run time: a huge loop or sum bound held the host
+- **Kind:** code gap. **Closed** 2026-11-05 in `5ffab2d` (runtime); gap test `ec77a7b` (lang), tests `f05dd29`.
+- **Was:** the interpreter iterated `for` and `sum` linearly, and `REPLAY_BUDGET` bounded only counterexample
+  replay. `sum j from 0 to n` with n = i64::MAX held `kern host`, and its SQLite write lock, for minutes or
+  forever, while `ok otherwise` was ✔ (the proof says the call succeeds, not when).
+- **Decided by** F7 (one call can't hold the world) and F5 (the limit is stated): at most 10,000,000 loop and
+  sum iterations per top-level call, charged as `hi - lo` when a loop or sum starts. Past it the call is a fault,
+  undone: in the host `"fault": "limit"` (HTTP 500, logged as an error, skipped by replay), in a compiled program
+  a `fault` line. HOST.md and the manifest state the limit.
+- **Evidence:** `s21_a_huge_bound_ends_as_a_fault_in_the_host_and_the_compiled_program` passes as an ordinary
+  test. Tester: host and compiled program agree on every limit case (exactly the limit succeeds, one more
+  faults; a reversed range refunds nothing; sums and callees add up; 2^63 faults at once), replay matches.
+  difftest 330,360 calls and fuzzdiff 0 divergences.
+- **What remains:** the limit is a fixed constant, not configurable. `kern check` has no limit (random tests use
+  small values). As with S20, a ✔ call can end as a fault at the edge; it fails atomically and says so, but the
+  page doesn't mention the limit.
 
 ### S12. The host: a reply that never arrived left the request pending
 - **Kind:** code gap. **Closed** 2026-11-05 in `f79f085` (runtime); gap test flipped by lang in `96667ab`
