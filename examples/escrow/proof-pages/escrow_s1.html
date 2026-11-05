@@ -133,7 +133,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 19 succeeded and were checked against every guarantee; refused: BadFee 229, SameAccount 166, BadAmount 75, Insufficient 11.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 20/20 deliberate bugs (100%)</span></h3><p>Caught by the prover: 20; by random tests checking the guarantees: 20. The examples alone catch 20/20; everything together 20/20.</p>
-<h3>Relies on</h3><p><code>capture</code>, <code>reserve</code> — through their specs only, not their code.</p>
+<h3>Relies on</h3><p><code>capture</code>, <code>move</code>, <code>reserve</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>cancel</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 12c9e4f6</span></header>
 <h3>Can touch</h3><p>the audit log, the clock, the ledger (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>

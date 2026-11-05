@@ -84,7 +84,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>price.1:100 price.2:35 | discount_range 1 3 -&gt; ok | price.1:90 price.2:31</code> <span class='okc'>✔</span></li>
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
-<h3>Spec strength <span class='muted'>guarantees catch 10/12 deliberate bugs (83%)</span></h3><p>Caught by the prover: 10; by random tests checking the guarantees: 10. The examples alone catch 10/12; everything together 10/12.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 10/12 deliberate bugs (83%)</span></h3><p>Caught by the prover: 9; by random tests checking the guarantees: 10. The examples alone catch 10/12; everything together 10/12.</p>
 <p>No guarantee rules out these changes to the body. Either a guarantee is missing, or the code is unnecessary:</p><ul class='ex'><li>`lo` → `lo - 1` in `for k from lo to hi` <span class='failc'>(nothing catches it)</span></li><li>`hi` → `hi + 1` in `for k from lo to hi` <span class='failc'>(nothing catches it)</span></li></ul>
 <h3>Relies on</h3><p><code>invariant on price</code>, <code>invariant on stock</code> — through their specs only, not their code.</p>
 </section>

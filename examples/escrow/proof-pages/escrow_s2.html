@@ -139,7 +139,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 36 succeeded and were checked against every guarantee; refused: SameAccount 288, Insufficient 88, BadAmount 88.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 17/17 deliberate bugs (100%)</span></h3><p>Caught by the prover: 17; by random tests checking the guarantees: 17. The examples alone catch 17/17; everything together 17/17.</p>
-<h3>Relies on</h3><p><code>capture</code>, <code>reserve</code> — through their specs only, not their code.</p>
+<h3>Relies on</h3><p><code>capture</code>, <code>reserve</code>, <code>transfer</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>cancel</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 12c9e4f6</span></header>
 <h3>Can touch</h3><p>the audit log, the clock, the ledger (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
@@ -271,7 +271,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 7 succeeded and were checked against every guarantee; refused: NoOrder 406, Disputed 45, SameAccount 41, Insufficient 1.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 9/9 deliberate bugs (100%)</span></h3><p>Caught by the prover: 9; by random tests checking the guarantees: 9. The examples alone catch 9/9; everything together 9/9.</p>
-<h3>Relies on</h3><p><code>capture</code> — through their specs only, not their code.</p>
+<h3>Relies on</h3><p><code>capture</code>, <code>transfer</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>cancel_order</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 0e853947</span></header>
 <h3>Can touch</h3><p>the audit log, the clock, state <code>disputed</code> (read only), state <code>hold</code> (read and write), the ledger (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
@@ -315,7 +315,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 3 succeeded and were checked against every guarantee; refused: NoOrder 408, Disputed 53, BadPart 28, SameAccount 8.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 18/18 deliberate bugs (100%)</span></h3><p>Caught by the prover: 18; by random tests checking the guarantees: 16. The examples alone catch 18/18; everything together 18/18.</p>
-<h3>Relies on</h3><p><code>refund</code> — through their specs only, not their code.</p>
+<h3>Relies on</h3><p><code>refund</code>, <code>transfer</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>open_dispute</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build c9390920</span></header>
 <h3>Can touch</h3><p>the audit log, the clock, state <code>disputed</code> (read and write), state <code>hold</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
@@ -380,7 +380,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 6 succeeded and were checked against every guarantee; refused: NotDisputed 454, SameAccount 22, BadAmount 18.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 13/13 deliberate bugs (100%)</span></h3><p>Caught by the prover: 13; by random tests checking the guarantees: 13. The examples alone catch 9/13; everything together 13/13.</p>
-<h3>Relies on</h3><p><code>capture</code> — through their specs only, not their code.</p>
+<h3>Relies on</h3><p><code>capture</code>, <code>transfer</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>resolve_split</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build df268649</span></header>
 <h3>Can touch</h3><p>the audit log, the clock, state <code>disputed</code> (read and write), state <code>hold</code> (read and write), the ledger (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
@@ -404,7 +404,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 1 succeeded and were checked against every guarantee; refused: NotDisputed 450, BadPart 40, SameAccount 9.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 18/18 deliberate bugs (100%)</span></h3><p>Caught by the prover: 18; by random tests checking the guarantees: 0. The examples alone catch 12/18; everything together 18/18.</p>
-<h3>Relies on</h3><p><code>split</code> — through their specs only, not their code.</p>
+<h3>Relies on</h3><p><code>move</code>, <code>split</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>set_limit</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 7496f246</span></header>
 <h3>Can touch</h3><p>state <code>limit</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
@@ -546,5 +546,5 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 21 succeeded and were checked against every guarantee; refused: Frozen 185, SameAccount 130, OrderExists 92, Insufficient 34, BadAmount 32, Disputed 6.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 20/20 deliberate bugs (100%)</span></h3><p>Caught by the prover: 20; by random tests checking the guarantees: 20. The examples alone catch 20/20; everything together 20/20.</p>
-<h3>Relies on</h3><p><code>capture_order</code>, <code>open_order</code> — through their specs only, not their code.</p>
+<h3>Relies on</h3><p><code>capture_order</code>, <code>open_order</code>, <code>transfer</code> — through their specs only, not their code.</p>
 </section></main></body></html>
