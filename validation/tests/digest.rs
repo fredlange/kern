@@ -10,6 +10,8 @@
 //!       2026-11-05, S6 stated frame (48dd716): e90c41b6af1ac4d6. batch.k's advance_subs now states
 //!       `keep sub_due except lo to hi`: a dump diff shows only that definition, one more goal (13 -> 14, the
 //!       `keep`, proven) and the goals after it shifted by one.
+//!       2026-11-05, counterexamples carry Text and field-key entries (7d011af): 5633e03d4adf29df. The dump diff
+//!       is fz2.k f goal 2 only: its counterexample now replays, so conditional -> refuted.
 use std::path::Path;
 
 use kern_validation::digest::{digest, digest_loops};
@@ -25,5 +27,5 @@ fn the_s2_digest_is_unchanged() {
 
 #[test]
 fn the_loop_digest_is_unchanged() {
-    assert_eq!(digest_loops(&root()).0, "e90c41b6af1ac4d6");
+    assert_eq!(digest_loops(&root()).0, "5633e03d4adf29df");
 }

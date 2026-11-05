@@ -1388,8 +1388,10 @@ pub fn main(argv: &[String]) -> i32 {
             .collect();
         let _ = std::fs::write(path, serde_json::to_string_pretty(&json!({"summary": s, "found": bad})).unwrap());
     }
-    // a variant whose verdicts differ from its base is reported, not fatal: the known case (2026-11-05) is a record
-    // program's counterexample missing a computed-key entry, so `?` where the base has ✗ (never a false ✔)
-    let bad = s["contradictions"].as_u64().unwrap_or(0) > 0 || !s["crashes"].as_array().map_or(true, |a| a.is_empty());
+    // a variant whose verdicts differ from its base is fatal too (it was reported only, until 7d011af fixed record
+    // counterexamples missing computed-key entries)
+    let bad = s["contradictions"].as_u64().unwrap_or(0) > 0
+        || !s["crashes"].as_array().map_or(true, |a| a.is_empty())
+        || !s["variant_mismatches"].as_array().map_or(true, |a| a.is_empty());
     i32::from(bad)
 }
