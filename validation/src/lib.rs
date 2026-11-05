@@ -2,3 +2,5 @@
 
 pub mod difftest;
 pub mod fuzz;
+pub mod chains;
+pub mod digest;
