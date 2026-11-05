@@ -1,7 +1,7 @@
 //! Differential test (port of validation/difftest.py): a compiled Kern module against the reference interpreter.
 //!
 //! ```text
-//! difftest [--per-def N] [--seed S] [MODULE.k ...]   (default: every example + tests/probes/{runtime,invcheck}.k)
+//! difftest [--per-def N] [--seed S] [MODULE.k ...]   (default: every example + tests/probes/{runtime,invcheck,sums}.k)
 //! ```
 //!
 //! Scorecard C1 and C2 of docs/research/RUNTIME_PLAN.md:
@@ -526,6 +526,7 @@ pub fn main(argv: &[String]) -> i32 {
         mods = example_modules();
         mods.push(format!("{ROOT}/tests/probes/runtime.k")); // paths the examples never reach
         mods.push(format!("{ROOT}/tests/probes/invcheck.k")); // compiled module-invariant checks that break
+        mods.push(format!("{ROOT}/tests/probes/sums.k")); // sums and state-reading functions
     }
     let (mut calls, mut divs, mut eg_fail, mut egs, mut failed) = (0, 0, 0, 0, 0usize);
     for m in &mods {

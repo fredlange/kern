@@ -23,7 +23,7 @@ const LIB: &str = "runtime/src/lib.rs";
 const GEN: &str = "kern/src/emit_rust.rs";
 
 /// (what, file, text, planted text)
-pub const PLANTS: [(&str, &str, &str, &str); 16] = [
+pub const PLANTS: [(&str, &str, &str, &str); 17] = [
     ("refusal does not tick the clock", LIB, "if !matches!(out, Err(Stop::Fault(_))) {", "if out.is_ok() {"),
     ("refusal keeps its events", LIB, "            self.events.clear();\n        }\n        if !matches", "        }\n        if !matches"),
     ("division truncates toward zero", LIB, "a.div_euclid(b)", "a / b"),
@@ -46,6 +46,7 @@ pub const PLANTS: [(&str, &str, &str, &str); 16] = [
      "Undo::Bal(i, _) => *i,\n                Undo::A(..) => continue,"),
     ("Int-key writes not checked", LIB, "if !out.contains(k) {\n                    out.push(*k);", "if !out.contains(k) && false {\n                    out.push(*k);"),
     ("broken invariant not a fault", GEN, "\"        if !({}) {{ return Err(Fault::Error(", "\"        if false && !({}) {{ return Err(Fault::Error("),
+    ("sum includes its upper bound", GEN, "while __j < __hi {{", "while __j <= __hi {{"),
     ("else branch dropped", GEN, "if !o.is_empty() {\n                        out.push(format!(\"{}}} else {{\", ind));",
      "if false && !o.is_empty() {\n                        out.push(format!(\"{}}} else {{\", ind));"),
 ];
