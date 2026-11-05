@@ -23,7 +23,7 @@ When an entry closes, move it to "Closed" with the commit and the evidence. Don'
 
 **The gap tests** (`kern/tests/shortcomings.rs`) each assert the behaviour we want, with
 `#[should_panic(expected = "gap Sn …")]`, so an unrelated crash doesn't count as the gap. Some features
-have no syntax yet (records, text, `match`, named constants, `sum`, `clock.tick`, events in `eg`).
+have no syntax yet (records, text, `match`, `sum`, `clock.tick`, events in `eg`).
 Their tests use a *placeholder* syntax. Whoever builds the feature must rewrite the test to the real
 syntax; otherwise it keeps panicking for the wrong reason. The other tests flip on their own.
 `every_test_and_path_the_register_names_exists` fails if this file names a test or a
@@ -129,7 +129,7 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   | recursion (rejected: no termination measures) | `s5_recursion_is_accepted` |
   | nested loops | `s5_nested_loops_check` |
   | variable × variable | `s5_variable_times_variable_checks` |
-  | named constants (P) | `s5_named_constants_check` |
+  | ~~named constants~~ closed `0acdb54` (Closed: "S5, named constants") | `s5_named_constants_check` |
   | imports across packages (P: the `kern.pkg` dependency line) | `s5_import_across_packages_loads` |
   | effects that return values, Accounts as state values, iteration over accounts | not written yet |
 - **Next:** records, then `match`, then text (roadmap step 1), ranked by C5's gap list once it
@@ -249,6 +249,35 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S5, named constants (one row of S5; the entry stays open for the rest)
+- **Kind:** code gap. **Closed** 2026-11-05 in `0acdb54`, under delegation (.party/DECISIONS.md, 2026-11-05,
+  lang). Tests `c24cf83`.
+- **Was:** no way to name a number; a fee or a limit was a repeated literal.
+- **Decided by** F4/F7 (one meaning on every path): `const NAME N` at column 0 (3 tokens, the same as
+  `fee = 5`) is substituted into the AST at load time, so run, infer, prove, mutants, the host and the compiled
+  program all see the literal, and `*` with a constant stays linear. Design rule 4: a new value changes the
+  hash of every user, so its `.why` entries go stale. F1/F2: spec and editor views add one `const NAME N`
+  line (4 tokens) per constant they show; the page shows the value, since a human judges the concrete guarantee.
+- **Evidence:** `s5_named_constants_check`, rewritten from its placeholder to the real syntax, passes as an
+  ordinary test, with `s5_a_constant_is_its_value_to_the_checker_and_its_name_in_views`,
+  `s5_a_name_that_would_hide_a_constant_is_an_error` and `s5_a_constant_from_another_module_needs_an_import`.
+  The tester's (`c24cf83`): hoisting every literal of the corpus and of 500 fuzzer programs into constants
+  gives the same program (`s5_every_literal_hoisted_to_a_constant_means_the_same_program`,
+  `every_generated_program_means_the_same_with_its_literals_as_constants`); staleness is exact
+  (`s5_changing_a_constant_stales_exactly_the_definitions_that_use_it`); host run and replay agree. At `0acdb54`:
+  288 tests pass, both digests and the goldens unchanged, fuzzer seeds 1–3 0 contradictions, difftest and
+  fuzzdiff 0 divergences. REFERENCE.md 2,262 → 2,300 tokens.
+- **What remains:**
+  - Not built (decided): negative values (write `0 - n`), constant expressions, constants in `eg` lines (a
+    constant there is a parse error, "bad world item").
+  - The decision says a constant named like a handler is an error; handler names are dotted, so
+    `const ledger 5` is accepted. It is harmless (`ledger.debit` still resolves), but the decision text and
+    the code disagree. Keyword names are rejected unevenly (`need`, `body` are; `const`, `import`, `state`
+    aren't).
+  - An unparenthesised `for j from lo to lo + cap` with a constant gives "constant cap takes no arguments",
+    a misleading message (the literal version is also rejected, with a different one).
+  - MCP: `kern_add` refuses `const x 5`, so an agent working only through MCP can't declare a constant (F1/F2).
 
 ### S8. Mutants were body-only
 - **Kind:** code gap. **Closed** 2026-11-05, under delegation.
