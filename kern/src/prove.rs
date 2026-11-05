@@ -1557,11 +1557,15 @@ impl<'m> Prover<'m> {
                 // Before the call it holds everywhere (as it does for every call); after, it must, too.
                 let mut cases = vec![];
                 for p in &paths {
-                    let (jb, ja) = (zz::int(&format!("{var}_pre_{}", fresh())), zz::int(&format!("{var}_post_{}", fresh())));
-                    let before = self.sev(cond, &[(var.clone(), SV::I(jb.clone()))].into_iter().collect(), &pre, None).b().clone();
+                    let ja = zz::int(&format!("{var}_post_{}", fresh()));
                     let after = self.sev(cond, &[(var.clone(), SV::I(ja.clone()))].into_iter().collect(), &p.s, None).b().clone();
                     let mut pc = p.pc.borrow().clone();
-                    pc.push(zz::forall(&[&jb], &before));
+                    // every module invariant holds at every key before the call, not only this one
+                    for (v2, _, c2) in self.invariants() {
+                        let jb = zz::int(&format!("{v2}_pre_{}", fresh()));
+                        let before = self.sev(c2, &[(v2.clone(), SV::I(jb.clone()))].into_iter().collect(), &pre, None).b().clone();
+                        pc.push(zz::forall(&[&jb], &before));
+                    }
                     cases.push(Case { goal: zz::forall(&[&ja], &after), pc: shared(pc), draws: None });
                 }
                 goals.push(Goal { kind: "invariant".into(), expr, text, cases });
@@ -1871,7 +1875,8 @@ impl<'m> Prover<'m> {
         let mut keys: Vec<(String, Key)> = vec![];
         let mut texts: crate::syntax::Texts = IndexMap::new();
         let mut text_keys: Vec<(String, Key)> = vec![];
-        let shown = relevant_states(self.defs, d);
+        // an invariant may read states the definition never touches (`hold <= cap + 100`): show them all then
+        let shown = if kind == "invariant" { self.defs.states.clone() } else { relevant_states(self.defs, d) };
         for (x, arr) in &pre.maps {
             if !shown.contains_key(x) {
                 continue;

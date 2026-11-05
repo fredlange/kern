@@ -208,9 +208,8 @@ cancel_order [0e853947]  All guarantees proven
   writes escrow buyer hold.id   (no guarantee about the new balance of escrow)
   examples 1/1   random tests 24/500 reached success, 0 violations
   spec strength: guarantees 5/5 (prover 5, random tests 5); examples 5/5; together 5/5
-  spec refusals: 5/10 changes caught (examples 3, guarantees 2)
+  spec refusals: 6/10 changes caught (examples 3, guarantees 3)
       unpinned: need hold.get id > 0 else NoOrder (dropped, `>` → `>=`)
-      unpinned: need disputed.get id = 0 else Disputed (dropped)
       unpinned: need hold.get id > 0 else BadAmount (dropped, `>` → `>=`)
 
 refund_order [8347fea4]  All guarantees proven
@@ -225,9 +224,8 @@ refund_order [8347fea4]  All guarantees proven
   writes escrow buyer seller house hold.id   (no guarantee about the new balance of escrow, seller, house)
   examples 1/1   random tests 0/500 reached success, 0 violations
   spec strength: guarantees 18/18 (prover 18, random tests 0); examples 18/18; together 18/18
-  spec refusals: 5/8 changes caught (examples 2, guarantees 3)
+  spec refusals: 6/8 changes caught (examples 2, guarantees 4)
       unpinned: need hold.get id > 0 else NoOrder (dropped, `>` → `>=`)
-      unpinned: need disputed.get id = 0 else Disputed (dropped)
 
 open_dispute [c9390920]  All guarantees proven
   ✔ ok otherwise

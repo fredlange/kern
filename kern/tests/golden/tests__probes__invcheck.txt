@@ -1,7 +1,7 @@
 $ kern check tests/probes/invcheck.k   (exit 1)
 put [ef2a453e]  Broken guarantees
   ✗ invariant o:Int hold.get o >= 0
-      counterexample: eg  hold.2:217 | put 847 2 -> ok | 
+      counterexample: eg  hold.2:217 hold.8:26285 hold.12:31892 | put 440 2 -> ok | 
   writes hold.*   (no guarantee about the new value of hold.*)
   examples 0/0   random tests 428/500 reached success, 3 violations
 
@@ -58,7 +58,7 @@ note [3e351ea1]  All guarantees proven
 
 pay [cfb37d36]  Broken guarantees
   ✗ invariant a:Account flag.get a >= 0 and ledger.balance a >= 0
-      counterexample: eg A:0@u1 B:357@u1 | pay A B 1 -> ok | A:-1 B:358
+      counterexample: eg A:0@u1 B:357@u1 flag.B:786 seen.A:582 seen.B:141 | pay A B 1 -> ok | A:-1 B:358
   writes a b   (no guarantee about the new balance of a, b)
   examples 0/0   random tests 287/500 reached success, 3 violations
 

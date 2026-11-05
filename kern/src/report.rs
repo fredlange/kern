@@ -762,11 +762,24 @@ pub fn analyse(
     // ○ runtime-checked: a module invariant the prover neither proved nor refuted is still enforced at run time,
     // since `kern host` checks the module invariants after every call (at the keys the call wrote). It keeps
     // `tested` when random tests also held it. Nothing else is checked at run time, so nothing else gets ○.
-    // A random run that broke it is a counterexample the interpreter found, so the goal is ✗ with that run as its
-    // `eg` line (a success, so `-> ok`), never ○ (reviewer, S11).
+    // A random run that broke a goal is a counterexample the interpreter found: a goal the prover left undecided,
+    // or refuted with a counterexample that didn't replay, is ✗ with that run as its `eg` line (a success, so
+    // `-> ok`), never ○ or `?` (reviewer, S11; tester, #OH54XTG7VD).
     for r in reports.values_mut() {
         let violations = r.props.violations.clone();
         for g in &mut r.guarantees {
+            if matches!(g.status, Status::Unconfirmed) && g.kind != "ok" {
+                let broke = violations.iter().find_map(|v| match v {
+                    Violation::Clause { clause, eg } if *clause == format!("{} {}", g.kind, g.clause) => Some(eg.clone()),
+                    _ => None,
+                });
+                if let Some(eg) = broke {
+                    g.status = Status::Refuted;
+                    g.counterexample =
+                        Some(Counterexample { eg: format!("{eg} -> ok"), emitted: String::new(), confirmed_by_interpreter: true });
+                }
+                continue;
+            }
             if g.kind == "invariant" && matches!(g.status, Status::Unknown | Status::Tested) {
                 let broke = violations.iter().find_map(|v| match v {
                     Violation::Clause { clause, eg } if *clause == format!("invariant {}", g.clause) => Some(eg.clone()),

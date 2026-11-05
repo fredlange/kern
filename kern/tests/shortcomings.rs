@@ -1153,6 +1153,23 @@ body
 }
 
 #[test]
+fn a_computed_key_invariant_assumes_every_invariant_and_its_counterexample_shows_every_state() {
+    // tester on #OH54XTG7VD: `hold <= cap + 100` after writing hold at k + 1 showed ? (the counterexample left out
+    // cap, which the definition never touches) even where random tests broke it
+    use kern::report::Status;
+    let src = "state hold Int\nstate cap Int\ninvariant o:Int hold.get o >= 0\ninvariant o:Int hold.get o <= cap.get o + 100\n\nfive k:Int\n  ok otherwise\nbody\n  hold.set (k + 1) 5\n\nfine r:Int c:Int\n  need c >= 0 and c < 7 else Bad\n  ok otherwise\nbody\n  hold.set (r * 7 + c) 0\n";
+    let defs = parse(src);
+    let reps = reports(&defs);
+    // writing 5 is wrong where cap is -100 (allowed: hold 0 <= -100 + 100), and the counterexample says so
+    let g = reps["five"].guarantees.iter().find(|g| g.clause.contains("cap")).unwrap();
+    assert_eq!(g.status, Status::Refuted, "{g:?}");
+    let cx = g.counterexample.clone().unwrap();
+    assert!(cx.confirmed_by_interpreter && cx.eg.contains("cap."), "{}", cx.eg);
+    // writing 0 keeps both, given that both held before
+    assert!(reps["fine"].clean, "{:?}", reps["fine"].guarantees);
+}
+
+#[test]
 fn random_tests_skip_worlds_that_break_a_module_invariant() {
     // app's request 0 (shop): `cancel` relies on the invariant `phase.get o = 0 or item_of.get o > 0`; random
     // worlds broke it, the call refused, and that counted as a violation of a proven `ok otherwise`
