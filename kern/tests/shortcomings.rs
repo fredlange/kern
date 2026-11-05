@@ -1899,3 +1899,54 @@ fn every_test_and_path_the_register_names_exists() {
     }
     assert!(n_paths >= 1 && n_names >= 1, "found {n_paths} paths and {n_names} test names: the patterns no longer match the register");
 }
+
+#[test]
+fn a_loop_writing_computed_keys_under_a_module_invariant_is_proven() {
+    // app's booking (#TFBTO7NS3M): clear_day and clear_all write slot at r * days + d in a loop under
+    // `invariant s:Int slot.get s >= 0`; their frame and loop goals stayed `!`. A quantifier whose bounds are
+    // literals at most 16 apart is now expanded into a conjunction, which Z3 decides
+    let src = "const rooms 5
+const days 7
+const slots 35
+
+state slot Int
+state holder Int -> Text
+
+invariant s:Int slot.get s >= 0
+
+clear_day day:Int
+  need day >= 0 else NoSuchDay
+  need day < days else NoSuchDay
+  ok otherwise
+  ensure slot.get' (r * days + day) = 0 for r from 0 to rooms
+  ensure holder.get' (r * days + day) = \"\" for r from 0 to rooms
+  ensure slot.get' s = slot.get s when s - (s / days) * days != day for s from 0 to slots
+body
+  for r from 0 to rooms
+    invariant slot.get' (q * days + day) = 0 for q from 0 to r
+    invariant holder.get' (q * days + day) = \"\" for q from 0 to r
+    invariant slot.get' s = slot.get s when s - (s / days) * days != day or s / days >= r for s from 0 to slots
+    holder.set (r * days + day) \"\"
+    slot.set (r * days + day) 0
+
+clear_all
+  ok otherwise
+  ensure slot.get' s = 0 for s from 0 to slots
+  ensure holder.get' s = \"\" for s from 0 to slots
+body
+  for r from 0 to rooms
+    invariant slot.get' s = 0 for s from 0 to (r * days)
+    invariant holder.get' s = \"\" for s from 0 to (r * days)
+    for d from 0 to days
+      invariant slot.get' s = 0 for s from 0 to (r * days)
+      invariant holder.get' s = \"\" for s from 0 to (r * days)
+      invariant slot.get' (r * days + e) = 0 for e from 0 to d
+      invariant holder.get' (r * days + e) = \"\" for e from 0 to d
+      slot.set (r * days + d) 0
+      holder.set (r * days + d) \"\"
+";
+    let reps = reports(&parse(src));
+    for n in ["clear_day", "clear_all"] {
+        assert!(reps[n].clean, "{n}: {:?}", reps[n].guarantees);
+    }
+}

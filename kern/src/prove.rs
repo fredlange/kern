@@ -319,6 +319,9 @@ pub struct Prover<'m> {
     self_called: bool,
 }
 
+/// A `for j from A to B` whose bounds are literals at most this far apart is expanded into a conjunction.
+const EXPAND_UP_TO: i128 = 16;
+
 /// Unknown solver answers a mutant's proof may spend before it stops (a deterministic bound: steps, not time).
 pub const MUTANT_UNKNOWNS: u32 = 4;
 
@@ -477,9 +480,19 @@ impl<'m> Prover<'m> {
             Expr::Int(n) => SV::I(zz::val(*n)),
             Expr::Text(t) => SV::S(zz::text(t)),
             Expr::All(v, a, b, body) => {
-                let j = zz::int(&format!("{}_{}", v, fresh()));
                 let lo = self.sev(a, env, cur, post);
                 let hi = self.sev(b, env, cur, post);
+                // bounds that are small literals (a loop's exit, `for e from 0 to 7`): the conjunction itself, so a
+                // key computed from j (`r * 7 + e`) is a ground term the solver can match, not a quantifier
+                if let (Some(l), Some(h)) = (zz::numeral(&z3::ast::Ast::simplify(lo.i())), zz::numeral(&z3::ast::Ast::simplify(hi.i()))) {
+                    if (1..=EXPAND_UP_TO).contains(&(h - l)) {
+                        let parts: Vec<Bool> = (l..h)
+                            .map(|i| self.sev(body, &env_with(env, v, SV::I(zz::val(i))), cur, post).b().clone())
+                            .collect();
+                        return SV::B(zz::and(&parts));
+                    }
+                }
+                let j = zz::int(&format!("{}_{}", v, fresh()));
                 let inner = self.sev(body, &env_with(env, v, SV::I(j.clone())), cur, post);
                 let range = zz::and(&[zz::le(lo.i(), &j), zz::lt(&j, hi.i())]);
                 SV::B(zz::forall(&[&j], &zz::implies(&range, inner.b())))
