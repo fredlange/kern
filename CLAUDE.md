@@ -185,7 +185,7 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
 
 - The domain is hard-coded: the ledger, clock and audit handlers are built into the interpreter. Modules
   can declare `state NAME Int|Account` maps (Int values) and `invariant x:Type COND` (assumed
-  and checked at parameter keys only; a computed-key write makes it unknown).
+  and checked at parameter keys; a computed-key write is proven quantified, at every key).
 - `need as C args` / `emit as C args` expand a callee's spec at parse time; only right when
   the callee runs first (otherwise the prover refutes it and the caller restates).
 - `*` may multiply two variables (nonlinear: Z3 can answer unknown, shown `?`); `/` needs a positive literal on

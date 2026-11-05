@@ -151,8 +151,9 @@ build hash of every definition that uses it: their `.why` entries go stale and t
    the body is wrong, or the spec is: in this case add the missing `need`. Paste the line
    into the spec as an `eg` if it's worth keeping.
 4. **Read a `?`, `!`, ◐ or ○ as a spec too weak to prove from.**
-   - ○ "writes a computed key": the invariant is checked key by key at the parameters, so write state
-     at a parameter key, or accept the host's runtime check.
+   - ○: the prover couldn't decide a module invariant (a write at a computed key is proven at every key, so
+     this is a claim Z3 can't settle); add a `need` that makes the written value obviously fine, or accept the
+     runtime check.
    - `?` with "not reproduced": a callee's spec doesn't say enough, so strengthen the
      callee's `ensure`.
    - `!`: a callee isn't proven, so fix the callee first.

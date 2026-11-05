@@ -866,6 +866,13 @@ impl<'m> Prover<'m> {
                     self.pc.borrow_mut().push(v);
                 }
             }
+            // a callee writing a computed key proves the invariant at every key (quantified): so it holds at every
+            // key afterwards (this call already relies on the callee)
+            if self.invariant_touched(callee, cond) == Some(false) {
+                let j = zz::int(&format!("{var}_call_{}", fresh()));
+                let v = self.sev(cond, &[(var.clone(), SV::I(j.clone()))].into_iter().collect(), s, None).b().clone();
+                self.pc.borrow_mut().push(zz::forall(&[&j], &v));
+            }
         }
         for c in &callee.keeps {
             let before = self.sev(c, &env, &pre, None);
@@ -897,7 +904,6 @@ impl<'m> Prover<'m> {
         }
     }
 
-    /// A pure function, modularly: an uninterpreted function whose result satisfies its ensures.
     /// At a call to `callee` from the body being proved: if the callee can call back into it (recursion), a
     /// `measure` goal: under this path, `0 <= M_callee(args) < M_self(params)`.
     fn measure_goal(&mut self, callee: &Def, args: &[SV]) {
@@ -936,6 +942,7 @@ impl<'m> Prover<'m> {
         self.relied_on.insert(name.to_string());
     }
 
+    /// A pure function, modularly: an uninterpreted function whose result satisfies its ensures.
     fn function_call(&mut self, f: &Def, args: &[SV], s: &Sym) -> ZInt {
         self.measure_goal(f, args);
         self.rely_on(&f.name);
@@ -1521,10 +1528,18 @@ impl<'m> Prover<'m> {
             let text = format!("{}:{} {}", var, t, code(cond));
             let expr = GoalExpr::Invariant(var.clone(), t.clone(), cond.clone());
             if !touched {
-                unknowable.push(Guarantee {
-                    reason: Some("it writes a computed key, so the invariant can't be checked key by key".into()),
-                    ..guarantee("invariant", expr, &text, Status::Unknown)
-                });
+                // a computed key (`room * 7 + day`, `item_of.get order`): the invariant at every key, quantified.
+                // Before the call it holds everywhere (as it does for every call); after, it must, too.
+                let mut cases = vec![];
+                for p in &paths {
+                    let (jb, ja) = (zz::int(&format!("{var}_pre_{}", fresh())), zz::int(&format!("{var}_post_{}", fresh())));
+                    let before = self.sev(cond, &[(var.clone(), SV::I(jb.clone()))].into_iter().collect(), &pre, None).b().clone();
+                    let after = self.sev(cond, &[(var.clone(), SV::I(ja.clone()))].into_iter().collect(), &p.s, None).b().clone();
+                    let mut pc = p.pc.borrow().clone();
+                    pc.push(zz::forall(&[&jb], &before));
+                    cases.push(Case { goal: zz::forall(&[&ja], &after), pc: shared(pc), draws: None });
+                }
+                goals.push(Goal { kind: "invariant".into(), expr, text, cases });
                 continue;
             }
             let mut cases = vec![];

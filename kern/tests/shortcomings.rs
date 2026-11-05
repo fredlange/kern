@@ -519,9 +519,9 @@ body
     let r = &reps["fill"];
     assert!(r.examples.iter().all(|e| e.pass), "{:?}", r.examples);
     assert!(r.guarantees.iter().all(|g| !matches!(g.status, kern::report::Status::Refuted)), "{:?}", r.guarantees);
-    // a computed key (r * width + c): the invariant can't be checked key by key, so it is ○, not ✔
+    // a computed key (r * width + c): proven at every key, quantified (#OH54XTG7VD), so ✔
     let inv = r.guarantees.iter().find(|g| g.kind == "invariant").unwrap();
-    assert_eq!(inv.status, kern::report::Status::Runtime);
+    assert_eq!(inv.status, kern::report::Status::Proven);
 }
 
 #[test]
@@ -1060,6 +1060,57 @@ fn s5_text_verdicts_agree_with_the_interpreter() {
 }
 
 #[test]
+fn an_invariant_over_a_computed_key_is_proven_at_every_key() {
+    // app's booking #1 and shop 0b: a write at room * 7 + day, or at a key read from state, left the invariant ○
+    // and every caller's guarantees `!`; now it is proven quantified (the invariant holds everywhere before)
+    use kern::report::Status;
+    let src = "state slot Int
+state item_of Int
+
+invariant s:Int slot.get s >= 0
+
+put room:Int day:Int guest:Int
+  need guest > 0 else NoGuest
+  ok otherwise
+  ensure slot.get' (room * 7 + day) = guest
+body
+  slot.set (room * 7 + day) guest
+
+bump order:Int
+  ok otherwise
+body
+  slot.set (item_of.get order) (slot.get (item_of.get order) + 1)
+
+clear_day day:Int
+  ok otherwise
+  ensure slot.get' (r * 7 + day) = 0 for r from 0 to 5
+body
+  for r from 0 to 5
+    invariant slot.get' (q * 7 + day) = 0 for q from 0 to r
+    slot.set (r * 7 + day) 0
+
+book room:Int day:Int guest:Int
+  need guest > 0 else NoGuest
+  ok otherwise
+  ensure slot.get' (room * 7 + day) = guest
+body
+  put room day guest
+";
+    let defs = parse(src);
+    let reps = reports(&defs);
+    for n in ["put", "bump", "clear_day", "book"] {
+        assert!(reps[n].clean, "{n}: {:?}", reps[n].guarantees);
+    }
+    // a write that breaks it is ✗ (in a module of its own: a definition that breaks an invariant means no
+    // definition may assume it, so it would downgrade the others)
+    let wipe = "state slot Int\n\ninvariant s:Int slot.get s >= 0\n\nwipe room:Int day:Int\n  ok otherwise\nbody\n  slot.set (room * 7 + day) (0 - 1)\n";
+    let reps = reports(&parse(wipe));
+    let g = reps["wipe"].guarantees.iter().find(|g| g.kind == "invariant").unwrap();
+    assert_eq!(g.status, Status::Refuted);
+    assert!(g.counterexample.as_ref().unwrap().confirmed_by_interpreter);
+}
+
+#[test]
 fn random_tests_skip_worlds_that_break_a_module_invariant() {
     // app's request 0 (shop): `cancel` relies on the invariant `phase.get o = 0 or item_of.get o > 0`; random
     // worlds broke it, the call refused, and that counted as a violation of a proven `ok otherwise`
@@ -1553,20 +1604,22 @@ body
 // S11 (closed). Tier ○: a module invariant the prover can't decide, which `kern host` checks at run time
 // =====================================================================================
 
+// a³ + b³ - c³ is never 0 for positive a, b, c (Fermat, n = 3): true, and beyond what Z3 decides. Computed keys
+// alone no longer give ○ (#OH54XTG7VD proves those invariants quantified).
 const S11_SRC: &str = "state hold Int
 
-invariant o:Int hold.get o >= 0
+invariant o:Int hold.get o != 0
 
-shift k:Int v:Int
-  need v >= 0 else Negative
+cube k:Int a:Int b:Int c:Int
+  need a > 0 and b > 0 and c > 0 else Bad
   ok otherwise
 body
-  hold.set (k + 1) v
+  hold.set (k + 1) (a * a * a + b * b * b - c * c * c)
 
 drain k:Int v:Int
   ok otherwise
 body
-  hold.set (k + 1) (0 - v)
+  hold.set (k + 1) 0
 ";
 
 #[test]
@@ -1575,18 +1628,17 @@ fn s11_an_invariant_the_prover_cannot_decide_is_runtime_checked_on_the_page() {
     let defs = parse(S11_SRC);
     let reps = reports(&defs);
     let inv = |n: &str| reps[n].guarantees.iter().find(|g| g.kind == "invariant").unwrap().clone();
-    // a computed key: no proof and no counterexample, so ○, and the random-test count is kept
-    let g = inv("shift");
+    // no proof and no counterexample, so ○, and the random-test count is kept
+    let g = inv("cube");
     assert_eq!((g.status, kern::render::icon(g.status)), (Status::Runtime, "○"));
     assert!(g.tested.is_some());
-    assert_eq!(kern::render::status(&reps["shift"]).1, "Checked at run time only, not proven");
-    assert!(!reps["shift"].clean, "○ is not proven, so the definition isn't clean");
-    // random tests break drain's invariant: that run is a counterexample, so the goal is ✗, not ○ (reviewer), and
-    // its eg line replays (a success that breaks the invariant)
+    assert_eq!(kern::render::status(&reps["cube"]).1, "Checked at run time only, not proven");
+    assert!(!reps["cube"].clean, "○ is not proven, so the definition isn't clean");
+    // drain breaks it: ✗ with a counterexample that replays, never ○ (reviewer)
     let g = inv("drain");
     assert_eq!(g.status, Status::Refuted);
     let cx = g.counterexample.clone().unwrap();
-    assert!(cx.confirmed_by_interpreter && cx.eg.ends_with("-> ok"), "{}", cx.eg);
+    assert!(cx.confirmed_by_interpreter && cx.eg.contains("-> ok"), "{}", cx.eg);
     let mut d = defs.defs["drain"].clone();
     d.examples = vec![kern::syntax::parse_example(cx.eg.trim_start_matches("eg").trim(), None).unwrap()];
     assert!(kern::check::run_examples(&defs, &d).unwrap()[0].pass, "{}", cx.eg);
@@ -1599,7 +1651,7 @@ fn s11_an_invariant_the_prover_cannot_decide_is_runtime_checked_on_the_page() {
     );
     assert!(page.contains("only with <code>--no-gate</code>"), "and that the gated host doesn't serve it");
     let out = kern::render::terminal(&reps, &defs, &whys, &IndexMap::new());
-    assert!(out.contains("○ invariant o:Int hold.get o >= 0   (not proven; held in"), "{out}");
+    assert!(out.contains("○ invariant o:Int hold.get o != 0   (not proven; held in"), "{out}");
 }
 
 #[test]
@@ -1611,10 +1663,11 @@ fn s11_the_runtime_check_the_page_promises_happens_in_the_host() {
     let r = h.call("drain", &[Value::Int(3), Value::Int(4)]).unwrap();
     assert_eq!(r["status"], "error");
     assert!(r["error"].as_str().unwrap().contains("invariant broken"), "{r:?}");
-    assert_eq!(h.call("shift", &[Value::Int(3), Value::Int(4)]).unwrap()["status"], "ok");
+    let one = [Value::Int(3), Value::Int(1), Value::Int(1), Value::Int(1)];
+    assert_eq!(h.call("cube", &one).unwrap()["status"], "ok");
     // and the gated host refuses to serve a definition whose best evidence is ○
     let mut gated = Host::new(&defs, reports(&defs), Options { sinks: Some(vec![]), ..Default::default() }).unwrap();
-    assert!(gated.call("shift", &[Value::Int(3), Value::Int(4)]).is_err());
+    assert!(gated.call("cube", &one).is_err());
 }
 
 // =====================================================================================
