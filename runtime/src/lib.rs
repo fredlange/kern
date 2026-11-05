@@ -436,14 +436,15 @@ impl<'a, E> Tx<'a, E> {
     /// The accounts this call wrote so far (balances and Account maps; a write of an unchanged value counts), each
     /// once, in first-write order: where a module invariant over `Account` keys is checked.
     pub fn written_accts(&self) -> Vec<Acct> {
-        let mut out: Vec<Acct> = Vec::new();
+        // a set beside the list: a call may write a million keys (nested loops), so no linear search
+        let (mut out, mut seen): (Vec<Acct>, std::collections::HashSet<u32>) = (Vec::new(), Default::default());
         for u in self.undo.iter() {
             let a = match u {
                 Undo::Bal(i, _) | Undo::A(_, i, _) => *i,
                 Undo::TA(_, i, _) => *i,
                 Undo::I(..) | Undo::TI(..) => continue,
             };
-            if !out.iter().any(|x| x.0 == a) {
+            if seen.insert(a) {
                 out.push(Acct(a));
             }
         }
@@ -451,10 +452,10 @@ impl<'a, E> Tx<'a, E> {
     }
     /// The Int keys this call wrote so far (Int maps), each once, in first-write order.
     pub fn written_ints(&self) -> Vec<i64> {
-        let mut out: Vec<i64> = Vec::new();
+        let (mut out, mut seen): (Vec<i64>, std::collections::HashSet<i64>) = (Vec::new(), Default::default());
         for u in self.undo.iter() {
             if let Undo::I(_, k, _) | Undo::TI(_, k, _) = u {
-                if !out.contains(k) {
+                if seen.insert(*k) {
                     out.push(*k);
                 }
             }
