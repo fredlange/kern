@@ -310,8 +310,9 @@ to make decisions as long as they follow the fundamentals". Each one names the f
     `let`s and handler parameters, grouped `eg` arguments.
   - ~~A constructor named `Self` breaks `kern build`~~ fixed in `563177e` (variant `_Self`). Still loud, not
     wrong: a constructor with an underscore (`Too_Big`) fails `kern build` (tester, sent to runtime).
-  - Positional `eg` arguments that are too few, or grouped `(1 2)`, give a failing example with no reason
-    (pre-existing `eg` behaviour, not records-specific).
+  - ~~Positional `eg` arguments that are too few, or grouped `(1 2)`, give a failing example with no reason~~
+    fixed in `fb80e41`: a failing `eg` says why (wrong argument count, or the actual after-values;
+    `s5_a_failing_eg_says_why`).
 
 ### S6, sum (one half of S6; the entry stays open for the stateable frame)
 - **Kind:** code gap. **Closed** 2026-11-05 in `72d2446`, under delegation (.party/DECISIONS.md, 2026-11-05,
@@ -365,8 +366,8 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   - MCP: `kern_add` refuses `const x 5`, so an agent working only through MCP can't declare a constant (F1/F2).
   - *Resolved 2026-11-05 in `9cac022` (tests `2ddd4ec`):* `kern_add` takes one declaration line (const, record,
     state, channel, invariant); handler roots and declaration words are rejected as constant names, as the
-    amended decision says; a compound `for` bound says to parenthesise it. Left: a compound `sum` bound
-    still says "expected `of`".
+    amended decision says; a compound `for` bound says to parenthesise it, and since `5322fc7` so does a
+    compound `sum` bound.
 
 ### S8. Mutants were body-only
 - **Kind:** code gap. **Closed** 2026-11-05, under delegation.
