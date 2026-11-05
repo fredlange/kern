@@ -1,6 +1,8 @@
 //! An MCP server for Kern (port of kern/mcp.py): an agent works through views, never through whole files.
 //!
-//!     kern mcp            (stdio, JSON-RPC 2.0, one message per line)
+//! ```text
+//! kern mcp            (stdio, JSON-RPC 2.0, one message per line)
+//! ```
 //!
 //! Tools (see docs/GUIDE.md): kern_list, kern_view, kern_why, kern_check, kern_run, kern_callers, kern_edit,
 //! kern_add, kern_replace, kern_remove.
