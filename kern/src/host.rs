@@ -2158,7 +2158,8 @@ nope x:Int k:Int
             .unwrap()
             .init("hold.1:9223372036854775808")
             .unwrap_err();
-        assert!(e.contains("out of the host's range"), "{e}");
+        // refused: by the parser since 7cbcd28 (literals outside i64), else by the host's own check
+        assert!(e.contains("outside Int's range") || e.contains("out of the host's range"), "{e}");
     }
 
     #[test]
