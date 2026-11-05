@@ -302,8 +302,10 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   compiled and host Text: tests/probes/texts.k 10,007 calls and fuzzdiff --texts 927 programs, 0 divergences, a
   byte-length plant caught. Digests and goldens unchanged. REFERENCE.md 2,524 → 2,627 tokens.
 - **What remains:**
-  - A counterexample world drops Text map entries, so a refutable claim can show `?` instead of ✗ (tester; a
-    lang task). Safe direction, but the ✗ never becomes an example (F8).
+  - ~~A counterexample world drops Text map entries (`?` instead of ✗)~~ fixed in `7d011af` (tests `03f36a3`), with
+    the same fault for record programs (an entry at a key computed from a field): a counterexample that doesn't
+    replay is re-read at likely keys and kept only if that one replays. Loop digest e90c41b6af1ac4d6 →
+    5633e03d4adf29df (dump diff: one goal, `!` → ✗ with a replaying counterexample).
   - Under `KERN_Z3_FRESH=ctx`/`off` one text-loop mutant is killed by random tests, not the prover (a Z3 string
     quantifier near its step limit); the default is deterministic.
   - examples/random-portal still shows joke ids; the change to Text there is still to make.
