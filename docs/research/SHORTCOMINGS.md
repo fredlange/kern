@@ -212,10 +212,22 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   ([CHALLENGE.md, C6 addendum 2026-11-05](CHALLENGE.md#c6-prover-stress-run-2026-11-03)).
 - **Fixed when:** the k-sweep of `cargo run -p kern-validation --release --bin c6` stays under 1 s per
   definition at k=6. Fredrik sets the bar; this one is a proposal.
-- **Next:** in order of expected gain:
-  1. don't run random tests on mutants the prover already kills;
-  2. run mutants in parallel;
-  3. merge paths at `if` (one path with conditional values).
+- **Done, 2026-11-05: mutants are scored in parallel** (`kern/src/check.rs`, `KERN_JOBS`, default 4).
+  Every output is identical: both digests are unchanged, serial and parallel alike, and the goldens
+  pass. On C6, with serial and parallel runs alternated and the best of three taken, P1 goes from 0.864
+  to 0.365 s per definition (×2.4), P2 from 0.173 to 0.077 s (×2.2), and k=6 from 2.93 to 1.30 s
+  (×2.2). Load from other sessions was 4–11 on 18 cores during the runs.
+- **The next limit is Z3's:** more than 4 threads is *slower* (18 threads: 0.44 s on P1). Z3 5.3.3
+  takes one global mutex (`gparams::get_module`) every time a rewriter is built, which happens in
+  every solver's construction. `sample` shows most threads waiting there.
+- **Next:**
+  1. Build fewer solvers per proof, e.g. one solver per definition with push/pop. Z3's incremental
+     mode may pick different models, so counterexample eg lines, and the digests, could change.
+     That needs a check that verdicts stay the same.
+  2. Score mutants in separate processes, which don't share Z3's lock.
+  3. Merge paths at `if` (one path with conditional values): the curve, not the constant.
+  4. Skipping random tests on prover-killed mutants would change the page's per-layer counts. That
+     makes it a decision, not an optimisation.
 
 ### S17. Lifting still stops after a callee that writes
 - **Kind:** code gap.

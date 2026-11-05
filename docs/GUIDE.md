@@ -36,6 +36,9 @@ docker run --rm -p 8080:8080 -v "$PWD:/work" kern host serve examples/shop --bin
 - **`kern build`** needs `cargo`. An installed `kern` carries the `kern-rt` sources and writes them
   out under the build directory; `KERN_RUNTIME` and `KERN_BUILD` override where the runtime and the
   build directory are.
+- **Mutation testing** scores mutants on `KERN_JOBS` threads (default 4, at most the core count; `1` is
+  serial). Results are the same for any value. More than about 4 threads gets slower, not faster, because
+  Z3 builds every solver under one global lock.
 - **Tests:** `cargo test --workspace --release` from the repository root. `kern/tests/golden/` holds the
   recorded output of every example and probe; after an intended change, re-record with
   `KERN_BLESS=1 cargo test -p kern --release --test golden` and say why in the commit. Validation tools: [validation/README.md](../validation/README.md);

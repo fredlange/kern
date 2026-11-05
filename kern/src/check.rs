@@ -410,27 +410,84 @@ fn panic_text(p: Box<dyn std::any::Any + Send>) -> String {
 }
 
 /// Every layer on every well-formed mutant, so the score can say *what* catches bugs.
+/// How many threads score mutants (KERN_JOBS, default: 4, at most the core count). 1 means serial on the calling
+/// thread, which is also forced with KERN_Z3_FRESH=off: there the fresh-name counter is per thread and carries
+/// over between proofs, so results depend on which thread ran what. Why 4: Z3 5.3.3 reads its global parameter
+/// table under one mutex whenever a solver is built (gparams::get_module, from the rewriters' constructors), and
+/// on C6's P1 that lock makes 4 threads the fastest (×2.4; 18 threads are slower than 4).
+/// docs/research/SHORTCOMINGS.md, S16.
+fn mutation_jobs() -> usize {
+    if crate::prove::fresh_mode() == crate::prove::Fresh::Off {
+        return 1;
+    }
+    std::env::var("KERN_JOBS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(4))
+        .max(1)
+}
+
+enum Scored {
+    IllFormed,
+    Row(bool, bool, bool),
+    Error(String),
+}
+
+/// One mutant: well-formedness, then examples, random tests and the prover. Independent of every other mutant
+/// (each proof gets a fresh Z3 context and fresh names), so mutants can run on any thread in any order.
+fn score_one(defs: &Module, d: &Def, body: &[Stmt], n_props: u64) -> Scored {
+    let mut md = d.clone();
+    md.body = body.to_vec();
+    let mdefs = defs.with_def(md.clone());
+    if !problems(&mdefs, &md).is_empty() {
+        return Scored::IllFormed;
+    }
+    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(bool, bool, bool), Crash> {
+        let ex = !run_examples(&mdefs, &md)?.iter().all(|r| r.pass);
+        let props = !proptest(&mdefs, &md, n_props, 7)?.violations.is_empty();
+        let (gs, _) = Prover::new(&mdefs).prove(&md, true);
+        let prover = gs.iter().any(|g| matches!(g.status, Status::Refuted | Status::Vacuous));
+        Ok((ex, props, prover))
+    }));
+    match run {
+        Ok(Ok((ex, pr, pv))) => Scored::Row(ex, pr, pv),
+        Ok(Err(Crash(t, m))) => Scored::Error(format!("{t}: {m}")),
+        Err(p) => Scored::Error(format!("Panic: {}", panic_text(p))),
+    }
+}
+
 pub fn mutation_score(defs: &Module, d: &Def, n_props: u64) -> Mutation {
+    let ms = mutants(d);
+    let jobs = mutation_jobs().min(ms.len().max(1));
+    let scored: Vec<Scored> = if jobs <= 1 {
+        ms.iter().map(|(_, body)| score_one(defs, d, body, n_props)).collect()
+    } else {
+        // A pool of `jobs` threads takes mutants by index; results are put back in mutant order, so the report
+        // is the same as the serial one. Big stacks, as the fuzzer's: the interpreter and prover recurse.
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let slots: Vec<std::sync::Mutex<Option<Scored>>> = ms.iter().map(|_| std::sync::Mutex::new(None)).collect();
+        std::thread::scope(|sc| {
+            for _ in 0..jobs {
+                std::thread::Builder::new()
+                    .stack_size(256 << 20)
+                    .spawn_scoped(sc, || loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if i >= ms.len() {
+                            break;
+                        }
+                        *slots[i].lock().unwrap() = Some(score_one(defs, d, &ms[i].1, n_props));
+                    })
+                    .expect("spawn a mutation thread");
+            }
+        });
+        slots.into_iter().map(|s| s.into_inner().unwrap().expect("every mutant scored")).collect()
+    };
     let (mut rows, mut ill_formed, mut errors) = (vec![], vec![], vec![]);
-    for (desc, body) in mutants(d) {
-        let mut md = d.clone();
-        md.body = body;
-        let mdefs = defs.with_def(md.clone());
-        if !problems(&mdefs, &md).is_empty() {
-            ill_formed.push(desc);
-            continue;
-        }
-        let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(bool, bool, bool), Crash> {
-            let ex = !run_examples(&mdefs, &md)?.iter().all(|r| r.pass);
-            let props = !proptest(&mdefs, &md, n_props, 7)?.violations.is_empty();
-            let (gs, _) = Prover::new(&mdefs).prove(&md, true);
-            let prover = gs.iter().any(|g| matches!(g.status, Status::Refuted | Status::Vacuous));
-            Ok((ex, props, prover))
-        }));
-        match run {
-            Ok(Ok((ex, pr, pv))) => rows.push((desc, ex, pr, pv)),
-            Ok(Err(Crash(t, m))) => errors.push(format!("{desc}: {t}: {m}")),
-            Err(p) => errors.push(format!("{desc}: Panic: {}", panic_text(p))),
+    for ((desc, _), s) in ms.into_iter().zip(scored) {
+        match s {
+            Scored::IllFormed => ill_formed.push(desc),
+            Scored::Row(ex, pr, pv) => rows.push((desc, ex, pr, pv)),
+            Scored::Error(e) => errors.push(format!("{desc}: {e}")),
         }
     }
     let count = |f: &dyn Fn(&(String, bool, bool, bool)) -> bool| rows.iter().filter(|r| f(r)).count() as u64;
