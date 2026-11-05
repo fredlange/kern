@@ -288,7 +288,10 @@ pub fn cache_key(defs: &Module, d: &Def, part: &str) -> String {
         Py::List(defs.invariants.iter().map(|(v, t, c)| Py::Tuple(vec![Py::s(v), Py::s(t), c.to_py()])).collect()),
         Py::List(defs.channels.iter().map(|c| Py::s(c)).collect()),
     ]));
-    let mut parts = vec![tool_hash().to_string(), part.to_string(), decls, d.name.clone(), d.content_hash()];
+    // KERN_TOOL_SALT stands in for a different checker build (tests/cache_tool_salt.rs: a tool change must
+    // invalidate every cached result, as Python's test did by patching report._TOOL); unset, it adds nothing
+    let tool = format!("{}{}", tool_hash(), std::env::var("KERN_TOOL_SALT").unwrap_or_default());
+    let mut parts = vec![tool, part.to_string(), decls, d.name.clone(), d.content_hash()];
     parts.extend(reach.iter().map(|n| format!("{}:{}", n, defs.defs[n.as_str()].content_hash())));
     crate::pyrepr::sha_hex(&parts.join("\n"), 64)
 }
