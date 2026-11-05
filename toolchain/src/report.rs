@@ -527,6 +527,72 @@ fn mutation_from(j: &J) -> Option<Mutation> {
     })
 }
 
+/// Trust propagates through modular proofs, to a fixpoint: a guarantee that rests on an unproven callee, store
+/// invariant or sibling loop invariant becomes `!` (conditional), with what it rests on in `blocked_by`.
+pub fn propagate_trust(reports: &mut IndexMap<String, Report>) {
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let names: Vec<String> = reports.keys().cloned().collect();
+        for name in &names {
+            let n = reports[name.as_str()].guarantees.len();
+            for gi in 0..n {
+                let weak = {
+                    let r = &reports[name.as_str()];
+                    let g = &r.guarantees[gi];
+                    let own_inv = g.kind == "invariant" || (g.kind == "loop" && g.clause.starts_with("module invariant"));
+                    let mut out: Vec<String> = vec![];
+                    for c in &r.relied_on {
+                        if c.starts_with("assumed ") {
+                            continue;
+                        }
+                        let bad = match c.strip_prefix("invariant on ") {
+                            Some(store) => !store_kept(&reports, store, if own_inv { Some(r.def.name.as_str()) } else { None }),
+                            None => !clean_of(&reports[c.as_str()]),
+                        };
+                        if bad {
+                            out.push(c.clone());
+                        }
+                    }
+                    if (g.kind != "loop" || g.clause.contains("(kept by every iteration)")) && !crate::prove::fault("a") {
+                        for (xi, x) in r.guarantees.iter().enumerate() {
+                            if xi != gi && x.kind == "loop" && !ok_status(x.status) {
+                                out.push(format!("loop invariant {}", x.clause));
+                            }
+                        }
+                    }
+                    let mut dedup: Vec<String> = vec![];
+                    for o in out {
+                        if !dedup.contains(&o) {
+                            dedup.push(o);
+                        }
+                    }
+                    dedup
+                };
+                let g = &mut reports.get_mut(name.as_str()).unwrap().guarantees[gi];
+                if g.status == Status::Proven && !weak.is_empty() {
+                    g.status = Status::Conditional;
+                    g.blocked_by = Some(weak);
+                    changed = true;
+                } else if g.status == Status::Vacuous
+                    && !weak.is_empty()
+                    && !g.reason.as_deref().unwrap_or("").starts_with("no input passes its own needs")
+                {
+                    g.status = Status::Conditional;
+                    g.blocked_by = Some(weak);
+                    g.vacuity = g.reason.take();
+                    changed = true;
+                } else if g.status == Status::Unconfirmed && !weak.is_empty() {
+                    g.status = Status::Conditional;
+                    g.blocked_by = Some(weak);
+                    g.via_broken_spec = Some(true);
+                    changed = true;
+                }
+            }
+        }
+}
+}
+
 /// Every check for every definition (report.py's analyse). `cache` = a directory: results are reused for
 /// definitions whose cache_key is unchanged. A crash of the interpreter in an example or a random test is a
 /// crash of the analysis, as in Python.
@@ -592,68 +658,7 @@ pub fn analyse(
             },
         );
     }
-    // propagate trust through modular proofs, to a fixpoint
-    let mut changed = true;
-    while changed {
-        changed = false;
-        let names: Vec<String> = reports.keys().cloned().collect();
-        for name in &names {
-            let n = reports[name.as_str()].guarantees.len();
-            for gi in 0..n {
-                let weak = {
-                    let r = &reports[name.as_str()];
-                    let g = &r.guarantees[gi];
-                    let own_inv = g.kind == "invariant" || (g.kind == "loop" && g.clause.starts_with("module invariant"));
-                    let mut out: Vec<String> = vec![];
-                    for c in &r.relied_on {
-                        if c.starts_with("assumed ") {
-                            continue;
-                        }
-                        let bad = match c.strip_prefix("invariant on ") {
-                            Some(store) => !store_kept(&reports, store, if own_inv { Some(r.def.name.as_str()) } else { None }),
-                            None => !clean_of(&reports[c.as_str()]),
-                        };
-                        if bad {
-                            out.push(c.clone());
-                        }
-                    }
-                    if g.kind != "loop" || g.clause.contains("(kept by every iteration)") {
-                        for (xi, x) in r.guarantees.iter().enumerate() {
-                            if xi != gi && x.kind == "loop" && !ok_status(x.status) {
-                                out.push(format!("loop invariant {}", x.clause));
-                            }
-                        }
-                    }
-                    let mut dedup: Vec<String> = vec![];
-                    for o in out {
-                        if !dedup.contains(&o) {
-                            dedup.push(o);
-                        }
-                    }
-                    dedup
-                };
-                let g = &mut reports.get_mut(name.as_str()).unwrap().guarantees[gi];
-                if g.status == Status::Proven && !weak.is_empty() {
-                    g.status = Status::Conditional;
-                    g.blocked_by = Some(weak);
-                    changed = true;
-                } else if g.status == Status::Vacuous
-                    && !weak.is_empty()
-                    && !g.reason.as_deref().unwrap_or("").starts_with("no input passes its own needs")
-                {
-                    g.status = Status::Conditional;
-                    g.blocked_by = Some(weak);
-                    g.vacuity = g.reason.take();
-                    changed = true;
-                } else if g.status == Status::Unconfirmed && !weak.is_empty() {
-                    g.status = Status::Conditional;
-                    g.blocked_by = Some(weak);
-                    g.via_broken_spec = Some(true);
-                    changed = true;
-                }
-            }
-        }
-    }
+    propagate_trust(&mut reports);
     // ⊙ proven assuming an assumed handler's spec; `!` if that spec can't be met
     let sat: IndexMap<String, String> = defs.handlers.iter().map(|(n, h)| (n.clone(), handler_sat(defs, h))).collect();
     let names: Vec<String> = reports.keys().cloned().collect();

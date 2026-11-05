@@ -74,6 +74,14 @@ fn in_fresh_context<R>(f: impl FnOnce() -> R) -> R {
     out.0
 }
 
+/// An injected prover fault (the fuzzer's teeth check): with the `faults` feature and KERN_FAULT=c, fault `c` is on.
+///   a: trust propagation ignores a loop goal's unproven sibling invariants (report.rs)
+///   b: an assumed handler's value is taken as 0 instead of any value its spec allows
+///   c: the loop exits at HI instead of max(LO, HI)
+pub fn fault(c: &str) -> bool {
+    cfg!(feature = "faults") && std::env::var("KERN_FAULT").as_deref() == Ok(c)
+}
+
 /// The handler draws behind a witness eg line rendered on this thread, if any.
 pub fn witness_draws(eg: &str) -> Option<Vec<Int>> {
     DRAWS.with(|d| d.borrow().get(eg).cloned())
@@ -461,7 +469,7 @@ impl<'m> Prover<'m> {
             });
             self.pc.borrow_mut().push(c);
         }
-        let r = fresh_int(&name.replace('.', "_"));
+        let r = if fault("b") { zz::val(0) } else { fresh_int(&name.replace('.', "_")) };
         self.draws.borrow_mut().push((name.to_string(), r.clone()));
         for c in &h.ensures {
             let v = self.sev(c, &env_with(&env, "result", SV::I(r.clone())), s, Some(s)).b().clone();
@@ -1006,7 +1014,7 @@ impl<'m> Prover<'m> {
             p.opaque.borrow_mut().extend(new_opaque);
         }
         // after the loop
-        let kk = zz::ite(&zz::ge(&hi, &lo), &hi, &lo);
+        let kk = if fault("c") { hi.clone() } else { zz::ite(&zz::ge(&hi, &lo), &hi, &lo) };
         let empty = zz::le(&hi, &lo);
         let (mut a, ax) = self.havoc(&p.s, &eff, &env, &lo, &kk, Some(empty));
         let invk = self.inv(invs, var, &kk, &env, &a);
