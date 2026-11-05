@@ -1735,8 +1735,18 @@ pub fn main(argv: &[String], analyse: Analyse) -> i32 {
             0
         }
         "page" => {
+            // the module's rationale, from the same default file `kern check` reads (`<module>.why`, `<root>/kern.why`)
+            let whyfile = crate::package::store_path(file, ".why");
+            let store = match crate::why::load(&whyfile) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    return 2;
+                }
+            };
             let whys: IndexMap<String, crate::why::Status> =
-                defs.defs.iter().map(|(n, d)| (n.clone(), crate::why::status(&Default::default(), d, &defs))).collect();
+                defs.defs.iter().map(|(n, d)| (n.clone(), crate::why::status(&store, d, &defs))).collect();
+            let orphans = crate::why::orphans(&store, &defs);
             let reports = match analyse(&defs, true) {
                 Ok(r) => r,
                 Err(e) => {
@@ -1745,7 +1755,7 @@ pub fn main(argv: &[String], analyse: Analyse) -> i32 {
                 }
             };
             let out = opts.get("--html").cloned().unwrap_or_else(|| "proof.html".into());
-            let page = crate::render::page(&reports, &defs, &whys, file, &IndexMap::new(), Some(&host_facts(&host)));
+            let page = crate::render::page(&reports, &defs, &whys, file, &orphans, Some(&host_facts(&host)));
             if let Some(dir) = std::path::Path::new(&out).parent().filter(|d| !d.as_os_str().is_empty()) {
                 let _ = std::fs::create_dir_all(dir);
             }
@@ -2123,6 +2133,25 @@ nope x:Int k:Int
         // 1.5 and 2^63 are not Ints (400); i64::MAX + 1 computed inside is a host fault (500)
         assert_eq!(client.join().unwrap(), [400, 400, 500]);
         assert!(h.load().unwrap().maps.get("hold").map_or(true, |m| m.is_empty()));
+    }
+
+    #[test]
+    fn the_host_page_shows_the_modules_why() {
+        let dir = std::env::temp_dir().join(format!("kern-hostpage-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let k = dir.join("w.k");
+        std::fs::write(&k, "state hold Int\n\nput k:Int\n  ok otherwise\n  ensure hold.get' k = 1\nbody\n  hold.set k 1\n").unwrap();
+        let defs = crate::syntax::parse_module(&std::fs::read_to_string(&k).unwrap(), true).unwrap();
+        let anchor = crate::why::anchor_hash(&defs, &defs.defs["put"]);
+        std::fs::write(dir.join("w.why"), format!("put@{anchor}\n  one flag per key, so a retry is harmless\n")).unwrap();
+        let html = dir.join("p.html");
+        let argv: Vec<String> =
+            ["page", &k.to_string_lossy(), "--html", &html.to_string_lossy()].iter().map(|s| s.to_string()).collect();
+        let analyse = |d: &Module, m: bool| crate::report::analyse(d, m, None, None).map_err(|e| e.message());
+        assert_eq!(main(&argv, &analyse), 0);
+        let page = std::fs::read_to_string(&html).unwrap();
+        assert!(page.contains("one flag per key, so a retry is harmless"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

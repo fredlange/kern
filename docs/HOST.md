@@ -159,6 +159,8 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   section: effects, endpoints and assumptions, every line marked *assumed*, none ✔
   (`render::host_html`, fixed templates). Since S12 the assumptions end with each endpoint's effective
   deadline (`Request deadlines: Fetch 300 s (the default).`), and the manifest's `net:` line says the same.
+  It reads the module's `.why` file as `kern check` does (`<module>.why`, in a package `<root>/kern.why`);
+  before 2026-11-05 it rendered with an empty one.
 
 **Findings:**
 - **The plan's demo design needed one change to pass item 5.** With only `pending` as a flag, a
