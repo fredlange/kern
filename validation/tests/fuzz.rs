@@ -318,3 +318,16 @@ fn a_small_recursion_fuzz_run_is_clean() {
     let m = &s["tiers"]["measure"];
     assert!(m["proven"].as_u64().unwrap_or(0) > 5 && m["refuted"].as_u64().unwrap_or(0) > 5, "{m}");
 }
+
+#[test]
+fn a_small_literal_range_fuzz_run_is_clean() {
+    // gen_lit (14e8e67 expands literal ranges of width 1..16 into conjunctions). Teeth (2026-11-05): the expansion
+    // planted to drop the last instance -> 7,165 contradictions in 26 of 100.
+    let results: Vec<_> = kern_validation::fuzz::lit_jobs(5, 30, 60).iter().map(check_program).collect();
+    let s = summarise(&results);
+    assert_eq!(s["lit_well_formed"], "30/30");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    let e = &s["tiers"]["ensure"];
+    assert!(e["proven"].as_u64().unwrap_or(0) > 5 && e["refuted"].as_u64().unwrap_or(0) > 5, "{e}");
+}

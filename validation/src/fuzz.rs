@@ -897,6 +897,53 @@ pub fn rec_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         .collect()
 }
 
+// ---------------------------------------------------------------- literal ranges (14e8e67)
+
+/// A claim over a literal range `for j from A to A + W` (W 1..17, so 16 is the last expanded width), sometimes with
+/// a `when` filter, over a body that writes every key of the range, all but the first or the last, or one more.
+/// Own stream (`lit_jobs`).
+pub fn gen_lit(rnd: &mut Random) -> String {
+    let a = *rnd.choice(&[0i64, 0, 2, -3]);
+    let w = 1 + rnd.randbelow(17) as i64;
+    let lit = |x: i64| if x < 0 { format!("(0 - {})", -x) } else { x.to_string() };
+    let mut keys: Vec<i64> = (a..a + w).collect();
+    match rnd.randbelow(4) {
+        0 => {}
+        1 => {
+            keys.remove(0);
+        }
+        2 => {
+            keys.pop();
+        }
+        _ => keys.push(a + w),
+    }
+    let skip = if w > 2 && rnd.random() < 0.3 { Some(a + 1) } else { None };
+    let filter = skip.map(|k| format!(" when j != {}", lit(k))).unwrap_or_default();
+    let mut lines: Vec<String> = vec!["state hold Int".into(), String::new(), "f v:Int".into(), "  ok otherwise".into()];
+    lines.push(format!("  ensure hold.get' j = v{filter} for j from {} to {}", lit(a), lit(a + w)));
+    lines.push("body".into());
+    for k in keys {
+        if Some(k) != skip || rnd.random() < 0.5 {
+            lines.push(format!("  hold.set {} v", lit(k)));
+        }
+    }
+    if lines.last().map_or(false, |l| l == "body") {
+        lines.push("  hold.set 100 v".into());
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `n` literal-range programs from their own stream, labelled `lit#i`.
+pub fn lit_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 14);
+    (0..n)
+        .map(|i| {
+            let src = gen_lit(&mut rnd);
+            Job { label: format!("lit#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -1455,7 +1502,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "tiers": tiers, "runs": runs, "ok_runs": ok, "skipped": skipped, "unmapped": unmapped, "unmapped_kinds": unmapped_kinds,
         "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"), "text_well_formed": fam("text#"), "nest_well_formed": fam("nest#"), "match_well_formed": fam("match#"),
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
-        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"),
+        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"),
         "variant_mismatches": variant_mismatches(results),
     })
 }
@@ -1468,12 +1515,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -1509,6 +1556,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(frame_jobs(num("seed", 1) as i128, num("frames", 100) as usize, num("runs", 300)));
     js.extend(ckey_jobs(num("seed", 1) as i128, num("ckeys", 100) as usize, num("runs", 300)));
     js.extend(rec_jobs(num("seed", 1) as i128, num("recs", 100) as usize, num("runs", 300)));
+    js.extend(lit_jobs(num("seed", 1) as i128, num("lits", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));

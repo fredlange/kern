@@ -51,6 +51,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 | `--frames N` | stated loop frames (`gen_frame`, default 100, own stream): a loop writing `hold` at `k + OFF`, with `keep hold except A to B` right or one key too narrow, and `keep other` |
 | `--ckeys N` | computed-key writes under module invariants (`gen_ckey`, default 100, own stream): `k * C + D` or a key read from a map, a value that is non-negative, guarded, copied or possibly negative, one invariant or two across maps |
 | `--recs N` | recursion (`gen_rec`, default 100, own stream): a counting-down function, a mutual pair, a recursive procedure; the recursive argument decreases or not, claims right or near misses. A depth-limit error contradicts the page only if every measure the call can reach is proven |
+| `--lits N` | literal-range claims (`gen_lit`, default 100, own stream): `for j from A to A + W`, W 1..17, sometimes `when`, over a body writing every key, all but the first or last, or one more |
 | `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`), a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`) and a package variant (`agg` in a package `lib` the program's package `use`s). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (fatal since 7d011af fixed the record counterexamples) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
@@ -106,4 +107,7 @@ pre-state (prove.rs, not committed) gives 5,688 contradictions in 35 of 100. Cle
 **2026-11-05, recursion** (3700f8d, 6eb422f; `--recs`). Teeth: the measure goal's `<` planted as `<=` (prove.rs, not
 committed) gives 3,060 contradictions in 14 of 100 (each a depth-limit error under a measure shown proven). Clean:
 0, with depth-limit errors under an unproven measure counted as skipped.
+
+**2026-11-05, literal ranges** (14e8e67; `--lits`). Teeth: the expansion planted to drop the last instance
+(prove.rs, not committed) gives 7,165 contradictions in 26 of 100. Clean: 47 proven, 53 refuted.
 
