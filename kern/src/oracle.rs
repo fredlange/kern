@@ -1,11 +1,14 @@
-//! `kern oracle ...`: machine-readable dumps for the Python-vs-Rust diff harnesses (docs/research/RUST_PORT_PLAN.md).
+//! `kern oracle ...`: everything `check` concludes, as JSON, for tools and debugging.
 //!
 //! ```text
-//! kern oracle analyse PATH [--mutation]   what `check` concludes, as validation/oracle_analyse.py dumps it
+//! kern oracle analyse PATH [--mutation]   every report: interface, guarantees, examples, property tests,
+//!                                         mutation score, the three views and the terminal output
 //! kern oracle prove PATH                  every definition's raw proof results (before trust propagation)
+//! kern oracle mutants PATH NAME           each body mutant of NAME and its first-kill proof statuses
 //! ```
 //!
-//! Both print JSON on stdout. A module that doesn't load gives {"error": "..."}, as the Python dump does.
+//! A module that doesn't load gives {"error": "..."}. Until the 2026-11-05 cutover these dumps were compared with
+//! the Python toolchain's (docs/research/RUST_PORT_PLAN.md); tests/determinism.rs still uses `analyse_json`.
 
 use std::io::Write;
 
