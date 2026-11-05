@@ -41,6 +41,61 @@ docker run --rm -p 8080:8080 -v "$PWD:/work" kern host serve examples/shop --bin
   `KERN_BLESS=1 cargo test -p kern --release --test golden` and say why in the commit. Validation tools: [validation/README.md](../validation/README.md);
   experiments: [experiments/README.md](../experiments/README.md).
 
+## Anatomy of a definition
+
+```text
+transfer from:Account to:Account amount:Int        header
+  need amount > 0 else BadAmount                    refuses with BadAmount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  keep ledger.total                                  same value before and after
+  ensure ledger.balance' to = ledger.balance to + amount   ' = after the call
+  emit TransferDone from to amount clock.now         exactly these audit events (_ = any value)
+  ok otherwise                                       optional: succeeds whenever the needs hold
+  ensure ledger.balance' to = ledger.balance to when amount = 0   a clause can hold only `when` C
+  eg A:500@u1 B:0@u1 | transfer A B 100 -> ok | A:400 B:100   executed example
+body
+  ledger.debit from amount                          a body may have `need`s too; under
+                                                    `ok otherwise` they must never fire
+```
+
+- **`uses` (effects) and `fails` (failure set) are inferred.** You never write them.
+- **`emit` lists the exact sequence of events** the call appends to the audit log. With no `emit`
+  clause the log is unconstrained. It is not inferred from the body: a spec projected from the
+  body changes when the body changes, so it could never catch a bug.
+- **A refusal undoes the whole call,** so guarantees only have to hold on success.
+- **`why` entries live in a separate file** (see Files), anchored to the definition's hash *and*
+  its inferred interface. They go stale when the code changes, or when a callee change alters
+  what this definition can do or refuse. Nothing correctness-critical may live there: if it must
+  be obeyed, it is a `need`, `keep` or `ensure`.
+
+## What `check` does
+
+| Step | Method |
+|---|---|
+| Well-formedness, types | names, arity, no shadowing, pure specs, no recursion; Int / Account / Owner / Bool / Event / Unit. Nothing ill-formed is proven or run |
+| Effects, failures | inferred from the body, transitively through callees |
+| Writes, refusal conditions | inferred: which balances and state can change (the frame modular proofs use), and the body-level conditions under which a call refuses |
+| Examples | run in the interpreter |
+| Random tests | 500 random worlds and inputs; every guarantee is checked on each success |
+| Proofs | symbolic execution to Z3. Calls are verified *modularly*, from the callee's spec and inferred interface, never its body |
+| Refusals | with `ok otherwise`, proven to refuse only where a spec `need` fails |
+| Tiers | ✔ proven, ✗ refuted (replayed), ? unconfirmed or no answer, ! relies on something unproven, ⊙ relies on an assumed handler, ◐ tested only, ∅ never succeeds |
+| Trust | a modular proof is downgraded if a callee's guarantees are broken |
+| Counterexamples | rendered as `eg` lines and replayed in the interpreter; only a replayed one counts as ✗ |
+| Spec strength | mutation testing of the body. The headline is what the *guarantees* catch; examples are reported separately |
+| Ratchet | `kern baseline FILE.k` records strength and guarantees; `check` flags "Weaker than baseline" |
+| Proof page | fixed templates over the results. No model-written text |
+
+## Agent views
+
+`kern view FILE.k NAME --as VIEW` (and the MCP tool `kern_view`) shows what an agent reads:
+
+| View | Contents | `payout` in `ledger_v3.k`, measured |
+|---|---|---|
+| `iface` | header, uses, writes, fails, why stub | 45 tokens |
+| `spec` | + need, keep, ensure, emit, own `body need` lines, proof status | 77 tokens |
+| `editor` | own full definition + the `spec` view of each callee (never callee bodies) | 251 tokens |
+
 ## The loop
 
 1. **Write the spec before the body.** Write the `need`s, then `ok otherwise` if callers may

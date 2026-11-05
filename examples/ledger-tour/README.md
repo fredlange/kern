@@ -48,11 +48,18 @@ kern host repl ledger_v7.k --world "A:500@u1 B:0@u1 H:0@u1"
 
 ## Status
 
-| Step | `kern check` |
-|---|---|
-| v1 | not clean: `transfer` refuted, `payout` conditional |
-| v2–v5 | clean |
-| v6 | not clean: `payout`'s `ok otherwise` refuted (on purpose; v7 fixes it) |
-| v7 | clean |
+| Step | `kern check` | `transfer`'s spec strength: mutants caught by guarantees / by examples / together |
+|---|---|---|
+| v1 | not clean: `transfer` refuted, `payout` conditional | not measured (refuted) |
+| v2 | clean | 6/14, 9/14, 9/14 |
+| v3 | clean | 6/14, 10/14, 10/14 |
+| v4 | clean | 9/14, 10/14, 13/14 |
+| v5 | clean | 10/14, 10/14, 14/14 |
+| v6 | not clean: `payout`'s `ok otherwise` refuted (on purpose; v7 fixes it) | 10/10, 6/10, 10/10 |
+| v7 | clean | 10/10, 6/10, 10/10 |
+
+From a full `kern check` (recorded in `kern/tests/golden/`). The 10/10 from v6
+on is a smaller denominator, not more strength: the `Insufficient` need moved from the body into
+the spec, and mutants are body-only.
 
 The failing steps are the point of the tour: `kern check` exits 1 on v1 and v6.

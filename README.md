@@ -1,168 +1,186 @@
-# Kern — prototype
+# Kern
 
-New here? Read [docs/REFERENCE.md](docs/REFERENCE.md) (the language) and
-[docs/GUIDE.md](docs/GUIDE.md) (tools, files, API). Agents: [AGENTS.md](AGENTS.md).
+**A research prototype of a programming language where AI agents write the code and humans review
+proofs, not diffs.**
 
-A small language for agent-written code. The agent reads only what it needs, and
-humans get a proof page generated from verifier results. The toolchain is one Rust binary,
-`kern` (about 12,500 lines), with Z3 as the prover. A Rust runtime (about 800 lines) runs compiled
-programs. Until 2026-11-05 the toolchain was Python; the Rust port was checked against it module by
-module before it was deleted ([docs/research/RUST_PORT_PLAN.md](docs/research/RUST_PORT_PLAN.md)).
+Agents can now write code faster than anyone can review it. Reading diffs line by line doesn't
+scale, and agents have the same problem: to call a function safely, an agent reads its body, then
+its callees' bodies, and its context fills with code it only needed a summary of. Kern is built
+around one idea: **if every interface is machine-checked, nobody has to read the bodies.** The
+agent reads a short, proven spec instead. The human reads a proof page generated from the
+verifier's results.
 
+## What it looks like
+
+A definition states what it needs, what it keeps and what it ensures. The body comes after.
+Here is a money transfer with a bug in it, and a `payout` that calls it:
+
+```text
+transfer from:Account to:Account amount:Int
+  need amount > 0 else BadAmount
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+body
+  ledger.debit from amount
+  ledger.credit to amount
+
+payout from:Account to:Account house:Account amount:Int fee:Int
+  need fee >= 0 else BadAmount
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+body
+  transfer from to amount
+  transfer from house fee
 ```
-brew install z3                  # Z3 5.3.3 (or: cargo install --path kern --features static-z3)
-cargo install --path kern        # puts `kern` in ~/.cargo/bin; or use Docker (docs/GUIDE.md)
-kern check  examples/ledger-tour/ledger_v3.k --why examples/ledger-tour/ledger.why --html build/proof.html
-kern view   examples/ledger-tour/ledger_v3.k payout --as editor --why examples/ledger-tour/ledger.why
-kern why    examples/ledger-tour/ledger_v3.k transfer --why examples/ledger-tour/ledger.why
-kern run    examples/ledger-tour/ledger_v3.k "transfer A B 100" --world "A:500@u1 B:0@u1"
-kern baseline examples/ledger-tour/ledger_v4.k     # record guarantee strength; check then flags drops
-kern check  examples/shop --quick      # a package: every file, grouped by module
-kern host repl examples/escrow/escrow_s2.k --world "A:1000@u1 E:0@u0 B:0@u2 H:0@u9"   # run it for real (docs/HOST.md)
-kern host manifest examples/limits/limits.k   # effects and network endpoints the module can reach
-kern build examples/shop             # compile to a native binary in build/ (needs cargo)
-kern mcp                             # the MCP server on stdio (docs/GUIDE.md)
+
+`kern check` proves each claim with Z3, for every possible input, or refutes it with a concrete
+counterexample that it has replayed in the interpreter:
+
+```text
+transfer [e7198d8d]  Broken guarantees
+  ✔ keep ledger.total
+  ✗ ensure ledger.balance' from = ledger.balance from - amount
+      counterexample: eg A:0@u1 | transfer A A 1 -> ok | A:0
+  ✗ ensure ledger.balance' to = ledger.balance to + amount
+      counterexample: eg A:0@u1 | transfer A A 1 -> ok | A:0
+
+payout [d8d99a9c]  Broken guarantees
+  ! keep ledger.total   (relies on transfer, which is not proven)
+  ! ensure ledger.balance' from = ledger.balance from - amount - fee   (relies on transfer, which is not proven)
 ```
 
-Tests: `cargo test --workspace --release` from the repository root runs the whole suite.
-`kern/tests/fundamentals_*.rs` are the audit against [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md).
-Known gaps are `#[should_panic]` tests marked `// gap` (see [docs/research/AUDIT.md](docs/research/AUDIT.md);
-fixes and their before/after evidence are in [docs/research/FIXES.md](docs/research/FIXES.md)).
-`kern/tests/golden/` records every example's `check` output, views and some proof pages.
+A transfer to yourself leaves the balance unchanged. `payout`, which calls `transfer`, is marked
+`!`: its proof is only as good as `transfer`'s spec. Add one line,
+`need from != to else SameAccount`, and both are proven. `payout` now lists `SameAccount` among
+the ways it can fail, without being edited, because failures are inferred, not declared.
+
+An agent that calls `payout` reads its spec view (65 tokens), never the bodies:
+
+```text
+payout from:Account to:Account house:Account amount:Int fee:Int
+  uses ledger.write
+  writes from to house
+  fails BadAmount SameAccount
+  need fee >= 0 else BadAmount
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount - fee
+  proof ok
+```
+
+The same bug in a fuller module is step 1 of [examples/ledger-tour](examples/ledger-tour/), seven
+versions of one ledger, each fixing what the previous proof page showed.
+
+## Why this design
+
+- **Verification is what licenses not reading.** Skipping a callee's body is safe only if its
+  interface is proven. The prover follows the same rule: a call is verified from the callee's
+  spec, never its body. So what the agent reads and what the proof relies on are the same thing.
+- **The proof page is never model-written.** It is rendered from verifier results by fixed
+  templates. A model narrating code would describe its bugs fluently. A template can't claim more
+  than the checks established.
+- **Every claim carries its strength.** ✔ proven for all inputs, ✗ refuted with a replayed
+  counterexample, `!` relies on something unproven, `?` no answer. Weakness propagates to every
+  caller. The spec's strength is measured too: how many deliberate bugs in the body
+  (mutants) the guarantees catch.
+- **Nothing that must be obeyed lives in a comment.** A rule goes in the spec, where it is
+  checked. Rationale (`why`) lives in a separate file, anchored to the code's hash, and is flagged
+  stale when the code or its inferred interface changes. Prose that reads like a rule ("must …")
+  is flagged too.
+- **Derive, don't declare.** Effects, failures and the set of written state are inferred through
+  every callee. Anything a compiler can work out is not written, so it can't be wrong.
+- **Failure is atomic and effects are closed.** A refusal rolls back the whole call, and every
+  effect goes through a handler. That makes effect inference exact and every run replayable.
+
+The reasoning behind each of these, and the tests that hold the code to them:
+[docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md).
+
+## What has been measured
+
+The challenges (C1, C2, C6) were pre-registered: their pass thresholds were frozen before each run,
+and a failure is reported as a failure. The language comparison is a measurement on one program.
+
+| Question | Result | Source |
+|---|---|---|
+| Does a proven spec catch real bugs? | 24 seeded bugs (those expressible in Kern) in a 10-definition escrow app: Kern caught 23, TypeScript's and Go's test suites caught 13 each | [C1](docs/research/CHALLENGE.md) |
+| Is it cheaper to write? | the same behaviour in 43% fewer tokens than TypeScript and 51% fewer than Go, while also carrying 710 tokens of proven spec | [COMPARE](docs/research/COMPARE.md) |
+| Is it cheaper to read? | to use a function, an agent reads its spec view: median 130 tokens, against 574 (TS) and 666 (Go) for the function and its callees | [COMPARE](docs/research/COMPARE.md) |
+| Can an agent write it with no training data? | three change tasks on the escrow app, given only the language reference (about 2,100 tokens): 18 of 18 Kern runs passed all 600 hidden acceptance cases with no guarantee broken, as did 9 of 9 TypeScript runs. 17 of the 18 passed `check` on the first try. Three runs per cell, so the arms can't be told apart on success | [C2](docs/research/CHALLENGE.md) |
+| Does the proof page tell the truth? | a soundness fuzzer ran 677 random programs 228,300 times in the interpreter: 0 claims on a proof page contradicted. Three planted prover bugs were each found | [validation](validation/README.md) |
+
+Token counts use the Claude tokenizer bundled in `anthropic==0.34.2`, an older one, so they are
+approximate.
+
+### Where it falls short
+
+- **The C2 token threshold failed.** Working through views cost 1.03–1.33× the tokens of
+  TypeScript (0.97–1.06× counting cache reads), against a frozen target of 0.7×, because the language reference and tool schemas cost more than the views save on a
+  10-definition module. The saving should grow with the program; that is not yet shown.
+- **The prover is too slow for deep call trees.** C6 failed both speed thresholds: 16 s per
+  definition at depth 6 with 4 `if`s, because each `if` doubles the paths. A result cache makes
+  an unchanged re-check almost free; a cold check is still slow.
+- **At a leaf, Kern doesn't win.** The savings come from callees read as specs, not from the
+  syntax.
+- **One author, one model family.** The same agent wrote the Kern, TypeScript and Go versions, in
+  a ledger domain that suits Kern. C2's "cold" authors were the same model family that designed
+  Kern.
+- **A small language.** `Int` and `Account` are the only parameter types, so far. There are no
+  records and no text. Loops are bounded and can't be nested. The ledger, clock and audit
+  handlers are built in. The full list is in [CLAUDE.md](CLAUDE.md), "Known limitations".
+
+## What exists
+
+Kern is one Rust binary, `kern` (about 12,500 lines), with Z3 as the prover. It contains:
+
+- `check`, which proves, runs the examples, runs random tests and measures spec strength;
+- the proof page (HTML);
+- the agent views;
+- an MCP server, so an agent works through views and structural edits instead of files;
+- packages of several files;
+- a compiler to native code through Rust, with a small runtime crate;
+- `kern host`, which runs a module for real, with SQLite state, HTTP, an outbox, network calls
+  and deterministic replay.
+
+[examples/](examples/) has ten standalone projects, from the ledger tour to a small web app.
+`cargo test --workspace --release` runs 254 tests: an adversarial test suite per design
+fundamental, golden outputs and the toolchain's own checks.
+
+What's next: records, `match`, and the central experiment: the same tasks done in editor view
+versus full source, measuring tokens, task success and how often the agent breaks a guarantee it
+never read.
+
+## Try it
+
+```text
+brew install z3                    # Z3 5.3.3 (or build it in: --features static-z3)
+cargo install --path kern
+kern check examples/ledger-tour/ledger_v1.k --why examples/ledger-tour/ledger.why --html build/proof.html
+                                   # step 1 of the tour: refuted on purpose, so it exits 1
+```
+
+Or, with nothing but Docker: `docker build -t kern .`, then
+`docker run --rm -v "$PWD:/work" kern check examples/shop --quick`.
+
+## Documentation
+
+| Read | For |
+|---|---|
+| [docs/REFERENCE.md](docs/REFERENCE.md) | the language, on one page |
+| [docs/GUIDE.md](docs/GUIDE.md) | how to work with it: install, the edit-check loop, every command, file formats, the Rust API |
+| [docs/HOST.md](docs/HOST.md) | how Kern programs reach the outside world |
+| [docs/FUNDAMENTALS.md](docs/FUNDAMENTALS.md) | the design principles and the three bets |
+| [docs/research/](docs/research/README.md) | plans, pre-registered scorecards and results |
+| [AGENTS.md](AGENTS.md) | working rules for agents contributing to Kern |
 
 ## Repository layout
 
 | Path | What it is | Ships? |
 |---|---|---|
-| `kern/` | the toolchain (crate and binary `kern`): parser, checker, prover, views, proof page, host, MCP server, Rust emitter | yes (`kern/Cargo.toml`; `Dockerfile`) |
-| `runtime/` | `kern-rt`, the Rust crate every compiled program links with | yes (`runtime/Cargo.toml`) |
-| `docs/` | the language reference, the guide, the host design, the fundamentals | docs |
-| `examples/` | example programs and generated proof pages ([examples/README.md](examples/README.md)) | no |
-| `tests/probes/` | small modules the tests and validation tools use (the tests are in `kern/tests/` and `validation/tests/`) | no |
-| `validation/` | tools that check the toolchain itself (crate `kern-validation`): fuzzer, digests, compiled-vs-interpreter tests ([validation/README.md](validation/README.md)) | no |
-| `experiments/` | measurements behind the design claims: challenges, language comparison, benchmarks ([experiments/README.md](experiments/README.md)) | no |
-| `docs/research/` | plans, pre-registered scorecards and results ([docs/research/README.md](docs/research/README.md)) | no |
-| `build/` | generated: Rust crates, cargo output, ad hoc proof pages (ignored by git) | no |
-
-## What a definition is
-
-```
-transfer from:Account to:Account amount:Int        header
-  need amount > 0 else BadAmount                    refuses with BadAmount
-  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
-  keep ledger.total                                  same value before and after
-  ensure ledger.balance' to = ledger.balance to + amount   ' = after the call
-  emit TransferDone from to amount clock.now         exactly these audit events (_ = any value)
-  ok otherwise                                       optional: succeeds whenever the needs hold
-  ensure ledger.balance' to = ledger.balance to when amount = 0   a clause can hold only `when` C
-  eg A:500@u1 B:0@u1 | transfer A B 100 -> ok | A:400 B:100   executed example
-body
-  ledger.debit from amount                          a body may have `need`s too; under
-                                                    `ok otherwise` they must never fire
-```
-
-- `uses` (effects) and `fails` (failure set) are **inferred**. The agent never writes them.
-- `emit` clauses list the exact sequence of events the call appends to the audit log.
-  With no `emit` clause the log is unconstrained. It is not inferred from the body: a
-  spec projected from the body changes when the body changes, so it could never catch
-  a bug.
-- A refusal undoes the whole call, so guarantees only have to hold on success.
-- `why` entries live in a separate file, anchored to the definition's hash *and* its
-  inferred interface. They go stale when the code changes, or when a callee change
-  alters what this definition can do or refuse. Entries that read like obligations
-  ("must …") are flagged, and orphaned entries are reported.
-- Nothing correctness-critical may live in `why`. If it must be obeyed, it is a
-  `need`, `keep` or `ensure`.
-
-## What `check` does
-
-| Step | Method |
-|---|---|
-| Well-formedness, types | names, arity, no shadowing, pure specs, no recursion; Int / Account / Owner / Bool / Event / Unit. Nothing ill-formed is proven or run |
-| Effects, failures | inferred from the body, transitively through callees |
-| Writes, refusal conditions | inferred: which balances can change (the frame modular proofs use), and the body-level conditions under which a call refuses |
-| Examples | run in the interpreter |
-| Random tests | 500 random worlds and inputs; every guarantee is checked on each success |
-| Proofs | symbolic execution to Z3. Calls are verified *modularly*, from the callee's spec and inferred interface, never its body |
-| Refusals | with `ok otherwise`, proven to refuse only where a spec `need` fails |
-| Tiers | ✔ proven, ✗ refuted (replayed), ? unconfirmed or no answer, ! relies on a broken callee, ◐ tested only, ∅ never succeeds |
-| Trust | a modular proof is downgraded if a callee's guarantees are broken |
-| Counterexamples | rendered as `eg` lines and replayed in the interpreter; only a replayed one counts as ✗ |
-| Spec strength | mutation testing of the body. The headline is what the *guarantees* catch; examples are reported separately |
-| Ratchet | `kern baseline FILE.k` records strength and guarantees; `check` flags "Weaker than baseline" |
-| Proof page | fixed templates over the results. No model-written text |
-
-## Agent views
-
-| View | Contents | `payout`, measured |
-|---|---|---|
-| `iface` | header, uses, writes, fails, why stub | 45 tokens |
-| `spec` | + need, keep, ensure, emit, own `body need` lines, proof status | 77 tokens |
-| `editor` | own full definition + `spec` of each callee (never callee bodies) | 251 tokens |
-
-(`payout` in `ledger_v3.k`. These were 40/72/222 before `writes` and `body need`
-lines were added; see docs/research/FIXES.md.)
-
-## The demo loop
-
-1. `ledger_v1.k`: Z3 refutes `transfer`'s `ensure` clauses with
-   `eg A:101@u1 | transfer A A 101 -> ok | A:101` (a self-transfer leaves the
-   balance unchanged). `payout` shows as proven only *conditionally*, because it
-   relies on `transfer`.
-2. `ledger_v2.k`: one line added, `need from != to else SameAccount`. Everything is
-   proven. `payout` picks up `SameAccount` in its inferred failures without being
-   edited. Its `why` is anchored to its interface, so the v1 page flags payout's why
-   as stale even though payout's text is identical. Transfer's guarantees catch 6/13
-   mutants (examples 9/13). The rest are about *when* it refuses, its payload, and
-   the audit event.
-3. `ledger_v3.k`: adds an exact-balance example. Example coverage rises to 10/13;
-   guarantee strength stays at 6/13, because an example is not a guarantee. The
-   survivors that nothing catches are all about the audit log.
-4. `ledger_v4.k`: adds `emit TransferDone from to amount _` to `transfer`, raising
-   guarantee strength to 9/13 (everything together: 13/13). The prover refutes all three audit mutants itself, with
-   counterexamples confirmed in the interpreter. `payout` adds two `emit` lines and
-   proves them from `transfer`'s spec alone. If `transfer` had no `emit` clause,
-   `payout`'s would show as unprovable rather than pass. The `.why` entries are
-   re-anchored in `ledger_v4.why`. A timestamp mutant (`clock.now` → `0`) still
-   survives, because `_` accepts any time.
-5. `ledger_v5.k`: the emit clauses say `clock.now` instead of `_`. Time is one value
-   per top-level call (`clock.now` reads the same everywhere inside it and advances
-   between calls, refused calls included), so the spec can state the timestamp.
-   Guarantees catch 10/14 (v4: 9/14); the timestamp mutant is caught. Payout's two
-   events share a timestamp; their order is fixed by position in the log.
-6. `ledger_v6.k`: transfer moves `need ledger.balance from >= amount else Insufficient …`
-   into its spec and adds `ok otherwise`, a proven claim that it refuses for no other
-   reason. Payout opts in too and restates all its refusals, but keeps `need fee >= 0`.
-   Payout's claim is refuted with `eg … | payout A B B 1 0 -> BadAmount` (transfer
-   refuses a zero fee), replayed in the interpreter. In v5 the same bug shows a clean page.
-7. `ledger_v7.k`: payout says `fee > 0`, and everything is proven. Its `Insufficient`
-   condition is proven only through transfer's `ensure`. The cost is tokens: payout's
-   spec view goes from 97 to 163, because a caller that opts in restates its callees'
-   refusals. Transfer's 10/10 strength is not an improvement: the mutated `need` left the
-   body (see docs/research/FIXES.md).
-
-## Built-in versus missing
-
-The prototype has one hard-coded domain: handlers for `ledger`, `clock` and `audit`
-built into the interpreter (`kern/src/run.rs`). It has only `Int` and `Account` types and only straight-line
-bodies with guards and `if`/`else` blocks (docs/research/SCALE.md, size 1). A small type checker covers the six built-in types. There are no
-written frame conditions: the frame is *inferred* (`writes`), and the page says which
-written balances no guarantee describes. A spec can say *when* a call succeeds
-only by opting in with `ok otherwise`, and a caller must then restate its callees'
-refusals (none are inherited). Within one call there is a single time; a call that needs distinct instants
-would need a separate advancing operation (not built).
-
-## Roadmap
-
-1. **Language:** records, `match` and branches, loops with
-   invariants, and handlers declared in Kern with *assumed* specs (marked "assumed"
-   on the proof page). Specs reaching the audit log is done (`emit`, v4).
-2. **Store:** definitions content-addressed by hash (the hash already exists) and
-   names mapped to hashes. Expose `view`, `why`, `check` and structural edits as an
-   MCP server, so an agent works through the views instead of files.
-3. **Experiment:** the same tasks under `editor` view versus full source. Measure
-   tokens, task success, and how often the agent breaks a guarantee it never read.
-   This tests the central claim.
-4. **Runtime:** effect handlers with record and replay, compilation to Wasm, and
-   proven checks removed at compile time.
-5. **Training:** generate tasks as specs and use `check` as the reward signal.
+| `kern/` | the toolchain (crate and binary `kern`) | yes |
+| `runtime/` | `kern-rt`, the crate every compiled program links with | yes |
+| `docs/` | reference, guide, host design, fundamentals | docs |
+| `examples/` | standalone example projects with their proof pages | no |
+| `tests/probes/` | small modules the tests and validation tools use | no |
+| `validation/` | tools that check the toolchain itself: fuzzer, digests, compiled-vs-interpreter | no |
+| `experiments/` | the measurements behind the claims above | no |
+| `build/` | generated output (ignored by git) | no |
