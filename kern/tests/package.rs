@@ -169,12 +169,11 @@ fn mcp_replace_writes_the_defining_file_and_rechecks_callers_in_other_files() {
     let out = tool("kern_replace", json!({"file": ledger_path.to_string_lossy(), "name": "transfer", "source": weak})).unwrap();
     assert!(!std::fs::read_to_string(&ledger_path).unwrap().contains("need from != to")); // written where it lives
     assert_eq!(std::fs::read_to_string(root.join("orders.k")).unwrap(), before_orders); // the other file untouched
-    // Since b71848b the ledger is its own package (examples/money) and shop uses it: an edit made in money re-checks
-    // money only, so shop's buy/refund are not in `affected` (gap sent to lang, #6MMJO52XVD). Re-checking from the
-    // user's side does see them:
-    assert!(out["affected"].as_object().is_some());
-    let shop = tool("kern_check", json!({"file": root.join("orders.k").to_string_lossy()})).unwrap();
-    assert!(shop["status"].get("buy").is_some() && shop["status"].get("refund").is_some(), "{shop}");
+    // Since b71848b the ledger is its own package (examples/money) that shop uses; since f8b8211 an edit in money
+    // re-checks the packages that use it, listed under `users` (callers in orders.k re-checked, as before the move)
+    let users = out["users"].as_object().unwrap_or_else(|| panic!("no users: {out}"));
+    let (user, st) = users.iter().find(|(u, _)| u.ends_with("/shop")).unwrap_or_else(|| panic!("shop not re-checked: {out}"));
+    assert!(st.get("buy").is_some() && st.get("refund").is_some(), "{user}: {st}");
 }
 
 #[test]
