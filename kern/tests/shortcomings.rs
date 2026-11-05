@@ -202,6 +202,19 @@ fn s5_a_record_is_read_by_field_or_passed_whole() {
 }
 
 #[test]
+fn s5_a_failing_eg_says_why() {
+    // review of AGIZXR4NG6: a record's fields are positional in `eg`, so a grouped or short argument list failed
+    // with no reason; `check` now prints what each failing example got
+    let src = "state hold Int\n\nrecord Point x:Int y:Int\n\nput p:Point\n  ok otherwise\n  ensure hold.get' p.x = p.y\n  eg | put 1 -> ok | hold.1:0\n  eg | put 1 2 -> ok | hold.1:3\nbody\n  hold.set p.x p.y\n";
+    let defs = parse(src);
+    let reps = reports(&defs);
+    let whys: IndexMap<String, why::Status> = defs.defs.keys().map(|k| (k.clone(), why::Status::default())).collect();
+    let out = kern::render::terminal(&reps, &defs, &whys, &IndexMap::new());
+    assert!(out.contains("failing: eg | put 1 -> ok | hold.1:0   (got error: bad call: put takes 2 argument(s), got 1)"), "{out}");
+    assert!(out.contains("failing: eg | put 1 2 -> ok | hold.1:3   (got ok | hold.1:2)"), "{out}");
+}
+
+#[test]
 fn s5_a_record_from_another_module_needs_an_import() {
     let root = tmp("s5-record-import");
     let shapes = ("shapes.k", "record Point x:Int y:Int\n\nstate px Int\n");

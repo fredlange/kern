@@ -78,7 +78,7 @@ body
 | Well-formedness, types | names, arity, no shadowing, pure specs, no recursion; Int / Account / Owner / Bool / Event / Unit. Nothing ill-formed is proven or run |
 | Effects, failures | inferred from the body, transitively through callees |
 | Writes, refusal conditions | inferred: which balances and state can change (the frame modular proofs use), and the body-level conditions under which a call refuses |
-| Examples | run in the interpreter |
+| Examples | run in the interpreter; each failing one gets a `failing: eg …   (got …)` line: the outcome, or the error (wrong argument count, unknown account), or, when only the after-state differs, the listed items' actual values |
 | Random tests | 500 random worlds and inputs; every guarantee is checked on each success |
 | Proofs | symbolic execution to Z3. Calls are verified *modularly*, from the callee's spec and inferred interface, never its body |
 | Refusals | with `ok otherwise`, proven to refuse only where a spec `need` fails |

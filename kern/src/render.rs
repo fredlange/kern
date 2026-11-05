@@ -782,6 +782,9 @@ pub fn terminal(reports: &IndexMap<String, Report>, defs: &Module, whys: &IndexM
             r.props.runs,
             r.props.violations.len()
         ));
+        for e in ex.iter().filter(|e| !e.pass) {
+            out.push(format!("      failing: eg {}   (got {})", e.src, e.got));
+        }
         if let Some(note) = &r.mutation_note {
             out.push(format!("  spec strength: {}", note));
         }

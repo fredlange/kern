@@ -95,7 +95,19 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
         }
         ok = ok
             && ex.after_maps.iter().all(|(x, kv)| kv.iter().all(|(k, v)| w.maps.get(x).and_then(|m| m.get(k)).copied().unwrap_or(0) == *v));
-        out.push(ExampleResult { src: ex.src.clone(), pass: ok, got: outcome.text() });
+        let mut got = outcome.text();
+        if same && !ok {
+            // the outcome matched and the after-state didn't: say what the listed items were
+            let mut items: Vec<String> =
+                ex.after.keys().map(|a| format!("{}:{}", a, w.bal.get(a.as_str()).copied().unwrap_or(0))).collect();
+            for (x, kv) in &ex.after_maps {
+                for k in kv.keys() {
+                    items.push(format!("{}.{}:{}", x, key_text(k), w.maps.get(x).and_then(|m| m.get(k)).copied().unwrap_or(0)));
+                }
+            }
+            got = format!("{} | {}", got, items.join(" "));
+        }
+        out.push(ExampleResult { src: ex.src.clone(), pass: ok, got });
     }
     Ok(out)
 }
