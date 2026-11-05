@@ -353,8 +353,8 @@ body
 #[test]
 fn s2_invariant_with_a_computed_key_is_unknown_not_proven() {
     let (_, reps) = analysed("state hold Int\ninvariant o:Int hold.get o >= 0\n\nf id:Int\nbody\n  hold.set (id + 1) 5\n", false);
-    let g = g_kind(&reps["f"], "invariant", 0); // never ✔; ◐ is honest (random tests do check invariants)
-    assert!(matches!(g.status, Status::Unknown | Status::Tested));
+    let g = g_kind(&reps["f"], "invariant", 0); // never ✔; since S11 (f160617) ○, checked at run time by the host
+    assert_eq!(g.status, Status::Runtime);
     assert!(g.reason.as_deref().unwrap_or("").contains("computed key"));
 }
 

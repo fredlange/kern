@@ -5,6 +5,8 @@
 //!   loops: e7234c3d8ea6a48e, recorded from Rust on 2026-11-05 (fresh contexts). Python's last value was
 //!       c0e94aa224aef288; the one difference is fz2.k's f goal 2, Z3's step-limit borderline (Python: unknown;
 //!       Rust: a counterexample that doesn't replay, so conditional).
+//!       2026-11-05, S11 (f160617): 776c5ca29063f921. A dump diff against 43362dd shows exactly two goals moved,
+//!       fz2.k f and p2.k shifted, both computed-key module invariants: unknown -> runtime (tier ○).
 use std::path::Path;
 
 use kern_validation::digest::{digest, digest_loops};
@@ -20,5 +22,5 @@ fn the_s2_digest_is_unchanged() {
 
 #[test]
 fn the_loop_digest_is_unchanged() {
-    assert_eq!(digest_loops(&root()).0, "e7234c3d8ea6a48e");
+    assert_eq!(digest_loops(&root()).0, "776c5ca29063f921");
 }

@@ -612,7 +612,7 @@ fn f5_tested_only_tier_exists() {
     assert_eq!(render::icon(Status::Tested), "◐");
 }
 
-const ALL_STATUSES: [Status; 8] = [
+const ALL_STATUSES: [Status; 9] = [
     Status::Proven,
     Status::Assumed,
     Status::Conditional,
@@ -621,13 +621,17 @@ const ALL_STATUSES: [Status; 8] = [
     Status::Vacuous,
     Status::Unknown,
     Status::Tested,
+    Status::Runtime,
 ];
 
 #[test]
-#[should_panic]
 fn f5_runtime_only_tier_exists() {
-    // gap (strict xfail in Python): tier ○ runtime-checked-only is not implemented (needs runtime checks, roadmap 4)
+    // closed by S11 (f160617): tier ○, a module invariant the host (and a kern build program) checks at run time
     assert!(ALL_STATUSES.iter().any(|s| render::icon(*s) == "○"));
+    let (_, reps) = analysed("state hold Int\ninvariant o:Int hold.get o >= 0\n\nf id:Int\nbody\n  hold.set (id + 1) 5\n", false);
+    let g = reps["f"].guarantees.iter().find(|g| g.kind == "invariant").unwrap();
+    assert_eq!(render::icon(g.status), "○");
+    assert!(!reps["f"].clean, "○ is not proven, so not clean");
 }
 
 #[test]
