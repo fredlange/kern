@@ -26,6 +26,7 @@ body
 | `need COND else Ctor ARGS` | refuse with `Ctor ARGS` unless COND holds |
 | `EXPR` | an effect: `ledger.debit a n`, `callee a b n`, `audit.emit (Ev a n)` |
 | `if COND`, then an indented block, optionally `else` and a block | branches |
+| `match E`, then arms `PAT -> STMT` (or `PAT ->` and a block) | the `if E = PAT … else …` chain; PAT is an integer, a constant, a Text or a last `_`. n arms are n paths |
 | `for k from LO to HI`, then an indented block | a loop: k = LO … HI−1 (bounds evaluated once). It starts with `invariant CLAUSE` lines; loops nest |
 | `result = EXPR` | a function's result (once per path) |
 

@@ -245,9 +245,9 @@ body
 }
 
 #[test]
-#[should_panic(expected = "gap S5 match:")]
 fn s5_match_checks() {
-    // gap (S5): no `match`; branches are nested `if`/`else`. placeholder: `match E` with `V -> stmt` arms
+    // closed (S5): `match E` with `PAT -> STMT` arms, desugared to the `if` chain (DECISIONS.md, 2026-11-05, match);
+    // the placeholder was the chosen syntax
     must_check(
         "gap S5 match",
         "state mode Int
@@ -264,6 +264,52 @@ body
     _ -> mode.set src 0
 ",
     );
+}
+
+#[test]
+fn s5_match_is_its_if_chain_with_blocks_constants_and_text() {
+    let src = "const vip 7
+state mode Int
+state label Int -> Text
+
+pick src:Int t:Text
+  ok otherwise
+  ensure mode.get' src = 10 when src = 1
+  ensure mode.get' src = 70 when src = vip
+  ensure label.get' src = \"none\" when t = \"\"
+  eg | pick 7 \"x\" -> ok | mode.7:70 label.7:\"x\"
+  eg | pick -1 \"\" -> ok | mode.-1:3 label.-1:\"none\"
+body
+  match src
+    1 -> mode.set src 10
+    vip ->
+      mode.set src 70
+    -1 -> mode.set src 3
+  match t
+    \"\" -> label.set src \"none\"
+    _ -> label.set src t
+";
+    must_check("match", src);
+    let defs = parse(src);
+    // the same tree (and so the same hash, proofs and paths) as the if chain written out
+    let chain = src.replace("  match src\n    1 -> mode.set src 10\n    vip ->\n      mode.set src 70\n    -1 -> mode.set src 3\n",
+        "  if src = 1\n    mode.set src 10\n  else\n    if src = vip\n      mode.set src 70\n    else\n      if src = 0 - 1\n        mode.set src 3\n")
+        .replace("  match t\n    \"\" -> label.set src \"none\"\n    _ -> label.set src t\n",
+        "  if t = \"\"\n    label.set src \"none\"\n  else\n    label.set src t\n");
+    let by_hand = parse(&chain);
+    assert_eq!(kern::syntax::flat(&defs.defs["pick"].body).len(), kern::syntax::flat(&by_hand.defs["pick"].body).len());
+    // views keep the source
+    assert!(views::editor(&reports(&defs), "pick", &defs.defs.keys().map(|k| (k.clone(), why::Status::default())).collect()).contains("  match src\n    1 -> mode.set src 10"));
+    for (body, want) in [
+        ("  match k\n    1 -> x = 1\n    1 -> x = 2\n", "appears twice"),
+        ("  match k\n    _ -> x = 1\n    1 -> x = 2\n", "must be the last arm"),
+        ("  match k\n    k + 1 -> x = 1\n", "names one value"),
+        ("  match k\n", "needs indented arms"),
+        ("  match k\n    _ -> x = 1\n", "only `_`"),
+    ] {
+        let e = parse_module(&format!("f k:Int\n  ensure 1 = 1\nbody\n{body}"), true).unwrap_err();
+        assert!(e.0.contains(want), "{body}: {}", e.0);
+    }
 }
 
 #[test]

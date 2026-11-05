@@ -200,7 +200,7 @@ Kern is one Rust binary, `kern` (about 12,500 lines), with Z3 as the prover. It 
 `cargo test --workspace --release` runs 285 tests: an adversarial test suite per design
 fundamental, golden outputs, the toolchain's own checks, and a gap test for each known shortcoming.
 
-What's next: `match`, recursion, and the central experiment: the same tasks done in editor view
+What's next: recursion, imports across packages, and the central experiment: the same tasks done in editor view
 versus full source, measuring tokens, task success and how often the agent breaks a guarantee it
 never read.
 

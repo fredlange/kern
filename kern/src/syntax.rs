@@ -1862,6 +1862,12 @@ fn block(raw: &[(usize, String, usize)], mut i: usize, indent: usize) -> PResult
             i += 1;
             continue;
         }
+        if word == "match" {
+            let (stmt, j) = match_block(raw, i, indent, rest, no)?;
+            out.push(stmt);
+            i = j;
+            continue;
+        }
         if word == "if" {
             let cond = parse_expr(rest, no)?;
             let (then, j) = sub(raw, i + 1, indent, no)?;
@@ -1889,6 +1895,67 @@ fn block(raw: &[(usize, String, usize)], mut i: usize, indent: usize) -> PResult
         return Err(ParseError::at("unexpected indentation", Some(raw[i].2)));
     }
     Ok((out, i))
+}
+
+/// `match E` at raw[i], then its arms (`PAT -> STMT`, or `PAT ->` and a deeper block), as the `if` chain it stands for
+/// (DECISIONS.md, match): `if E = P1 … else if E = P2 … else DEFAULT`. Returns the statement and the next index.
+fn match_block(raw: &[(usize, String, usize)], i: usize, indent: usize, subject: &str, no: Option<usize>)
+    -> PResult<(Stmt, usize)> {
+    let subject = parse_expr(subject, no)?;
+    let mut i = i + 1;
+    if i >= raw.len() || raw[i].0 <= indent {
+        return Err(ParseError::at("`match E` needs indented arms: `PAT -> STMT`", no));
+    }
+    let arm_indent = raw[i].0;
+    let (mut arms, mut default): (Vec<(Expr, Vec<Stmt>)>, Option<Vec<Stmt>>) = (vec![], None);
+    while i < raw.len() && raw[i].0 == arm_indent {
+        let (_, line, ano) = &raw[i];
+        let ano = Some(*ano);
+        let Some((pat, rest)) = line.split_once("->") else {
+            return Err(ParseError::at("a `match` arm is `PAT -> STMT` (or `PAT ->` and an indented block)", ano));
+        };
+        let (pat, rest) = (pat.trim(), rest.trim());
+        let (body, next) = if rest.is_empty() {
+            sub(raw, i + 1, arm_indent, ano)?
+        } else {
+            let (b, _) = block(&[(0, rest.to_string(), ano.unwrap_or(0))], 0, 0)?;
+            (b, i + 1)
+        };
+        i = next;
+        if default.is_some() {
+            return Err(ParseError::at("`_` must be the last arm of a `match`", ano));
+        }
+        if pat == "_" {
+            default = Some(body);
+            continue;
+        }
+        let value = match pat.strip_prefix('-') {
+            Some(d) if !d.is_empty() && d.chars().all(|c| c.is_ascii_digit()) => Expr::Int(-int(d, ano)?),
+            _ => parse_expr(pat, ano)?,
+        };
+        if !matches!(value, Expr::Int(_) | Expr::Text(_) | Expr::Name(_, false)) {
+            return Err(ParseError::at(
+                format!("a `match` arm names one value (an integer, a constant, a Text or `_`), not {}", repr_str(&restore(pat))),
+                ano,
+            ));
+        }
+        if arms.iter().any(|(v, _)| *v == value) {
+            return Err(ParseError::at(format!("`match` arm {} appears twice", restore(pat)), ano));
+        }
+        arms.push((value, body));
+    }
+    if i < raw.len() && raw[i].0 > indent && raw[i].0 != arm_indent {
+        return Err(ParseError::at("unexpected indentation", Some(raw[i].2)));
+    }
+    if arms.is_empty() {
+        return Err(ParseError::at("a `match` with only `_` is just its block: write it without `match`", no));
+    }
+    let mut chain = default.unwrap_or_default();
+    for (value, body) in arms.into_iter().rev() {
+        let cond = Expr::Bin("=", Box::new(subject.clone()), Box::new(value));
+        chain = vec![Stmt::If(cond, body, chain)];
+    }
+    Ok((chain.pop().expect("one if"), i))
 }
 
 fn sub(raw: &[(usize, String, usize)], i: usize, indent: usize, no: Option<usize>) -> PResult<(Vec<Stmt>, usize)> {
