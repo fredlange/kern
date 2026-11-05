@@ -130,7 +130,7 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   | ~~nested loops~~ closed `59c9e66` (Closed: "S5, nested loops and variable × variable") | `s5_nested_loops_check` |
   | ~~variable × variable~~ closed `59c9e66` (same entry) | `s5_variable_times_variable_checks` |
   | ~~named constants~~ closed `0acdb54` (Closed: "S5, named constants") | `s5_named_constants_check` |
-  | imports across packages (P: the `kern.pkg` dependency line) | `s5_import_across_packages_loads` |
+  | ~~imports across packages~~ closed `b71848b` (Closed: "S5, imports across packages") | `s5_import_across_packages_loads` |
   | effects that return values, Accounts as state values, iteration over accounts | not written yet |
 - **Next:** records, then `match`, then text (roadmap step 1), ranked by C5's gap list once it
   exists.
@@ -151,20 +151,6 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   rationale that uses them is flagged ([AUDIT.md](AUDIT.md), F6).
 - **Fixed when:** a better lint is measured on a labelled set of why entries, against the keyword
   lint's score.
-
-### S10. Audit events in examples, and time inside a call
-- **Kind:** code gap.
-- **Evidence:** CLAUDE.md, "Known limitations".
-- **Fixed when:**
-  - `eg` can assert events: `s10_eg_can_assert_events` (P);
-  - one call can see two instants (`clock.now` is one value per top-level call):
-    `s10_one_call_can_see_two_instants` (P).
-- **Not a gap:** "emits nothing" can be said today, as `emit Never when 1 = 0`. That is an exact empty
-  sequence, pinned by the ordinary test
-  `s10_emits_nothing_is_expressible_today_as_a_false_conditional_emit`. A readable form would be
-  ergonomics.
-- **Needs a decision first:** `emit` is exact-sequence only. There's no agreed alternative ("contains",
-  "at least"), so there's no test.
 
 ### S14. `ok otherwise` makes callers restate every refusal
 - **Kind:** trade-off.
@@ -246,6 +232,39 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S10. Audit events in examples, and time inside a call
+- **Kind:** code gap. **Closed** 2026-11-05 in `e1e1a68` (lang), under delegation (.party/DECISIONS.md, 2026-11-05,
+  lang, S10); compiled `e0f04bf` and host `ea7bf8b` (runtime).
+- **Was:** `eg` couldn't assert events, and `clock.now` was one value per top-level call, with no way to see two
+  instants in one call.
+- **Decided by** F8 (an `emit` an example pins is a mutant an example can catch): an optional fourth `|` section
+  on an `eg` line, the exact sequence appended to `audit` and to each channel named (6 tokens on a 24-token line);
+  an empty section means nothing appended. `clock.tick` moves time inside a call; a spec's `clock.now` stays the
+  call's start time, and time never goes back across calls (compiled and host).
+- **Evidence:** `s10_eg_can_assert_events` and `s10_one_call_can_see_two_instants` pass as ordinary tests. Tester:
+  an `emit` after a tick that claims the start time is ✗; exact tick counts ✔; after a ticking callee or loop a
+  true claim is `?` and false ones ✗ (honest, not ✔); a wrong event list fails with "appending …"; quoted
+  `"a, b"` and `"a | b"` survive; time is monotone across calls in compiled program and host, refused ticks
+  are undone; difftest 0 divergences; replay matches.
+- **What remains:** `emit` is still exact-sequence only (no "contains"/"at least"; a decision, no test). "Emits
+  nothing" in a spec is still `emit Never when 1 = 0`.
+
+### S5, imports across packages (one row of S5)
+- **Kind:** code gap. **Closed** 2026-11-05 in `b71848b`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
+  imports across packages); `package.rs` fix `dbd0033`.
+- **Was:** imports reached within one package only, so every example app copied its ledger.
+- **Decided by** F4/F7 (one checked module): `kern.pkg` holds `use ../money` lines (3 tokens each, 0 in Kern
+  source); a used package's modules are `money.<module>`; everything merges into one checked Module.
+- **Evidence:** `s5_import_across_packages_loads`, rewritten to the real syntax, passes as an ordinary test. shop,
+  library and lottery now `use ../money` instead of copying the ledger; their results and proof pages are
+  unchanged (goldens: one line each, the package list, plus examples/money recorded). Tester: missing, cyclic,
+  clashing, stray-line and transitive cases are all right.
+- **What remains:**
+  - An MCP edit in a used package doesn't re-check the packages that use it (F2: an agent's edit can leave a
+    caller's verdict stale). A lang task.
+  - Minor (tester): `use` twice is accepted silently though the decision says each name once; a non-sibling
+    path (`../../x`) loads in the CLI; an absolute path says "not a package" even with a kern.pkg.
 
 ### S5, match (one row of S5)
 - **Kind:** code gap. **Closed** 2026-11-05 in `a8cee99`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
