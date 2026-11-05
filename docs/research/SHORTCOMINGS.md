@@ -135,15 +135,6 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Next:** records, then `match`, then text (roadmap step 1), ranked by C5's gap list once it
   exists.
 
-### S6. Loops: the frame can't be stated, and there is no sum
-- **Kind:** code gap. **Weakens:** spec strength for loops.
-- **Evidence:** the loop frame is inferred and can't be stated. So in batch.k, a mutant that moves a
-  loop bound by one (`hi + 1`, `lo - 1`) survives the guarantees. Events inside a loop are flagged,
-  not specified ([ROADMAP_RUN.md, S4 results](ROADMAP_RUN.md#s4-results)).
-- **Fixed when:** `s6_a_guarantee_kills_the_sweep_one_too_many_mutant` (on `advance_subs`; closing it
-  means stating the frame in batch.k itself) and `s6_a_sum_invariant_proves` (~~sum~~ closed `72d2446`, Closed:
-  "S6, sum"). The stateable frame stays open.
-
 ### S9. The `why` obligation lint is a keyword heuristic
 - **Kind:** code gap (a measurement, not a test). **Weakens:** F6 (nothing that must be obeyed lives in
   prose).
@@ -413,7 +404,27 @@ to make decisions as long as they follow the fundamentals". Each one names the f
     fixed in `fb80e41`: a failing `eg` says why (wrong argument count, or the actual after-values;
     `s5_a_failing_eg_says_why`).
 
-### S6, sum (one half of S6; the entry stays open for the stateable frame)
+### S6, a stated loop frame (the other half of S6; S6 is closed)
+- **Kind:** code gap. **Closed** 2026-11-05 in `48dd716`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
+  a stated loop frame). Loop digest and frame generator `d3d1d80` (tester).
+- **Was:** the loop frame was inferred and couldn't be stated, so in batch.k a mutant moving a loop bound by one
+  (`hi + 1`, `lo - 1`) survived every guarantee.
+- **Decided by** F4 (`writes` stays inferred, never written) with F3/F8 (where the author wants the frame as a
+  guarantee, it is a claim the prover checks): `keep X` (X unchanged) and `keep X except A to B` (unchanged
+  outside [A, B), Int-keyed states). 9 tokens, against 27 for the unbounded ensure it stands for. Rejected:
+  counting a mutant that changes the inferred `writes` as caught (it checks nothing anyone wrote).
+- **Evidence:** `s6_a_guarantee_kills_the_sweep_one_too_many_mutant` passes as an ordinary test: batch.k's
+  `advance_subs` states `keep sub_due except lo to hi`, and its score goes 14/16 → 16/16.
+  `s6_a_stated_frame_is_checked_both_ways`: an overrun and a whole-map `keep` on a writer are ✗ with replaying
+  counterexamples; a Text map's frame proves. Tester: false frames ✗, true ones ✔ (nested loops, Text), an
+  Account range refused; gen_frame catches an off-by-one frame plant. Loop digest 776c5ca29063f921 →
+  e90c41b6af1ac4d6, re-recorded after the tester's own dump diff: only `advance_subs` changed (13 → 14 goals,
+  the new `keep`, proven). Golden and proof page of examples/batch re-recorded for the same line.
+- **What remains (decided):** Account-keyed and ledger frames (`keep ledger except a b`), using a stated frame to
+  lift past a callee (S19), and ratcheting the inferred `writes` in the `.strength` baseline. Events inside a loop
+  are still flagged, not specified.
+
+### S6, sum (one half of S6; the other half is "S6, a stated loop frame")
 - **Kind:** code gap. **Closed** 2026-11-05 in `72d2446`, under delegation (.party/DECISIONS.md, 2026-11-05,
   lang, aggregation; app's request #1). Fuzz generator `6a6671b`; sum bounds `80c3b26`.
 - **Was:** no way to state a total or a count, in a spec or a body; `-> Int` functions couldn't read state.
