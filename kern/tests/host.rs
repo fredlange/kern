@@ -887,3 +887,25 @@ fn s12_deadlines_late_replies_manual_answers_and_replay() {
         assert!(load_config(&format!("{CONFIG}{bad}").replace("{port}", "1"), &defs).is_err(), "{bad} accepted");
     }
 }
+
+#[test]
+fn s21_the_iteration_limit_has_no_refund_and_adds_up_across_sums_and_callees() {
+    // 5ffab2d: 10,000,000 iterations per call. A reversed range charges nothing (it must not refund), two sums and
+    // a callee's loop add up, exactly at the limit is fine and one past it is a fault that leaves no trace
+    let defs = module(
+        "state hold Int\n\nloopy n:Int\n  ok otherwise\nbody\n  for k from 0 to n\n    hold.set 5 k\n\n\
+         summy n:Int\n  ok otherwise\nbody\n  hold.set 6 (sum j from 0 to n of 1)\n\n\
+         refund n:Int m:Int\n  ok otherwise\nbody\n  hold.set 7 (sum j from 0 to (0 - m) of 1)\n  for k from 0 to n\n    hold.set 5 k\n\n\
+         viacallee n:Int\n  ok otherwise\nbody\n  summy n\n  loopy n\n",
+    );
+    let mut h = Host::new(&defs, reports(&defs), Options { gate: false, ..opts() }).unwrap();
+    h.init("A:1@u1").unwrap();
+    let lines = ["refund 10000001 20000000", "viacallee 5000001", "viacallee 5000000", "state"];
+    let mut out = vec![];
+    kern::host::repl(&mut h, lines.iter().map(|l| l.to_string()), &mut |l| out.push(l)).unwrap();
+    assert!(out[0].contains("iteration limit exceeded") && out[1].contains("iteration limit exceeded"), "{out:?}");
+    assert_eq!(out[2], "ok", "{out:?}");
+    let st: J = serde_json::from_str(&out[3]).unwrap();
+    assert_eq!((st["state"]["hold"]["5"].clone(), st["state"]["hold"].get("7").cloned()), (json!(4999999), None));
+    assert!(h.replay().unwrap().is_empty());
+}
