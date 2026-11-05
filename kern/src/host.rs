@@ -1642,7 +1642,7 @@ pub fn serve(host: &mut Host, port: u16, bind: &str, ready: Option<&mut dyn FnMu
 
 pub const COMMANDS: [&str; 5] = ["serve", "repl", "replay", "manifest", "page"];
 /// option -> takes a value
-pub const OPTIONS: [(&str, bool); 9] = [
+pub const OPTIONS: [(&str, bool); 10] = [
     ("--html", true),
     ("--db", true),
     ("--world", true),
@@ -1652,10 +1652,11 @@ pub const OPTIONS: [(&str, bool); 9] = [
     ("--config", true),
     ("--skip-proven", false),
     ("--audit-rate", true),
+    ("--why", true),
 ];
 
 const USAGE: &str = "usage: kern host [-h] [--html HTML] [--db DB] [--world WORLD] [--port PORT] [--bind BIND] [--no-gate]
-                 [--config CONFIG] [--skip-proven] [--audit-rate AUDIT_RATE]
+                 [--config CONFIG] [--skip-proven] [--audit-rate AUDIT_RATE] [--why WHYFILE]
                  {serve,repl,replay,manifest,page} file";
 
 /// `analyse` for the host: Python's analyse(defs, mutation=False) (and mutation=True for `page`).
@@ -1782,7 +1783,7 @@ pub fn main(argv: &[String], analyse: Analyse) -> i32 {
         }
         "page" => {
             // the module's rationale, from the same default file `kern check` reads (`<module>.why`, `<root>/kern.why`)
-            let whyfile = crate::package::store_path(file, ".why");
+            let whyfile = opts.get("--why").cloned().unwrap_or_else(|| crate::package::store_path(file, ".why"));
             let store = match crate::why::load(&whyfile) {
                 Ok(s) => s,
                 Err(e) => {
@@ -2199,6 +2200,14 @@ nope x:Int k:Int
         assert_eq!(main(&argv, &analyse), 0);
         let page = std::fs::read_to_string(&html).unwrap();
         assert!(page.contains("one flag per key, so a retry is harmless"));
+        // --why names another file, as for kern check
+        let other = dir.join("other.why");
+        std::fs::write(&other, format!("put@{anchor}\n  read from --why\n")).unwrap();
+        let mut argv2 = argv.clone();
+        argv2.extend(["--why".to_string(), other.to_string_lossy().into_owned()]);
+        assert_eq!(main(&argv2, &analyse), 0);
+        let page = std::fs::read_to_string(&html).unwrap();
+        assert!(page.contains("read from --why") && !page.contains("one flag per key"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
