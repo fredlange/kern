@@ -211,6 +211,7 @@ fn a_small_sum_fuzz_run_is_clean_decided_and_deterministic() {
     let s = run();
     assert_eq!(s["sum_well_formed"], "12/12");
     assert_eq!((s["const_variant_well_formed"].clone(), s["record_variant_well_formed"].clone()), (serde_json::json!("4/4"), serde_json::json!("4/4")));
+    assert_eq!(s["package_variant_well_formed"], "4/4"); // agg in a used package (b71848b)
     assert!(s["variant_mismatches"].as_array().unwrap().is_empty(), "{}", s["variant_mismatches"]);
     assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
     assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
@@ -264,4 +265,16 @@ fn every_generated_match_is_its_if_chain_and_the_small_runs_are_clean() {
     assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
     assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
     assert!(s["tiers"]["ensure"]["refuted"].as_u64().unwrap_or(0) > 0 && s["tiers"]["ensure"]["proven"].as_u64().unwrap_or(0) > 20);
+}
+
+#[test]
+fn a_small_tick_fuzz_run_is_clean() {
+    // gen_tick (S10, e1e1a68): ticks then a store and an event, a ticking callee, ticks in a loop. Teeth, planted in
+    // prove.rs (2026-11-05): a tick of +2 -> 1,423 contradictions; a ticking callee taken as not ticking -> 6,000.
+    let results: Vec<_> = kern_validation::fuzz::tick_jobs(5, 30, 60).iter().map(check_program).collect();
+    let s = summarise(&results);
+    assert_eq!(s["tick_well_formed"], "30/30");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    assert!(s["tiers"]["ensure"]["refuted"].as_u64().unwrap_or(0) > 0 && s["tiers"]["ensure"]["proven"].as_u64().unwrap_or(0) > 5);
 }

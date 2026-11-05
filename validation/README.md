@@ -47,7 +47,8 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 | `--loops N` / `--handlers N` / `--sums N` | how many random programs of each kind (default 300 / 200 / 150). Sum programs (`gen_sum`, since 2026-11-05) come from their own stream, so the loop and handler programs for a seed are unchanged |
 | `--texts N` | how many Text programs (`gen_text`, default 100; own stream): set, join with a literal, guard on length, append, compare, and literal joins against the joined literal. The oracle draws Text from a pool with `""`, a backslash, a quote, `é`, `😀` and a literal `\x41` |
 | `--nests N` / `--matches N` | nested-loop and variable × variable programs (`gen_nest`: a nested count with `(r - lo) * n` invariants, grid writes at `r * W + c` with frame claims, nonlinear identities) and `match` programs (`gen_match`: Int, constant, negative and Text patterns, with or without `_`); default 100 each, own streams |
-| `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`) and a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (reported, not fatal) |
+| `--ticks N` | `clock.tick` programs (`gen_tick`, default 100, own stream): n ticks then a store and an event with an `eg` that pins it, a ticking callee, ticks in a loop |
+| `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`), a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`) and a package variant (`agg` in a package `lib` the program's package `use`s). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (reported, not fatal) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
 | `--jobs N` | worker threads (each program runs on a fresh thread) |
@@ -87,4 +88,8 @@ outer loop frame that ignores the inner loop's writes (planted in prove.rs's `lo
 3,827 contradictions in 19 of 100 nest programs. True grid frame claims stay `?` (the outer frame forgets inner
 writes by design). `validation/tests/fuzz.rs` also checks that 300 generated matches parse to exactly the
 definitions of their hand-written `if` chains (those with a `-1` pattern skipped: no expression spells the literal -1).
+
+**2026-11-05, `clock.tick` and imports** (e1e1a68, b71848b; `--ticks`, package variants). Teeth, planted in prove.rs
+(not committed): a tick of +2 gives 1,423 contradictions in 10 of 100 tick programs; a ticking callee taken as not
+moving the time gives 6,000 in 20 (only claims that hold without a tick see it). Package variants: 0 mismatches.
 

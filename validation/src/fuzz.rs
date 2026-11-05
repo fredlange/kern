@@ -401,6 +401,11 @@ pub fn variant_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         if let Some(r) = record_variant(&src) {
             out.push(Job { label: format!("sumr#{i}"), src: Some(r), ..job.clone() });
         }
+        let dir = std::env::temp_dir().join(format!("kern-fuzz-pkg-{}-{seed}-{i}", std::process::id()));
+        if let Some(m) = package_variant(&src, &dir) {
+            out.push(Job { label: format!("sump#{i}"), src: None, module: Some(m), ..job.clone() });
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
     out
 }
@@ -412,7 +417,7 @@ pub fn variant_mismatches(results: &[Outcome1]) -> Vec<String> {
     results
         .iter()
         .filter_map(|r| {
-            let i = r.label.strip_prefix("sumc#").or_else(|| r.label.strip_prefix("sumr#"))?;
+            let i = r.label.strip_prefix("sumc#").or_else(|| r.label.strip_prefix("sumr#")).or_else(|| r.label.strip_prefix("sump#"))?;
             let b = base.get(i)?;
             (b.wf != r.wf || b.tiers != r.tiers || b.found.len() != r.found.len()).then(|| r.label.clone())
         })
@@ -659,6 +664,92 @@ pub fn match_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
             Job { label: format!("match#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
         })
         .collect()
+}
+
+// ---------------------------------------------------------------- clock.tick (S10, e1e1a68)
+
+/// A program that ticks: n ticks then a store and an event of `clock.now`, a callee that ticks, or ticks in a loop.
+/// The claim is `clock.now + n` (a spec's `clock.now` is the start of the call); half the time off by one or the
+/// start time. An `eg` with the event section pins the event. Own stream (`tick_jobs`).
+pub fn gen_tick(rnd: &mut Random) -> String {
+    let kind = choice_str(rnd, &["straight", "callee", "loop"]);
+    let n = rnd.randbelow(4) as i64;
+    let claimed = if rnd.random() < 0.5 { n } else { *rnd.choice(&[n + 1, (n - 1).max(0), 0]) };
+    let off = |k: i64| if k == 0 { "clock.now".to_string() } else { format!("(clock.now + {k})") };
+    let mut lines: Vec<String> = vec!["state when Int".into(), String::new()];
+    let ticks = |ind: &str, k: i64| (0..k).map(|_| format!("{ind}clock.tick")).collect::<Vec<_>>();
+    match kind {
+        "straight" => {
+            lines.push("f k:Int".into());
+            lines.push("  ok otherwise".into());
+            lines.push(format!("  ensure when.get' k = {}", off(claimed)));
+            lines.push(format!("  emit At k {}", off(claimed)));
+            lines.push(format!("  eg now:5 | f 1 -> ok | when.1:{} | At 1 {}", 5 + n, 5 + n));
+            lines.push("body".into());
+            lines.extend(ticks("  ", n));
+            lines.push("  when.set k clock.now".into());
+            lines.push("  audit.emit (At k clock.now)".into());
+        }
+        "callee" => {
+            lines.extend(["g k:Int".to_string(), "  ok otherwise".into(), "body".into()]);
+            lines.extend(ticks("  ", n.max(1)));
+            lines.push("  when.set k 0".into());
+            lines.push(String::new());
+            lines.push("f k:Int".into());
+            lines.push("  ok otherwise".into());
+            // after a callee that may tick, only `>=` is known; an exact claim is ? or ✗, never ✔ unless true
+            // and sometimes a claim that holds only if the callee didn't tick (it ticks at least once): false
+            let claim = match rnd.randbelow(3) {
+                0 => "when.get' (k + 1) = clock.now".to_string(),
+                1 => "when.get' (k + 1) <= clock.now".to_string(),
+                _ => format!("when.get' (k + 1) >= {}", off(claimed)),
+            };
+            lines.push(format!("  ensure {claim}"));
+            lines.push("body".into());
+            lines.push("  g k".into());
+            lines.push("  when.set (k + 1) clock.now".into());
+        }
+        _ => {
+            lines.push("f k:Int m:Int".into());
+            lines.push("  need m >= 0 else Neg".into());
+            lines.push("  ok otherwise".into());
+            lines.push(format!("  ensure when.get' k >= {}", off(claimed)));
+            lines.push("body".into());
+            lines.push("  for j from 0 to m".into());
+            lines.push("    clock.tick".into());
+            lines.extend(ticks("  ", n));
+            lines.push("  when.set k clock.now".into());
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `n` tick programs from their own stream, labelled `tick#i`.
+pub fn tick_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 10);
+    (0..n)
+        .map(|i| {
+            let src = gen_tick(&mut rnd);
+            Job { label: format!("tick#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
+/// The package variant of a gen_sum program (S5 imports, b71848b): `agg` moves to a package `lib` that the program's
+/// package uses (`use ../lib`, `import lib.agg`); written under `dir`, loaded as one module. Same verdicts expected.
+pub fn package_variant(src: &str, dir: &std::path::Path) -> Option<Module> {
+    let blocks: Vec<&str> = src.split("\n\n").collect();
+    let states = blocks.iter().find(|b| b.starts_with("state "))?;
+    let agg = blocks.iter().find(|b| b.starts_with("agg "))?;
+    let rest: Vec<&str> = blocks.iter().filter(|b| !b.starts_with("state ") && !b.starts_with("agg ")).copied().collect();
+    let (lib, app) = (dir.join("lib"), dir.join("app"));
+    std::fs::create_dir_all(&lib).ok()?;
+    std::fs::create_dir_all(&app).ok()?;
+    std::fs::write(lib.join("kern.pkg"), "").ok()?;
+    std::fs::write(lib.join("agg.k"), format!("{states}\n\n{agg}\n")).ok()?;
+    std::fs::write(app.join("kern.pkg"), "use ../lib\n").ok()?;
+    std::fs::write(app.join("main.k"), format!("import lib.agg\n\n{}\n", rest.join("\n\n"))).ok()?;
+    kern::package::load(&app.to_string_lossy(), &IndexMap::new()).ok()
 }
 
 // ---------------------------------------------------------------- random assumed-handler programs
@@ -1188,7 +1279,8 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "programs_with_contradictions": results.iter().filter(|r| !r.found.is_empty()).map(|r| &r.label).collect::<Vec<_>>(),
         "tiers": tiers, "runs": runs, "ok_runs": ok, "skipped": skipped, "unmapped": unmapped, "unmapped_kinds": unmapped_kinds,
         "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"), "text_well_formed": fam("text#"), "nest_well_formed": fam("nest#"), "match_well_formed": fam("match#"),
-        "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"),
+        "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
+        "tick_well_formed": fam("tick#"),
         "variant_mismatches": variant_mismatches(results),
     })
 }
@@ -1201,12 +1293,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -1238,6 +1330,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(text_jobs(num("seed", 1) as i128, num("texts", 100) as usize, num("runs", 300)));
     js.extend(nest_jobs(num("seed", 1) as i128, num("nests", 100) as usize, num("runs", 300)));
     js.extend(match_jobs(num("seed", 1) as i128, num("matches", 100) as usize, num("runs", 300)));
+    js.extend(tick_jobs(num("seed", 1) as i128, num("ticks", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));
