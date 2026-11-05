@@ -768,3 +768,38 @@ fn s5_a_constant_runs_as_its_value_in_the_host_and_replays() {
     assert_eq!(&o[..2], ["ok".to_string(), "refused TooSmall 5".to_string()], "{o:?}");
     assert!(o.contains(&"refused Over 95".to_string()), "{o:?}"); // lim - hold.1 = 100 - 5
 }
+
+#[test]
+fn s5_a_record_parameter_is_one_json_object_over_http() {
+    // 38ceceb: a record travels as one JSON object; the flattened keys, a missing or extra field, and the wrong
+    // shape are 400s that never reach the log; a wrong field type is a bad call naming the field
+    let defs = module(
+        "state hold Int\nrecord Point x:Int y:Int\nrecord Pay from:Account to:Account amount:Int\n\n\
+         put p:Point k:Int\n  need p.y >= 0 else Neg\n  ok otherwise\n  ensure hold.get' (p.x + k) = p.y\nbody\n  hold.set (p.x + k) p.y\n\n\
+         send p:Pay\n  need p.amount > 0 else BadAmount\n  need p.from != p.to else Same\n  need ledger.balance p.from >= p.amount else Insufficient\n  ok otherwise\nbody\n  ledger.debit p.from p.amount\n  ledger.credit p.to p.amount\n",
+    );
+    let mut h = host(&defs, "A:100@u1 B:0@u2", opts());
+    let out = serve_requests(&mut h, 10, |base| {
+        [
+            post(&base, "put", json!({"p": {"x": 1, "y": 2}, "k": 3})),
+            post(&base, "put", json!({"p": {"y": 7, "x": 1}, "k": 0})),
+            post(&base, "put", json!({"p.x": 1, "p.y": 2, "k": 3})),
+            post(&base, "put", json!({"p": {"x": 1}, "k": 3})),
+            post(&base, "put", json!({"p": {"x": 1, "y": 2, "z": 0}, "k": 3})),
+            post(&base, "put", json!({"p": [1, 2], "k": 3})),
+            post(&base, "put", json!({"p": {"x": 1, "y": -1}, "k": 3})),
+            post(&base, "put", json!({"p": {"x": "1", "y": 2}, "k": 3})),
+            post(&base, "send", json!({"p": {"from": "A", "to": "B", "amount": 10}})),
+            post(&base, "send", json!({"p": {"from": "A", "to": "Z", "amount": 10}})),
+        ]
+    });
+    let codes: Vec<u16> = out.iter().map(|o| o.0).collect();
+    assert_eq!(codes, [200, 200, 400, 400, 400, 400, 409, 400, 200, 400], "{out:?}");
+    assert!(out[7].1["error"].as_str().unwrap().contains("`p.x` must be an Int"), "{out:?}");
+    assert!(out[9].1["error"].as_str().unwrap().contains("`p.to`"), "{out:?}");
+    let mut st = vec![];
+    kern::host::repl(&mut h, ["state".to_string()].into_iter(), &mut |l| st.push(l)).unwrap();
+    let st: J = serde_json::from_str(&st[0]).unwrap();
+    assert_eq!((st["balances"]["A"].clone(), st["state"]["hold"]["4"].clone(), st["state"]["hold"]["1"].clone()), (json!(90), json!(2), json!(7)));
+    assert!(h.replay().unwrap().is_empty());
+}
