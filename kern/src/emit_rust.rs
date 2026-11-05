@@ -77,7 +77,7 @@ fn rust_type(t: &str) -> Option<&'static str> {
 
 pub fn ident(name: &str) -> String {
     // Injective, and disjoint from the generator's own names (tx, rt, w, exec, prov, args, __a0, __d0, __r, __h…,
-    // __inv_…): a usable Kern name is kept as it is unless it is a Rust keyword or one of those; anything else
+    // __inv_…, a sum's __lo __hi __s __j): a usable Kern name is kept as it is unless it is a Rust keyword or one of those; anything else
     // (keyword, internal name, dotted record field `p.x`, handler `rand.below`) becomes `_` + a prefix-free code
     // (`_` -> `__`, `.` -> `_0`). No kept name starts with `_`; a coded one starts with `_` then a letter, a digit
     // or `__`/`_0`, never `_a`/`_d`/`_h`/`_i`/`_r` (`_` + a letter isn't a code), so the two never meet:
@@ -268,6 +268,30 @@ impl<'a> Gen<'a> {
                     return unsupported(format!("after-state read {}' outside a spec", name));
                 }
                 self.apply(name, args, sc)
+            }
+            Expr::Sum(j, lo, hi, body, cond) => {
+                // the interpreter's order: both bounds once, then per j in [lo, hi) the filter, then the body
+                let (lo, _) = self.expr(lo, sc)?;
+                let (hi, _) = self.expr(hi, sc)?;
+                let mut inner = sc.clone();
+                inner.insert(j.clone(), "Int".into());
+                let (body, _) = self.expr(body, &inner)?;
+                let add = format!("__s = rt::add(__s, {})?;", body);
+                let step = match cond {
+                    Some(c) => format!("if {} {{ {} }}", self.expr(c, &inner)?.0, add),
+                    None => add,
+                };
+                Ok((
+                    format!(
+                        "{{ let __lo = {}; let __hi = {}; let mut __s = 0i64; let mut __j = __lo; \
+                         while __j < __hi {{ let {} = __j; {} __j += 1; }} __s }}",
+                        lo,
+                        hi,
+                        ident(j),
+                        step
+                    ),
+                    "Int".into(),
+                ))
             }
             Expr::All(..) => unsupported(format!("expression {}", code(e))),
             // new expression forms (e.g. a sum) are refused until the emitter compiles them: never mistranslated
@@ -857,7 +881,7 @@ body
         assert_eq!(distinct.len(), names.len(), "{ids:?}");
         assert_eq!((ids[0].as_str(), ids[1].as_str(), ids[12].as_str(), ids[13].as_str()), ("_p_0x", "p_x", "_w", "w_"));
         // the generator's own names are never an identifier of a Kern name
-        for own in ["tx", "rt", "w", "exec", "prov", "args", "__a0", "__d1", "__r", "__h_rand_0below", "__inv_put"] {
+        for own in ["tx", "rt", "w", "exec", "prov", "args", "__a0", "__d1", "__r", "__h_rand_0below", "__inv_put", "__lo", "__hi", "__s", "__j"] {
             assert!(!ids.contains(&own.to_string()), "{own}");
         }
     }
