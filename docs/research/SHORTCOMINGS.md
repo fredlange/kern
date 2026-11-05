@@ -60,6 +60,10 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Next:**
   - (b) is now the main question: a pre-registered C2b on a larger module (`escrow` s3 or
     `ledger-large`), with the two view changes built first. It needs Fredrik's approval (agent runs).
+    - **Drafted 2026-11-05, awaiting Fredrik's approval:**
+      [c2b/PROTOCOL.md](../../experiments/challenge/c2b/PROTOCOL.md). It covers escrow s3, C2's three tasks,
+      N = 5 and ~$17. Its prediction (`predict.py`, at df332d5) puts K-view at 0.64–0.83× TS, so 0.7× fails
+      on T3.
   - (a), the two view changes: **built 2026-11-05** (kern-9b; `kern/src/mcp.rs`, `Session`).
     - **Dedup:** the server stubs a callee spec block it has already shown, as
       `move: spec shown earlier in this session; proof ok`.
