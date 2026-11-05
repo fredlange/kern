@@ -311,7 +311,9 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   A seeded floor of 60 sum programs: 220 goals proven, 80 refuted and replayed, 0 undecided. The tester's
   sum generator: fuzz seeds 1–3, 827/827 programs, 0 contradictions, a planted sign bug caught. Digests,
   goldens and difftest unchanged. examples/apps/todo's `count_overdue` proves `0 <= result <= hi - lo`
-  (after `80c3b26`). REFERENCE.md 2,445 → 2,524 tokens (budget 3,500).
+  (after `80c3b26`: interval bounds `m·n <= S <= M·n` as ground facts, no induction; tester's 22 interval traps,
+  `34d54a1`, give no false ✔). REFERENCE.md 2,445 → 2,524 tokens (budget 3,500).
+  Not used (decided): bounds that hold only under a module invariant.
 - **Cost:** sum proofs take about 1.5 s per generated program, against about 0.05 s for loop programs
   (tester, `#TH2UWV33V6`). Counts against bet 1.
 - **What remains:** local accumulators in loops, nested sums, calls inside a sum body and `f' a` (decided:
