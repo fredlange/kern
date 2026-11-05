@@ -208,17 +208,6 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Next:** none planned. Each needs a merge of after-states, which is the same machinery as S16's
   path merging.
 
-### S22. A full `check` of a loop writing a Text map and an Int map at a computed key doesn't finish
-- **Kind:** code gap. **Weakens:** bet 1 (verification fast enough for an agent's inner loop). Found 2026-11-05 by
-  app (.party/requests.md, booking #4).
-- **Evidence:** `examples/apps/booking/probes/clear_day_text_slow.k`: `kern check --cache ''` ran 15+ minutes
-  (28 CPU-minutes at the first stop); `--quick` is instant. The same loop over the Int map alone takes seconds;
-  a one-map Text loop under 40 s. So mutation testing, not the proof, has no working bound per mutant: the
-  `rlimit` doesn't cap this case. App split the definition in two to ship.
-- **Fixed when:** that probe's full `check` ends in bounded time, a mutant that exceeds its bound reported as
-  unscored (never as caught), with a gap test.
-- **Next:** not in this quest's list (like S16, the cost entry it extends).
-
 ## Closed
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
@@ -309,6 +298,22 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   - Under `KERN_Z3_FRESH=ctx`/`off` one text-loop mutant is killed by random tests, not the prover (a Z3 string
     quantifier near its step limit); the default is deterministic.
   - examples/random-portal still shows joke ids; the change to Text there is still to make.
+
+### S22. A full `check` of a loop writing a Text map and an Int map at a computed key didn't finish
+- **Kind:** code gap. **Closed** 2026-11-05 in `ed0cd62` (lang). Found by app (booking #4).
+- **Was:** `examples/apps/booking/probes/clear_day_text_slow.k`: a full `check` ran 15+ minutes; `--quick` was
+  instant. One mutant's loop goal never returned: Z3 5.3.3's Diophantine-equation handler (`lp::dioph_eq`) ran
+  outside the step limit (`rlimit`), while the same query through the `z3` binary gave up in 1.4 s.
+- **Decided by** bet 1 (`check` stays in the inner loop) and F5 (a bound never counts as a catch): `lp.dio` off
+  once per process; the step limit set on each fresh context as well; a mutant's proof stops after 4 unknown
+  answers (steps, not time, so deterministic). A stopped mutant isn't counted as caught by the prover.
+- **Evidence:** `mutation_testing_of_a_quantified_text_loop_finishes` (the probe's definition, inlined); the probe's
+  full check now takes 5.7 s (the test 5.3 s). Tester: both digests unchanged (the S2 digest runs full mutation
+  testing), goldens unchanged, suite 365/0, fuzz seeds 1–3 0 contradictions, difftest 0 divergences. C6 P1,
+  single-threaded, alternated A/B against `e859bc4`: 1.06–1.07 s per definition after, 1.07–1.21 before (no
+  slowdown; both over C6's 1 s on this loaded machine, see CHALLENGE.md's C6 note).
+- **What remains:** the fix removes the one Z3 path measured to escape the step limit; there's no wall-clock
+  guard, so another such path would hang the same way.
 
 ### S20. Integers had three widths: prover, interpreter and host store disagreed at the edges
 - **Kind:** code gap. **Closed** 2026-11-05: host side `8e8f1b5` (runtime, tests `0a55c5e`), source side and gap
