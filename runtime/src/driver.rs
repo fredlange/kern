@@ -66,9 +66,10 @@ pub fn parse_world<M: Module>(items: &[&str]) -> Result<World, String> {
         }
     }
     for it in later {
-        // `state.key:value`; the key has no `:` or `"`, a Text value may have both
+        // `state.key:value`; the key has no `:` or `"`, a Text value may have both. A record's field state has dots
+        // in its name (`order.qty.7:3`), a key never has one: the state is everything before the last dot
         let (k, v) = it.split_once(':').ok_or(format!("bad item {it}"))?;
-        let (m, key) = k.split_once('.').ok_or(format!("bad item {it}"))?;
+        let (m, key) = k.rsplit_once('.').ok_or(format!("bad item {it}"))?;
         let mi = M::MAPS.iter().find(|x| x.name == m).ok_or(format!("no state {m}"))?;
         if mi.text {
             let t = unquote(v).ok_or(format!("bad text {it}"))?;

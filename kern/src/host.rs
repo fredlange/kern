@@ -1668,50 +1668,44 @@ fn respond(req: tiny_http::Request, code: u16, body: &J) {
 }
 
 /// The call's arguments from a JSON body with exactly the definition's parameters. A record parameter (flattened at
-/// load time to `p.x`, `p.y`: syntax::flatten_records) is one object with exactly its fields: `{"p": {"x": 1, "y": 2}}`.
+/// load time to `p.x`, `p.y`: syntax::flatten_records) is one object with exactly its fields: `{"p": {"x": 1, "y": 2}}`;
+/// a nested record (`l.a.x`) is an object inside it, `{"l": {"a": {"x": 1, ...}, ...}}`.
 pub fn http_args(params: &[(String, String)], body: &J) -> Result<Vec<Value>, String> {
-    // top-level name -> its fields (None for a plain parameter), in declaration order
-    let mut shape: IndexMap<&str, Option<Vec<&str>>> = IndexMap::new();
+    // the parameters as a tree of field paths, in declaration order: an inner node is a record, a leaf a value
+    #[derive(Default)]
+    struct Shape(IndexMap<String, Shape>);
+    let mut root = Shape::default();
     for (p, _) in params {
-        match p.split_once('.') {
-            Some((r, f)) => shape.entry(r).or_insert_with(|| Some(vec![])).get_or_insert_with(Vec::new).push(f),
-            None => {
-                shape.insert(p, None);
+        let mut node = &mut root;
+        for part in p.split('.') {
+            node = node.0.entry(part.to_string()).or_default();
+        }
+    }
+    // every record node, with its dotted path, outermost first (for the message)
+    fn records<'a>(path: &str, s: &'a Shape, out: &mut Vec<(String, &'a Shape)>) {
+        for (n, c) in &s.0 {
+            if !c.0.is_empty() {
+                let p = if path.is_empty() { n.clone() } else { format!("{}.{}", path, n) };
+                out.push((p.clone(), c));
+                records(&p, c, out);
             }
         }
     }
-    let same = |o: &Map<String, J>, want: &[&str]| {
-        let mut a: Vec<&str> = o.keys().map(|k| k.as_str()).collect();
-        let mut b = want.to_vec();
-        a.sort();
-        b.sort();
-        a == b
-    };
-    let names: Vec<&str> = shape.keys().copied().collect();
-    let ok = body.as_object().map_or(false, |o| {
-        same(o, &names)
-            && shape.iter().all(|(n, fs)| match fs {
-                Some(fs) => o[*n].as_object().map_or(false, |r| same(r, fs)),
-                None => true,
-            })
-    });
-    if !ok {
-        let list = |xs: &[&str]| format!("[{}]", xs.iter().map(|w| repr_str(w)).collect::<Vec<_>>().join(", "));
-        let mut msg = format!("want a JSON object with exactly {}", list(&names));
-        for (n, fs) in &shape {
-            if let Some(fs) = fs {
-                msg.push_str(&format!("; {} an object with exactly {}", repr_str(n), list(fs)));
-            }
+    fn fits(s: &Shape, v: &J) -> bool {
+        let Some(o) = v.as_object() else { return false };
+        o.len() == s.0.len() && s.0.iter().all(|(n, c)| o.get(n).map_or(false, |x| c.0.is_empty() || fits(c, x)))
+    }
+    if !fits(&root, body) {
+        let list = |s: &Shape| format!("[{}]", s.0.keys().map(|w| repr_str(w)).collect::<Vec<_>>().join(", "));
+        let mut msg = format!("want a JSON object with exactly {}", list(&root));
+        let mut recs = vec![];
+        records("", &root, &mut recs);
+        for (p, c) in recs {
+            msg.push_str(&format!("; {} an object with exactly {}", repr_str(&p), list(c)));
         }
         return Err(msg);
     }
-    Ok(params
-        .iter()
-        .map(|(p, _)| match p.split_once('.') {
-            Some((r, f)) => json_value(&body[r][f]),
-            None => json_value(&body[p.as_str()]),
-        })
-        .collect())
+    Ok(params.iter().map(|(p, _)| json_value(p.split('.').fold(body, |v, part| &v[part]))).collect())
 }
 
 /// One HTTP request; Err only for a host fault outside a call.
@@ -2224,6 +2218,20 @@ mod tests {
             json!({"who": "A", "p": {"x": 1, "y": 2}}),
         ] {
             assert_eq!(http_args(&params, &bad).unwrap_err(), want, "{bad}");
+        }
+        // a nested record is an object inside the record's object
+        let nested: Vec<(String, String)> =
+            ["l.a.x", "l.a.y", "l.b.x", "l.b.y", "k"].iter().map(|a| (a.to_string(), "Int".to_string())).collect();
+        let body = json!({"k": 5, "l": {"b": {"x": 3, "y": 4}, "a": {"x": 1, "y": 2}}});
+        assert_eq!(http_args(&nested, &body).unwrap(), [1, 2, 3, 4, 5].map(Value::Int));
+        let want = "want a JSON object with exactly ['l', 'k']; 'l' an object with exactly ['a', 'b']; \
+                    'l.a' an object with exactly ['x', 'y']; 'l.b' an object with exactly ['x', 'y']";
+        for bad in [
+            json!({"k": 5, "l": {"a": {"x": 1, "y": 2}, "b": {"x": 3}}}),
+            json!({"k": 5, "l": {"a": {"x": 1, "y": 2}, "b.x": 3, "b.y": 4}}),
+            json!({"k": 5, "l": {"a": 1, "b": {"x": 3, "y": 4}}}),
+        ] {
+            assert_eq!(http_args(&nested, &bad).unwrap_err(), want, "{bad}");
         }
         // no records: the message as before
         let plain = vec![("a".to_string(), "Account".to_string())];
