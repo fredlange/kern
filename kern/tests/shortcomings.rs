@@ -1039,6 +1039,68 @@ fn s11_the_runtime_check_the_page_promises_happens_in_the_host() {
 }
 
 // =====================================================================================
+// S21 (closed by runtime's 5ffab2d). A huge loop or sum bound ends as a fault, not a held host
+// =====================================================================================
+
+const S21_SRC: &str = "state hold Int
+
+count n:Int
+  ok otherwise
+body
+  hold.set 0 (sum j from 0 to n of 1)
+
+fill n:Int
+  ok otherwise
+body
+  for k from 0 to n
+    hold.set 1 k
+";
+
+#[test]
+fn s21_a_huge_bound_ends_as_a_fault_in_the_host_and_the_compiled_program() {
+    // `ok otherwise` is ✔ (the proof says the call succeeds, not when); at run time the call stops at the
+    // per-call iteration limit as an atomic fault, at once, in both runtimes
+    let defs = parse(S21_SRC);
+    let reps = reports(&defs);
+    assert!(reps["count"].clean && reps["fill"].clean);
+    let mut h = Host::new(&defs, reps, Options { sinks: Some(vec![]), ..Default::default() }).unwrap();
+    h.init("").unwrap();
+    let t = std::time::Instant::now();
+    for (name, n) in [("count", i64::MAX as i128), ("fill", 1_000_000_000_000)] {
+        let r = h.call(name, &[Value::Int(n)]).unwrap();
+        assert_eq!((r["status"].as_str(), r["fault"].as_str()), (Some("error"), Some("limit")), "{name}: {r:?}");
+    }
+    assert!(t.elapsed().as_secs() < 5, "the host was held for {:?}", t.elapsed());
+    assert_eq!(h.call("count", &[Value::Int(5)]).unwrap()["status"], "ok", "a small bound still runs");
+    assert!(h.load().unwrap().maps["hold"].get(&Key::Int(1)).is_none(), "the faulted fill wrote nothing");
+    if std::process::Command::new("cargo").arg("--version").output().is_err() {
+        return eprintln!("SKIP compiled half: needs cargo");
+    }
+    let dir = tmp("s21");
+    let file = dir.join("s21.k");
+    std::fs::write(&file, S21_SRC).unwrap();
+    let crate_dir = kern::emit_rust::emit(&file.to_string_lossy(), Some(&dir.join("build").to_string_lossy())).unwrap();
+    let binary = kern::emit_rust::build(&crate_dir).unwrap();
+    let input = format!("world now:1\ncall count {}\ncall fill 1000000000000\ncall count 5\ndump\n", i64::MAX);
+    let t = std::time::Instant::now();
+    let out = {
+        use std::io::Write;
+        let mut c = std::process::Command::new(&binary)
+            .arg("run")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        c.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        String::from_utf8(c.wait_with_output().unwrap().stdout).unwrap()
+    };
+    assert!(t.elapsed().as_secs() < 5, "the compiled program was held for {:?}", t.elapsed());
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(lines[0].starts_with("fault") && lines[1].starts_with("fault") && lines[2].starts_with("ok"), "{out}");
+    assert!(lines[3].ends_with("hold.0:5"), "only the small call left a trace: {out}");
+}
+
+// =====================================================================================
 // S12. The host: a request with no reply stays pending forever
 // =====================================================================================
 
