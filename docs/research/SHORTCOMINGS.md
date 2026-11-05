@@ -314,6 +314,8 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   (after `80c3b26`: interval bounds `m·n <= S <= M·n` as ground facts, no induction; tester's 22 interval traps,
   `34d54a1`, give no false ✔). REFERENCE.md 2,445 → 2,524 tokens (budget 3,500).
   Not used (decided): bounds that hold only under a module invariant.
+  Compiled path `c4eb9a1`: fuzzdiff over 150 sum programs and tests/probes/sums.k (24,000 calls) give 0
+  divergences; a planted inclusive-bound bug is caught (142 divergences; tests `7d75b0a`).
 - **Cost:** sum proofs take about 1.5 s per generated program, against about 0.05 s for loop programs
   (tester, `#TH2UWV33V6`). Counts against bet 1.
 - **What remains:** local accumulators in loops, nested sums, calls inside a sum body and `f' a` (decided:
