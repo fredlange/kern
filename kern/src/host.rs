@@ -681,6 +681,9 @@ pub struct Host<'m> {
     pub net: Option<Box<dyn Net>>,
     /// replies waiting to become top-level calls
     pub inbox: Vec<(String, Vec<Value>)>,
+    /// the earliest `now` the next call may have: one past where the last call that used clock.tick ended (meta
+    /// `clock_floor`), so time never goes back across calls; 0 until a call ticks
+    clock_floor: Int,
 }
 
 fn invariants_proven(r: &Report) -> bool {
@@ -748,6 +751,7 @@ impl<'m> Host<'m> {
             endpoints: IndexMap::new(),
             net: None,
             inbox: vec![],
+            clock_floor: 0,
         };
         // the induction also has to start right: a database from elsewhere is audited in full before serving
         if h.has_genesis().map_err(|e| ConfigError(e.to_string()))? {
@@ -771,6 +775,13 @@ impl<'m> Host<'m> {
                 names.into_iter().cloned().collect::<Vec<_>>().join(", ")
             )));
         }
+        h.clock_floor = h
+            .db
+            .query_row("select v from meta where k='clock_floor'", [], |r| r.get::<_, String>(0))
+            .optional()
+            .map_err(|e| ConfigError(e.to_string()))?
+            .and_then(|v| v.parse::<i64>().ok())
+            .map_or(0, |v| v as Int);
         h.endpoints = opts.endpoints.unwrap_or_default();
         h.net = opts.net;
         if !reqs.is_empty() && h.net.is_none() {
@@ -969,7 +980,8 @@ impl<'m> Host<'m> {
         if self.gate && !self.reports.get(name).map_or(false, |r| r.clean) {
             return Err(HostError::Unproven(name.into()));
         }
-        let now = (self.clock)(); // the observation, read once per call
+        // the observation, read once per call; never before where a ticking call left the clock
+        let now = (self.clock)().max(self.clock_floor);
         self.db.execute_batch("begin immediate").map_err(sql)?; // serialises calls, also across processes
         match self.call_in_tx(name, d.ret.is_some(), args, now) {
             Ok(res) => {
@@ -1090,6 +1102,15 @@ impl<'m> Host<'m> {
         if res["status"] == "ok" {
             self.answer(name, args, seq).map_err(sql)?;
             self.write_dirty(&world).map_err(sql)?;
+            if world.clock > now + 1 {
+                // the call used clock.tick (Interp::run steps the clock on by 1 after every call, so more than that
+                // is ticks): the next call starts after its last instant, as in the interpreter
+                let floor = world.clock;
+                self.db
+                    .execute("insert into meta values('clock_floor', ?) on conflict(k) do update set v=?", params![floor.to_string(), floor.to_string()])
+                    .map_err(sql)?;
+                self.clock_floor = floor;
+            }
             for (ch, ev) in ordered_events(&world, defs) {
                 self.db
                     .execute("insert into outbox(call, event, channel) values(?,?,?)", params![seq, dumps(&value_json(&ev)), ch])
@@ -1351,7 +1372,10 @@ impl<'m> Host<'m> {
 pub fn host_effect(root: &str) -> &'static str {
     match root {
         "ledger" => "SQLite table `account`, one transaction per call",
-        "clock" => "wall clock, seconds; read once per call, recorded in `log`",
+        "clock" => {
+            "wall clock, seconds; read once per call, recorded in `log`; clock.tick adds exactly 1 within the call, and \
+             the next call's time is never earlier than where a ticking call ended"
+        }
         "audit" => "SQLite table `outbox`; delivered to stdout after commit (at-least-once)",
         "rand" => {
             "assumed handler rand.below: the OS random source (secrets); every result checked against its assumed spec \
@@ -2446,6 +2470,39 @@ body
         // a tampered Text cell is caught by replay
         h.db.execute("update textcell set value='x' where key='1'", []).unwrap();
         assert!(h.replay().unwrap().iter().any(|m| m.starts_with("text state differs")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn time_never_goes_back_after_a_call_that_ticked() {
+        let src = "state at Int\n\nstamp k:Int\n  ok otherwise\nbody\n  at.set k clock.now\n  clock.tick\n  clock.tick\n  \
+                   at.set (k + 1) clock.now\n\nmark k:Int\n  ok otherwise\nbody\n  at.set k clock.now\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let dir = std::env::temp_dir().join(format!("kern-tick-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("t.db").to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&db);
+        // a wall clock that stands still at 100
+        let open = || {
+            let o = Options { db: db.clone(), clock: Some(Box::new(|| 100)), sinks: Some(vec![]), gate: false, ..Default::default() };
+            Host::new(&defs, IndexMap::new(), o).unwrap()
+        };
+        let mut h = open();
+        h.init("").unwrap();
+        let at = |h: &Host, k: Int| h.load().unwrap().maps["at"].get(&Key::Int(k)).copied();
+        h.call("mark", &[Value::Int(0)]).unwrap();
+        h.call("mark", &[Value::Int(1)]).unwrap();
+        assert_eq!((at(&h, 0), at(&h, 1)), (Some(100), Some(100)), "no ticks: the wall clock as before");
+        h.call("stamp", &[Value::Int(10)]).unwrap();
+        assert_eq!((at(&h, 10), at(&h, 11)), (Some(100), Some(102)));
+        h.call("mark", &[Value::Int(2)]).unwrap();
+        assert_eq!(at(&h, 2), Some(103), "after the ticks, not the wall clock's 100");
+        drop(h);
+        let mut h = open(); // the floor survives a restart
+        h.call("mark", &[Value::Int(3)]).unwrap();
+        assert_eq!(at(&h, 3), Some(103));
+        assert!(h.replay().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

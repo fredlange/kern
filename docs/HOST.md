@@ -44,6 +44,11 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   string values. `replay` compares Text state too. A `.host` reply `$.field` for a Text parameter of the reply
   definition takes a JSON string (an Int parameter still takes an integer; anything else is the `fail` call), and
   a Text in a request URL is %-encoded.
+- **`clock.tick` (S10, 2026-11-05).** Inside a call it adds exactly 1 to `clock.now` (the interpreter's
+  semantics; replay re-runs it, nothing new is recorded). The host reads the wall clock once per call, so after a
+  call that ticked, the next call's `now` is at least where that call ended plus 1 (meta `clock_floor`, kept across
+  restarts): time never goes back across calls. A module that never ticks sees the wall clock exactly as before.
+  `kern build` programs tick the same way (kern-rt `Tx::tick`).
 - **One Int range, i64 (S20, 2026-11-05).** SQLite stores i64 and the compiled runtime computes in i64; the
   interpreter computes in i128. A successful call whose stored balance, map key or value, event or result, or a
   refusal whose payload, leaves i64 is a host fault (`"fault": "range"`): rolled back, logged as an error, which
