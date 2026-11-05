@@ -198,15 +198,20 @@ fn every_generated_program_means_the_same_with_its_literals_as_constants() {
 
 #[test]
 fn a_small_sum_fuzz_run_is_clean_decided_and_deterministic() {
-    // gen_sum (72d2446's sum and state-reading functions): no contradiction, and no counterexample that fails to
+    // gen_sum (72d2446's sum and state-reading functions), and const/record variants: no contradiction, and no counterexample that fails to
     // replay. A wrong sign in the sum encoding gives contradictions; a wrong empty range gives unconfirmed `?`
     // goals instead (both measured with planted bugs, 2026-11-05: .party/notes/tester.md, #TH2UWV33V6).
     let run = || {
-        let results: Vec<_> = kern_validation::fuzz::sum_jobs(5, 12, 60).iter().map(check_program).collect();
+        // plus the const and record variants of the first 4 (S5: flattened at load, so the same verdicts)
+        let mut js = kern_validation::fuzz::sum_jobs(5, 12, 60);
+        js.extend(kern_validation::fuzz::variant_jobs(5, 4, 60));
+        let results: Vec<_> = js.iter().map(check_program).collect();
         summarise(&results)
     };
     let s = run();
     assert_eq!(s["sum_well_formed"], "12/12");
+    assert_eq!((s["const_variant_well_formed"].clone(), s["record_variant_well_formed"].clone()), (serde_json::json!("4/4"), serde_json::json!("4/4")));
+    assert!(s["variant_mismatches"].as_array().unwrap().is_empty(), "{}", s["variant_mismatches"]);
     assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
     assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
     assert_eq!(s["unmapped"], 0);

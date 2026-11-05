@@ -45,6 +45,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 |---|---|
 | `--seed N` | the generator seed (default 1); a run is deterministic per seed |
 | `--loops N` / `--handlers N` / `--sums N` | how many random programs of each kind (default 300 / 200 / 150). Sum programs (`gen_sum`, since 2026-11-05) come from their own stream, so the loop and handler programs for a seed are unchanged |
+| `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`) and a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (reported, not fatal) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
 | `--jobs N` | worker threads (each program runs on a fresh thread) |
@@ -67,4 +68,10 @@ default run is now 827 programs. Seeds 1-3: 827/827 well-formed, 318,300 runs, 0
 Teeth, by planting bugs in `zz::rec_sum` (not committed): a wrong sign gives 1,314 contradictions in 6 of 150 sum
 programs; a wrong empty range (`hi < lo` for `hi <= lo`) gives none, but 223 unconfirmed (`?`) goals against 0, so
 `validation/tests/fuzz.rs` also requires 0 unconfirmed on sum programs. Sum proofs are slow: about 1.5 s per program.
+
+**2026-11-05, const and record variants** (`--variants`, default 50). Seeds 1-3: 927/927 well-formed, 378,300
+runs, 0 contradictions, 0 crashes, 50/50 const and 50/50 record variants well-formed; 0 const mismatches, 1 record
+mismatch per seed (sumr#48 / #22 / #37): the record program's counterexample lacks the entry at a key computed from
+a field (`s.lo - 1`), so it doesn't replay and shows `?` where the base shows ✗. Teeth: flattening a record's fields
+in reverse order (planted in syntax.rs, not committed) gives 0 contradictions but 9 mismatches in 60.
 

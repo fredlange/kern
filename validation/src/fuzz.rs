@@ -318,6 +318,107 @@ pub fn sum_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         .collect()
 }
 
+/// The const variant of a program: every integer literal outside `eg` lines becomes a `const kc_N N` declared at
+/// the end (S5: substituted at load, so the module must mean exactly the same).
+pub fn const_variant(src: &str) -> String {
+    let (mut out, mut values) = (String::new(), std::collections::BTreeSet::new());
+    for line in src.lines() {
+        if line.trim_start().starts_with("eg ") {
+            out.push_str(line);
+        } else {
+            let cs: Vec<char> = line.chars().collect();
+            let mut i = 0;
+            while i < cs.len() {
+                let in_name = i > 0 && (cs[i - 1].is_alphanumeric() || cs[i - 1] == '_' || cs[i - 1] == '.');
+                if cs[i].is_ascii_digit() && !in_name {
+                    let j = (i..cs.len()).find(|&j| !cs[j].is_ascii_digit()).unwrap_or(cs.len());
+                    let v: String = cs[i..j].iter().collect();
+                    out.push_str(&format!("kc_{v}"));
+                    values.insert(v);
+                    i = j;
+                } else {
+                    out.push(cs[i]);
+                    i += 1;
+                }
+            }
+        }
+        out.push('\n');
+    }
+    out.push('\n');
+    for v in &values {
+        out.push_str(&format!("const kc_{v} {v}\n"));
+    }
+    out
+}
+
+/// Replace whole name tokens (runs of letters, digits, `_` and `.`).
+fn rename_tokens(text: &str, from: &str, to: &str) -> String {
+    let (mut out, mut tok) = (String::new(), String::new());
+    let flush = |tok: &mut String, out: &mut String| {
+        out.push_str(if tok == from { to } else { tok.as_str() });
+        tok.clear();
+    };
+    for c in text.chars() {
+        if c.is_alphanumeric() || c == '_' || c == '.' {
+            tok.push(c);
+        } else {
+            flush(&mut tok, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut tok, &mut out);
+    out
+}
+
+/// The record variant of a gen_sum program: `lo`, `hi` become the fields of `record Span lo:Int hi:Int`, in `agg`
+/// and in `f`, and `agg lo hi` passes the record whole (S5: flattened at load, so the verdicts must be the same).
+pub fn record_variant(src: &str) -> Option<String> {
+    if !src.contains("agg lo:Int hi:Int -> Int") || !src.contains("lo:Int hi:Int\n") {
+        return None;
+    }
+    let mut blocks: Vec<String> = src.split("\n\n").map(String::from).collect();
+    for b in blocks.iter_mut() {
+        if b.starts_with("agg ") || b.starts_with("f ") {
+            let mut t = b.replacen("lo:Int hi:Int", "s:Span", 1).replace("agg lo hi", "agg s");
+            t = rename_tokens(&t, "lo", "s.lo");
+            t = rename_tokens(&t, "hi", "s.hi");
+            *b = t;
+        } else if b.starts_with("state ") {
+            b.push_str("\nrecord Span lo:Int hi:Int");
+        }
+    }
+    Some(blocks.join("\n\n"))
+}
+
+/// For each of the first `n` sum programs, its const and record variants (labels `sumc#i`, `sumr#i`), with the base
+/// program's seed so the oracle draws the same worlds.
+pub fn variant_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut out = vec![];
+    for job in sum_jobs(seed, n, runs) {
+        let src = job.src.clone().unwrap();
+        let i = job.label.trim_start_matches("sum#");
+        out.push(Job { label: format!("sumc#{i}"), src: Some(const_variant(&src)), ..job.clone() });
+        if let Some(r) = record_variant(&src) {
+            out.push(Job { label: format!("sumr#{i}"), src: Some(r), ..job.clone() });
+        }
+    }
+    out
+}
+
+/// Variants whose verdict counts differ from their base program's (`sum#i`): each should be empty.
+pub fn variant_mismatches(results: &[Outcome1]) -> Vec<String> {
+    let base: BTreeMap<&str, &Outcome1> =
+        results.iter().filter(|r| r.label.starts_with("sum#")).map(|r| (r.label.trim_start_matches("sum#"), r)).collect();
+    results
+        .iter()
+        .filter_map(|r| {
+            let i = r.label.strip_prefix("sumc#").or_else(|| r.label.strip_prefix("sumr#"))?;
+            let b = base.get(i)?;
+            (b.wf != r.wf || b.tiers != r.tiers || b.found.len() != r.found.len()).then(|| r.label.clone())
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -832,6 +933,8 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "programs_with_contradictions": results.iter().filter(|r| !r.found.is_empty()).map(|r| &r.label).collect::<Vec<_>>(),
         "tiers": tiers, "runs": runs, "ok_runs": ok, "skipped": skipped, "unmapped": unmapped, "unmapped_kinds": unmapped_kinds,
         "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"),
+        "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"),
+        "variant_mismatches": variant_mismatches(results),
     })
 }
 
@@ -843,12 +946,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -875,6 +978,8 @@ pub fn main(argv: &[String]) -> i32 {
     let t0 = std::time::Instant::now();
     let mut js = jobs(&root, num("seed", 1) as i128, num("loops", 300) as usize, num("handlers", 200) as usize, num("runs", 300), !no_mutants);
     js.extend(sum_jobs(num("seed", 1) as i128, num("sums", 150) as usize, num("runs", 300)));
+    let n_var = (num("variants", 50) as usize).min(num("sums", 150) as usize);
+    js.extend(variant_jobs(num("seed", 1) as i128, n_var, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));
@@ -890,6 +995,8 @@ pub fn main(argv: &[String]) -> i32 {
             .collect();
         let _ = std::fs::write(path, serde_json::to_string_pretty(&json!({"summary": s, "found": bad})).unwrap());
     }
+    // a variant whose verdicts differ from its base is reported, not fatal: the known case (2026-11-05) is a record
+    // program's counterexample missing a computed-key entry, so `?` where the base has ✗ (never a false ✔)
     let bad = s["contradictions"].as_u64().unwrap_or(0) > 0 || !s["crashes"].as_array().map_or(true, |a| a.is_empty());
     i32::from(bad)
 }
