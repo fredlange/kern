@@ -252,8 +252,8 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   checks). Tester: 16 positions where a number can be written, `repl` too, all refuse; every host overflow path
   is an error with rollback, and replay matches. Digests and goldens unchanged.
 - **What remains:** the prover still reasons over unbounded integers, so a ✔ call can end as a range fault at
-  the edge; it fails atomically, and the host page states the range as an assumption. Some `eg` value errors
-  have no line number (tester).
+  the edge; it fails atomically, and the host page states the range as an assumption. (`eg` value errors carry
+  their line since `338fe90`.)
 
 ### S11. Tier ○ (runtime-checked only) existed only in the host
 - **Kind:** code gap. **Closed** 2026-11-05 in `f160617`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
