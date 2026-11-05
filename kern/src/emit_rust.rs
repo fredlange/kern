@@ -451,7 +451,20 @@ impl<'a> Gen<'a> {
         Ok(out)
     }
 
+    /// A parameter or result type the runtime has no representation for (Text, until it does) is refused loudly,
+    /// never compiled as something else.
+    fn types_supported(d: &Def, what: &str) -> G<()> {
+        if let Some((p, t)) = d.params.iter().find(|(_, t)| rust_type(t).is_none()) {
+            return unsupported(format!("{}: {} parameter {} of type {}", d.name, what, p, t));
+        }
+        match d.ret.as_deref() {
+            Some(t) if t != "Int" => unsupported(format!("{}: {} result of type {}", d.name, what, t)),
+            _ => Ok(()),
+        }
+    }
+
     fn definition(&mut self, d: &Def) -> G<Vec<String>> {
+        Self::types_supported(d, "definition")?;
         let mut sc: Scope = d.params.iter().cloned().collect();
         let params: String = d.params.iter().map(|(p, t)| format!(", {}: {}", ident(p), rust_type(t).unwrap())).collect();
         let ret = if d.ret.is_some() { "i64" } else { "()" };
@@ -480,6 +493,7 @@ impl<'a> Gen<'a> {
     /// An assumed handler: check its needs, ask the provider, check its ensures (a broken assumption is a fault,
     /// never a refusal).
     fn handler(&mut self, h: &Def) -> G<Vec<String>> {
+        Self::types_supported(h, "handler")?;
         let mut sc: Scope = h.params.iter().cloned().collect();
         let params: String = h.params.iter().map(|(p, t)| format!(", {}: {}", ident(p), rust_type(t).unwrap())).collect();
         let vals: Vec<String> = h
@@ -895,6 +909,21 @@ body
         for own in ["tx", "rt", "w", "exec", "prov", "args", "__a0", "__d1", "__r", "__h_rand_0below", "__inv_put", "__lo", "__hi", "__s", "__j"] {
             assert!(!ids.contains(&own.to_string()), "{own}");
         }
+    }
+
+    #[test]
+    fn a_type_the_runtime_lacks_is_refused_not_mistranslated() {
+        let src = "state hold Int\n\nput k:Int\nbody\n  hold.set k 1\n\nget k:Int -> Int\nbody\n  result = k\n";
+        let base = crate::syntax::parse_module(src, true).unwrap();
+        let mut a = base.clone();
+        a.defs.get_mut("put").unwrap().params[0].1 = "Text".into();
+        let e = super::Gen::new(&a, "t").module().unwrap_err().0;
+        assert!(e.contains("put: definition parameter k of type Text"), "{e}");
+        let mut b = base.clone();
+        b.defs.get_mut("get").unwrap().ret = Some("Text".into());
+        let e = super::Gen::new(&b, "t").module().unwrap_err().0;
+        assert!(e.contains("get: definition result of type Text"), "{e}");
+        assert!(super::Gen::new(&base, "t").module().is_ok());
     }
 
     #[test]
