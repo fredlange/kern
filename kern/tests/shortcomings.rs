@@ -1972,3 +1972,28 @@ body
         assert!(reps[n].clean, "{n}: {:?}", reps[n].guarantees);
     }
 }
+
+#[test]
+fn every_goal_of_the_computed_key_repro_is_decided_and_the_bad_ones_replay() {
+    // tester on #OH54XTG7VD / #J4WKIQY6FL (.party/notes/tester-repro/ckey_random_broken_shows_unconfirmed.k): false
+    // invariant goals showed ? although random tests broke them. Every goal is decided; each bad one is ✗ with a run
+    // the interpreter confirmed
+    use kern::report::Status;
+    let src = "state hold Int\nstate cap Int\ninvariant o:Int hold.get o >= 0\ninvariant o:Int hold.get o <= cap.get o + 100\n\n\
+ok1 k:Int\n  ok otherwise\nbody\n  hold.set (k + 1) 5\n\nbad1 k:Int\n  ok otherwise\nbody\n  hold.set (k + 1) (0 - 5)\n\n\
+ok2 r:Int c:Int\n  need c >= 0 and c < 7 else Bad\n  ok otherwise\nbody\n  hold.set (r * 7 + c) 0\n\n\
+bad_cross k:Int\n  ok otherwise\nbody\n  cap.set (k * 2) (0 - 500)\n\nok_copy k:Int\n  ok otherwise\nbody\n  hold.set (k + 1) (hold.get (k + 2))\n\n\
+bad_copy k:Int\n  ok otherwise\nbody\n  hold.set (k + 1) (hold.get (k + 2) + 200)\n";
+    let reps = reports(&parse(src));
+    for (n, r) in &reps {
+        for g in &r.guarantees {
+            assert!(!matches!(g.status, Status::Unknown | Status::Unconfirmed | Status::Tested), "{n}: {} {:?}", g.clause, g.status);
+            if g.status == Status::Refuted {
+                assert!(g.counterexample.as_ref().unwrap().confirmed_by_interpreter, "{n}: {}", g.clause);
+            }
+        }
+    }
+    for n in ["bad1", "bad_cross", "bad_copy"] {
+        assert!(reps[n].guarantees.iter().any(|g| g.kind == "invariant" && g.status == Status::Refuted), "{n}");
+    }
+}

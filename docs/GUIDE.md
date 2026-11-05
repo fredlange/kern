@@ -84,7 +84,7 @@ body
 | Refusals | with `ok otherwise`, proven to refuse only where a spec `need` fails |
 | Tiers | ✔ proven, ✗ refuted (replayed), ? unconfirmed or no answer, ! relies on something unproven, ⊙ relies on an assumed handler, ◐ tested only, ○ a module invariant checked only at run time, after every call (`kern host` and `kern build` programs; the gated host serves it only with `--no-gate`), ∅ never succeeds |
 | Trust | a modular proof is downgraded if a callee's guarantees are broken |
-| Counterexamples | rendered as `eg` lines and replayed in the interpreter; only a replayed one counts as ✗ |
+| Counterexamples | rendered as `eg` lines and replayed in the interpreter; only a replayed one counts as ✗, or a random-test run that broke the claim (its `eg` line), whatever the prover answered |
 | Spec strength | mutation testing of the body. The headline is what the *guarantees* catch; examples are reported separately |
 | Spec refusals | each spec `need` dropped, and its comparison flipped; caught by an example, else a guarantee (cheapest first). `unpinned` lists the needs nothing pins; an `eg` at the boundary fixes it. Callers' proofs aren't re-run |
 | Ratchet | `kern baseline FILE.k` records strength and guarantees; `check` flags "Weaker than baseline" |

@@ -762,38 +762,26 @@ pub fn analyse(
     // ○ runtime-checked: a module invariant the prover neither proved nor refuted is still enforced at run time,
     // since `kern host` checks the module invariants after every call (at the keys the call wrote). It keeps
     // `tested` when random tests also held it. Nothing else is checked at run time, so nothing else gets ○.
-    // A random run that broke a goal is a counterexample the interpreter found: a goal the prover left undecided,
+    // A random run that broke a goal is a counterexample the interpreter found: any goal the prover left undecided,
     // or refuted with a counterexample that didn't replay, is ✗ with that run as its `eg` line (a success, so
-    // `-> ok`), never ○ or `?` (reviewer, S11; tester, #OH54XTG7VD).
+    // `-> ok`), never ○ or `?` (reviewer, S11; tester, #OH54XTG7VD, #J4WKIQY6FL). A ◐ goal has no such run.
     for r in reports.values_mut() {
         let violations = r.props.violations.clone();
         for g in &mut r.guarantees {
-            if matches!(g.status, Status::Unconfirmed) && g.kind != "ok" {
-                let broke = violations.iter().find_map(|v| match v {
-                    Violation::Clause { clause, eg } if *clause == format!("{} {}", g.kind, g.clause) => Some(eg.clone()),
-                    _ => None,
-                });
-                if let Some(eg) = broke {
-                    g.status = Status::Refuted;
-                    g.counterexample =
-                        Some(Counterexample { eg: format!("{eg} -> ok"), emitted: String::new(), confirmed_by_interpreter: true });
-                }
+            if !matches!(g.status, Status::Unconfirmed | Status::Unknown | Status::Tested) || g.kind == "ok" || g.kind == "measure" {
                 continue;
             }
-            if g.kind == "invariant" && matches!(g.status, Status::Unknown | Status::Tested) {
-                let broke = violations.iter().find_map(|v| match v {
-                    Violation::Clause { clause, eg } if *clause == format!("invariant {}", g.clause) => Some(eg.clone()),
-                    _ => None,
-                });
-                match broke {
-                    Some(eg) => {
-                        g.status = Status::Refuted;
-                        g.tested = None;
-                        g.counterexample =
-                            Some(Counterexample { eg: format!("{eg} -> ok"), emitted: String::new(), confirmed_by_interpreter: true });
-                    }
-                    None => g.status = Status::Runtime,
-                }
+            let broke = violations.iter().find_map(|v| match v {
+                Violation::Clause { clause, eg } if *clause == format!("{} {}", g.kind, g.clause) => Some(eg.clone()),
+                _ => None,
+            });
+            if let Some(eg) = broke {
+                g.status = Status::Refuted;
+                g.tested = None;
+                g.counterexample =
+                    Some(Counterexample { eg: format!("{eg} -> ok"), emitted: String::new(), confirmed_by_interpreter: true });
+            } else if g.kind == "invariant" && g.status != Status::Unconfirmed {
+                g.status = Status::Runtime;
             }
         }
     }

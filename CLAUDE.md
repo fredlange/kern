@@ -229,8 +229,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   pre-state form when it has one case, else its source text marked "(after this call's earlier changes)" (S18).
   Agent views show only a definition's
   *own* body needs (inherited ones measured at ~2x the spec-view tokens).
-- Counterexamples from modular proofs may not replay; those show as `?` unconfirmed,
-  never ✗. Results repeat, within one process too: since 2026-11-05 every proof gets a fresh Z3
+- Counterexamples from modular proofs may not replay; those show as `?` unconfirmed, never ✗,
+  unless a random-test run broke the same clause: any goal the prover left `?` is then ✗ with that run as its
+  `eg` (#J4WKIQY6FL). Results repeat, within one process too: since 2026-11-05 every proof gets a fresh Z3
   context and fresh names (`kern/tests/determinism.rs`; `KERN_Z3_FRESH` switches it off for
   comparisons). In the Python toolchain, Z3's witness choice followed earlier solver calls in the same
   process, which could flip a mutant between refuted and unconfirmed. Across processes, results repeat
