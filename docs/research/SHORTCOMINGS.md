@@ -263,10 +263,12 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   unchanged (goldens: one line each, the package list, plus examples/money recorded). Tester: missing, cyclic,
   clashing, stray-line and transitive cases are all right.
 - **What remains:**
-  - An MCP edit in a used package doesn't re-check the packages that use it (F2: an agent's edit can leave a
-    caller's verdict stale). A lang task.
-  - Minor (tester): `use` twice is accepted silently though the decision says each name once; a non-sibling
-    path (`../../x`) loads in the CLI; an absolute path says "not a package" even with a kern.pkg.
+  - ~~An MCP edit in a used package doesn't re-check the packages that use it~~ fixed in `f8b8211` and `3318154`:
+    `kern_edit` re-checks users found next to the package or under the server's root (`KERN_MCP_ROOT`, else its
+    working directory), and `users_searched` names the tree searched. A user outside that tree isn't found; the
+    result says where it looked, so it doesn't claim more (tester).
+  - ~~Minor import deviations~~ fixed in `f8b8211`: a repeated `use`, a non-sibling path and an absolute path's
+    message.
 
 ### S5, match (one row of S5)
 - **Kind:** code gap. **Closed** 2026-11-05 in `a8cee99`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
