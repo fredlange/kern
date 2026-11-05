@@ -16,35 +16,39 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 .ic{font-weight:700;width:16px;flex:none}li.proven .ic{color:var(--ok)}li.refuted .ic{color:var(--fail)}li.conditional .ic,li.unknown .ic{color:var(--warn)}
 .how{color:var(--muted);font-size:14px}.src{margin-top:2px;font-size:12px}ul.ex{margin:4px 0;padding-left:18px}
 .okc{color:var(--ok)}.failc{color:var(--fail)}.warnc{color:var(--warn)}details{margin-top:16px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;font-weight:600}
-</style></head><body><main><h1>Proof page · todo.k</h1><p class='sub'>Generated from verifier results by fixed templates — no text here was written by a model.</p><section class="card"><header><h2><code>add_task</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build f2bf113f</span></header>
-<h3>Can touch</h3><p>the audit log, the clock, state <code>due</code> (read and write), state <code>priority</code> (read and write), state <code>status</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
-<p>Changes: due.id priority.id status.id. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
-<h3>Refuses when</h3><table><tr><td><code>id</code> ≤ 0</td><td class='fail-name'>→ <code>BadId</code></td></tr><tr><td>status of <code>id</code> ≠ 0</td><td class='fail-name'>→ <code>TaskExists</code></td></tr><tr><td><code>deadline</code> &lt; the time of the call</td><td class='fail-name'>→ <code>DeadlinePassed</code></td></tr><tr><td><code>prio</code> &lt; 1</td><td class='fail-name'>→ <code>BadPriority</code></td></tr><tr><td><code>prio</code> &gt; 3</td><td class='fail-name'>→ <code>BadPriority</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+</style></head><body><main><h1>Proof page · todo.k</h1><p class='sub'>Generated from verifier results by fixed templates — no text here was written by a model.</p><section class="card"><header><h2><code>add_task</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build a5ae3297</span></header>
+<h3>Can touch</h3><p>the audit log, the clock, state <code>due</code> (read and write), state <code>priority</code> (read and write), state <code>status</code> (read and write), state <code>title</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: due.id priority.id status.id title.id. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<h3>Refuses when</h3><table><tr><td><code>id</code> ≤ 0</td><td class='fail-name'>→ <code>BadId</code></td></tr><tr><td>status of <code>id</code> ≠ 0</td><td class='fail-name'>→ <code>TaskExists</code></td></tr><tr><td><code>deadline</code> &lt; the time of the call</td><td class='fail-name'>→ <code>DeadlinePassed</code></td></tr><tr><td><code>length <code>name</code></code> ≤ 0</td><td class='fail-name'>→ <code>EmptyTitle</code></td></tr><tr><td><code>length <code>name</code></code> &gt; 40</td><td class='fail-name'>→ <code>TitleTooLong</code></td></tr><tr><td><code>prio</code> &lt; 1</td><td class='fail-name'>→ <code>BadPriority</code></td></tr><tr><td><code>prio</code> &gt; 3</td><td class='fail-name'>→ <code>BadPriority</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
 <h3>Guarantees</h3><ul class='g'>
 <li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>status of <code>id</code> <em>after</em> = 1</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure status.get&#x27; id = 1</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>due of <code>id</code> <em>after</em> = <code>deadline</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure due.get&#x27; id = deadline</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>priority of <code>id</code> <em>after</em> = <code>prio</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure priority.get&#x27; id = prio</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>title of <code>id</code> <em>after</em> = <code>name</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure title.get&#x27; id = name</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>t</code> (Int): status of <code>t</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant t:Int status.get t &gt;= 0</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>t</code> (Int): status of <code>t</code> ≤ 2</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant t:Int status.get t &lt;= 2</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>t</code> (Int): priority of <code>t</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant t:Int priority.get t &gt;= 0</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>t</code> (Int): priority of <code>t</code> ≤ 3</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant t:Int priority.get t &lt;= 3</code></div></div></li>
-<li class='proven'><span class='ic'>✔</span><div><div>appends exactly one event to the audit log: <code>Added</code> (<code>id</code>, <code>deadline</code>, <code>prio</code>)</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>emit Added id deadline prio</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>appends exactly one event to the audit log: <code>Added</code> (<code>id</code>, <code>name</code>, <code>deadline</code>, <code>prio</code>)</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>emit Added id name deadline prio</code></div></div></li>
 </ul>
-<h3>Examples <span class='muted'>9/9 pass, executed against build f2bf113f</span></h3><ul class='ex'>
-<li><code>| add_task 1 10 2 -&gt; ok | status.1:1 due.1:10 priority.1:2</code> <span class='okc'>✔</span></li>
-<li><code>status.1:1 | add_task 1 10 2 -&gt; TaskExists</code> <span class='okc'>✔</span></li>
-<li><code>now:20 | add_task 1 10 2 -&gt; DeadlinePassed</code> <span class='okc'>✔</span></li>
-<li><code>now:10 | add_task 1 10 2 -&gt; ok | status.1:1 due.1:10 priority.1:2</code> <span class='okc'>✔</span></li>
-<li><code>| add_task 0 10 2 -&gt; BadId</code> <span class='okc'>✔</span></li>
-<li><code>| add_task 1 10 0 -&gt; BadPriority</code> <span class='okc'>✔</span></li>
-<li><code>| add_task 1 10 4 -&gt; BadPriority</code> <span class='okc'>✔</span></li>
-<li><code>| add_task 1 10 1 -&gt; ok | priority.1:1</code> <span class='okc'>✔</span></li>
-<li><code>| add_task 1 10 3 -&gt; ok | priority.1:3</code> <span class='okc'>✔</span></li>
+<h3>Examples <span class='muted'>12/12 pass, executed against build a5ae3297</span></h3><ul class='ex'>
+<li><code>| add_task 1 &quot;write report&quot; 10 2 -&gt; ok | status.1:1 due.1:10 priority.1:2 title.1:&quot;write report&quot;</code> <span class='okc'>✔</span></li>
+<li><code>status.1:1 | add_task 1 &quot;write report&quot; 10 2 -&gt; TaskExists</code> <span class='okc'>✔</span></li>
+<li><code>now:20 | add_task 1 &quot;write report&quot; 10 2 -&gt; DeadlinePassed</code> <span class='okc'>✔</span></li>
+<li><code>now:10 | add_task 1 &quot;write report&quot; 10 2 -&gt; ok | status.1:1 due.1:10 priority.1:2</code> <span class='okc'>✔</span></li>
+<li><code>| add_task 1 &quot;&quot; 10 2 -&gt; EmptyTitle</code> <span class='okc'>✔</span></li>
+<li><code>| add_task 1 &quot;aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&quot; 10 2 -&gt; TitleTooLong</code> <span class='okc'>✔</span></li>
+<li><code>| add_task 1 &quot;aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&quot; 10 2 -&gt; ok</code> <span class='okc'>✔</span></li>
+<li><code>| add_task 0 &quot;write report&quot; 10 2 -&gt; BadId</code> <span class='okc'>✔</span></li>
+<li><code>| add_task 1 &quot;write report&quot; 10 0 -&gt; BadPriority</code> <span class='okc'>✔</span></li>
+<li><code>| add_task 1 &quot;write report&quot; 10 4 -&gt; BadPriority</code> <span class='okc'>✔</span></li>
+<li><code>| add_task 1 &quot;write report&quot; 10 1 -&gt; ok | priority.1:1</code> <span class='okc'>✔</span></li>
+<li><code>| add_task 1 &quot;write report&quot; 10 3 -&gt; ok | priority.1:3</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 15 succeeded and were checked against every guarantee; refused: BadPriority 200, DeadlinePassed 155, BadId 77, TaskExists 53.</p>
-<h3>Spec strength <span class='muted'>guarantees catch 21/21 deliberate bugs (100%)</span></h3><p>Caught by the prover: 21; by random tests checking the guarantees: 21. The examples alone catch 14/21; everything together 21/21.</p>
-<p>Refusals in the spec: 10/10 changes caught, by examples 10, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+<h3>Random tests</h3><p>500 random worlds and inputs: 15 succeeded and were checked against every guarantee; refused: DeadlinePassed 152, BadPriority 131, BadId 82, EmptyTitle 70, TaskExists 50.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 24/24 deliberate bugs (100%)</span></h3><p>Caught by the prover: 24; by random tests checking the guarantees: 24. The examples alone catch 17/24; everything together 24/24.</p>
+<p>Refusals in the spec: 14/14 changes caught, by examples 14, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 </section>
 <section class="card"><header><h2><code>complete</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 39e44c2c</span></header>
 <h3>Can touch</h3><p>the audit log, the clock, state <code>due</code> (read only), state <code>status</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
@@ -83,4 +87,39 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Random tests</h3><p>500 random worlds and inputs: 16 succeeded and were checked against every guarantee; refused: NotOpen 465, DeadlinePassed 19.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 3/3 deliberate bugs (100%)</span></h3><p>Caught by the prover: 3; by random tests checking the guarantees: 3. The examples alone catch 3/3; everything together 3/3.</p>
 <p>Refusals in the spec: 4/4 changes caught, by examples 3, by guarantees 1. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section>
+<section class="card"><header><h2><code>retitle</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 3c4abca9</span></header>
+<h3>Can touch</h3><p>state <code>status</code> (read only), state <code>title</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: title.id. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<h3>Refuses when</h3><table><tr><td>status of <code>id</code> ≠ 1</td><td class='fail-name'>→ <code>NotOpen</code></td></tr><tr><td><code>length <code>name</code></code> ≤ 0</td><td class='fail-name'>→ <code>EmptyTitle</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>title of <code>id</code> <em>after</em> = <code>name</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure title.get&#x27; id = name</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>status of <code>id</code> <em>after</em> = 1</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure status.get&#x27; id = 1</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>3/3 pass, executed against build 3c4abca9</span></h3><ul class='ex'>
+<li><code>status.1:1 title.1:&quot;a&quot; | retitle 1 &quot;b&quot; -&gt; ok | title.1:&quot;b&quot;</code> <span class='okc'>✔</span></li>
+<li><code>status.2:1 | retitle 1 &quot;b&quot; -&gt; NotOpen</code> <span class='okc'>✔</span></li>
+<li><code>status.1:1 | retitle 1 &quot;&quot; -&gt; EmptyTitle</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 27 succeeded and were checked against every guarantee; refused: NotOpen 462, EmptyTitle 11.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 1/1 deliberate bugs (100%)</span></h3><p>Caught by the prover: 1; by random tests checking the guarantees: 1. The examples alone catch 1/1; everything together 1/1.</p>
+<p>Refusals in the spec: 4/4 changes caught, by examples 4, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section>
+<section class="card"><header><h2><code>mark_urgent</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build f28a0bad</span></header>
+<h3>Can touch</h3><p>state <code>status</code> (read only), state <code>title</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: title.id. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<h3>Refuses when</h3><table><tr><td>status of <code>id</code> ≠ 1</td><td class='fail-name'>→ <code>NotOpen</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>title of <code>id</code> <em>after</em> = <code>&quot;!&quot;</code> + title of <code>id</code> <em>before</em></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure title.get&#x27; id = &quot;!&quot; + title.get id</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div><code>length title of <code>id</code> <em>after</em></code> = <code>length title of <code>id</code> <em>before</em></code> + 1</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure length (title.get&#x27; id) = length (title.get id) + 1</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>2/2 pass, executed against build f28a0bad</span></h3><ul class='ex'>
+<li><code>status.1:1 title.1:&quot;pay rent&quot; | mark_urgent 1 -&gt; ok | title.1:&quot;!pay rent&quot;</code> <span class='okc'>✔</span></li>
+<li><code>status.1:2 | mark_urgent 1 -&gt; NotOpen</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 43 succeeded and were checked against every guarantee; refused: NotOpen 457.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 1/1 deliberate bugs (100%)</span></h3><p>Caught by the prover: 1; by random tests checking the guarantees: 1. The examples alone catch 1/1; everything together 1/1.</p>
+<p>Refusals in the spec: 2/2 changes caught, by examples 2, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 </section></main></body></html>
