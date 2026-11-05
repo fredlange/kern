@@ -1369,7 +1369,24 @@ impl<'m> Host<'m> {
     }
 }
 
-pub fn host_effect(root: &str) -> &'static str {
+/// Where the host keeps an effect family. A state is stored per state (a record's per field state, `order.qty`):
+/// Int ones in table `cell`, Text ones in `textcell`.
+pub fn host_effect(defs: &Module, root: &str) -> String {
+    let dotted = format!("{}.", root);
+    let parts: Vec<&String> = defs.states.keys().filter(|x| *x == root || x.starts_with(&dotted)).collect();
+    if !parts.is_empty() {
+        let text = parts.iter().filter(|x| defs.text_states.contains(x)).count();
+        let tables = match (parts.len() - text, text) {
+            (_, 0) => "table `cell`",
+            (0, _) => "table `textcell`",
+            _ => "tables `cell` (Int fields) and `textcell` (Text fields)",
+        };
+        return format!("SQLite {}, one transaction per call", tables);
+    }
+    host_effect_root(root).to_string()
+}
+
+fn host_effect_root(root: &str) -> &'static str {
     match root {
         "ledger" => "SQLite table `account`, one transaction per call",
         "clock" => {
@@ -1398,7 +1415,7 @@ pub fn manifest_text(host: &Host) -> String {
     let mut lines = vec![format!("module may use: {}", allu.iter().cloned().collect::<Vec<_>>().join(", ")), "host provides:".into()];
     let roots: BTreeSet<String> = allu.iter().map(|u| u.split('.').next().unwrap().to_string()).collect();
     for root in roots {
-        lines.push(format!("  {:<8} {}", root, host_effect(&root)));
+        lines.push(format!("  {:<8} {}", root, host_effect(host.defs, &root)));
     }
     let mut eps: Vec<(&String, &Endpoint)> = host.endpoints.iter().collect();
     eps.sort_by(|a, b| a.0.cmp(b.0));
@@ -1525,7 +1542,7 @@ pub fn host_facts(host: &Host) -> HostInfo {
         assumptions.push(format!("Request deadlines: {}.", deadlines.join(", ")));
     }
     HostInfo {
-        effects: used.iter().map(|u| (u.clone(), host_effect(u).to_string())).collect(),
+        effects: used.iter().map(|u| (u.clone(), host_effect(host.defs, u))).collect(),
         endpoints: eps
             .iter()
             .map(|(c, ep)| ((*c).clone(), ep.method.clone(), ep.url.clone(), ep.reply.clone(), ep.fail.clone()))
@@ -1534,15 +1551,46 @@ pub fn host_facts(host: &Host) -> HostInfo {
     }
 }
 
-fn state_json(w: &World) -> J {
+/// The world as JSON. A stored record (`state order Int -> Order`, kept as field states `order.qty`, …) is one object
+/// per key, `"order": {"7": {"item": 3, "qty": 2}}`, the shape a record argument has (DECISIONS 2026-11-06).
+fn state_json(w: &World, defs: &Module) -> J {
+    let mut flat: Map<String, J> = w
+        .maps
+        .iter()
+        .map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), json!(*v as i64))).collect())))
+        .chain(w.texts.iter().map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), json!(v))).collect()))))
+        .collect();
+    for r in defs.record_states.keys() {
+        let prefix = format!("{}.", r);
+        let fields: Vec<&String> = defs.states.keys().filter(|x| x.starts_with(&prefix)).collect();
+        if fields.is_empty() {
+            continue;
+        }
+        let mut entries: Map<String, J> = Map::new();
+        let keys: std::collections::BTreeSet<String> =
+            fields.iter().filter_map(|f| flat.get(f.as_str())).flat_map(|m| m.as_object().unwrap().keys().cloned()).collect();
+        for k in keys {
+            let mut entry = J::Object(Map::new());
+            for f in &fields {
+                let default = if defs.text_states.contains(f) { json!("") } else { json!(0) };
+                let v = flat.get(f.as_str()).and_then(|m| m.get(&k)).cloned().unwrap_or(default);
+                let path: Vec<&str> = f[prefix.len()..].split('.').collect();
+                let mut node = &mut entry;
+                for part in &path[..path.len() - 1] {
+                    node = node.as_object_mut().unwrap().entry(part.to_string()).or_insert_with(|| J::Object(Map::new()));
+                }
+                node.as_object_mut().unwrap().insert(path[path.len() - 1].to_string(), v);
+            }
+            entries.insert(k, entry);
+        }
+        for f in &fields {
+            flat.shift_remove(f.as_str());
+        }
+        flat.insert(r.clone(), J::Object(entries));
+    }
     json!({
         "balances": w.bal.iter().map(|(a, b)| (a.clone(), json!(*b as i64))).collect::<Map<String, J>>(),
-        "state": w
-            .maps
-            .iter()
-            .map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), json!(*v as i64))).collect())))
-            .chain(w.texts.iter().map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), json!(v))).collect()))))
-            .collect::<Map<String, J>>(),
+        "state": flat,
     })
 }
 
@@ -1616,7 +1664,7 @@ pub fn repl(host: &mut Host, lines: impl Iterator<Item = String>, out: &mut dyn 
         }
         if line == "state" {
             let w = host.load().map_err(sql)?;
-            out(dumps(&state_json(&w)));
+            out(dumps(&state_json(&w, host.defs)));
             continue;
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
@@ -1716,7 +1764,7 @@ pub fn handle_http(host: &mut Host, mut req: tiny_http::Request) -> Result<(), H
             "/manifest" => respond(req, 200, &J::Object(host.manifest())),
             "/state" => {
                 let w = host.load().map_err(sql)?;
-                respond(req, 200, &state_json(&w));
+                respond(req, 200, &state_json(&w, host.defs));
             }
             _ => respond(req, 404, &json!({"error": "GET /manifest or /state; POST /NAME"})),
         }
@@ -2540,6 +2588,41 @@ body
         assert_eq!(out, ["ok 4", "refused Empty", "refused Empty"]);
         let w = h.load().unwrap();
         assert_eq!((w.maps["next"][&Key::Int(0)], w.maps["stock"][&Key::Int(1)]), (4, 1));
+        drop(h);
+        assert!(open().replay().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_stored_record_is_one_json_object_per_key_and_its_fields_are_rows() {
+        let src = "record Point x:Int y:Int\nrecord Seg a:Point b:Point name:Text\nstate seg Int -> Seg\nstate n Int\n\n\
+                   put k:Int s:Seg\n  ok otherwise\nbody\n  seg.set k s\n  n.set 0 1\n\nnudge k:Int\n  ok otherwise\nbody\n  \
+                   seg.b.y.set k 9\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let dir = std::env::temp_dir().join(format!("kern-recstate-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("t.db").to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&db);
+        let open = || Host::new(&defs, IndexMap::new(), Options { db: db.clone(), sinks: Some(vec![]), gate: false, ..Default::default() }).unwrap();
+        let mut h = open();
+        h.init("seg.a.x.3:7").unwrap();
+        let body = json!({"k": 1, "s": {"a": {"x": 1, "y": 2}, "b": {"x": 3, "y": 4}, "name": "one"}});
+        let args = http_args(&defs.defs["put"].params, &body).unwrap();
+        assert_eq!(h.call("put", &args).unwrap()["status"], "ok");
+        h.call("nudge", &[Value::Int(5)]).unwrap();
+        let st = state_json(&h.load().unwrap(), &defs)["state"].clone();
+        assert_eq!(st["n"], json!({"0": 1}));
+        assert_eq!(st["seg"]["1"], json!({"a": {"x": 1, "y": 2}, "b": {"x": 3, "y": 4}, "name": "one"}));
+        // a key one field has shows every field, the others at their defaults
+        assert_eq!(st["seg"]["3"], json!({"a": {"x": 7, "y": 0}, "b": {"x": 0, "y": 0}, "name": ""}));
+        assert_eq!(st["seg"]["5"], json!({"a": {"x": 0, "y": 0}, "b": {"x": 0, "y": 9}, "name": ""}));
+        assert!(st.get("seg.a.x").is_none());
+        // SQLite keeps the field states, as the interpreter's world does
+        let rows: i64 = h.db.query_row("select count(*) from cell where state like 'seg.%'", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 6); // the 4 Int fields of key 1, a.x of 3, b.y of 5
+        assert_eq!(host_effect(&defs, "seg"), "SQLite tables `cell` (Int fields) and `textcell` (Text fields), one transaction per call");
+        assert_eq!(host_effect(&defs, "n"), "SQLite table `cell`, one transaction per call");
         drop(h);
         assert!(open().replay().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);

@@ -46,6 +46,13 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   definition takes a JSON string (an Int parameter still takes an integer; anything else is the `fail` call), and
   a Text in a request URL is %-encoded. `repl` prints a reply's Text arguments quoted the same way, with line
   breaks escaped (`\n`, `\r`), so each reply is one line: `reply answer 3 "why?" "because" -> ok`.
+- **Records in state (2026-11-06).** `state order Int -> Order` is one state per field (`order.item`, `order.qty`;
+  lang's flattening), so SQLite keeps a row per field in `cell` (Int fields) or `textcell` (Text fields), named
+  `order.qty`, as the interpreter's world does, and replay compares them field by field. The genesis world names
+  field states (`order.qty.7:2`, `seg.b.x.1:3`). `GET /state` and `repl`'s `state` show the record, not its fields:
+  `"order": {"7": {"item": 3, "qty": 2, "note": "rush"}}`, nested records nested, each key any field has shown with
+  every field (absent ones at 0 or `""`); the shape a record argument has (DECISIONS 2026-11-06). The manifest
+  and the page say which tables a state uses (`cell`, `textcell` or both); before, a Text state was shown as `cell`.
 - **Recursion (2026-11-05).** A recursive definition runs once its `decreases` measure is proven; calls nest at
   most 200 deep in one call, the top-level one included (the interpreter's `MAX_CALL_DEPTH`; kern-rt's is the same
   number). Deeper is a resource error, like the iteration limit: undone, logged, skipped by replay.
