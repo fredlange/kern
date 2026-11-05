@@ -23,7 +23,7 @@ const LIB: &str = "runtime/src/lib.rs";
 const GEN: &str = "kern/src/emit_rust.rs";
 
 /// (what, file, text, planted text)
-pub const PLANTS: [(&str, &str, &str, &str); 13] = [
+pub const PLANTS: [(&str, &str, &str, &str); 16] = [
     ("refusal does not tick the clock", LIB, "if !matches!(out, Err(Stop::Fault(_))) {", "if out.is_ok() {"),
     ("refusal keeps its events", LIB, "            self.events.clear();\n        }\n        if !matches", "        }\n        if !matches"),
     ("division truncates toward zero", LIB, "a.div_euclid(b)", "a / b"),
@@ -41,6 +41,11 @@ pub const PLANTS: [(&str, &str, &str, &str); 13] = [
      "format!(\"({})\", vals.iter().map(|_| vals[0].0.as_str()).collect::<Vec<_>>().join(\", \"))"),
     ("channel events emitted on audit", GEN, "Self::hoist(&format!(\"tx.emit({}, {{}})\", i), &vals)",
      "Self::hoist(&format!(\"tx.emit({}, {{}})\", 0 * i), &vals)"),
+    // compiled module-invariant checks (f53e1a0): written keys of each kind, and the check itself
+    ("Account-map writes not checked", LIB, "Undo::Bal(i, _) | Undo::A(_, i, _) => *i,",
+     "Undo::Bal(i, _) => *i,\n                Undo::A(..) => continue,"),
+    ("Int-key writes not checked", LIB, "if !out.contains(k) {\n                    out.push(*k);", "if !out.contains(k) && false {\n                    out.push(*k);"),
+    ("broken invariant not a fault", GEN, "\"        if !({}) {{ return Err(Fault::Error(", "\"        if false && !({}) {{ return Err(Fault::Error("),
     ("else branch dropped", GEN, "if !o.is_empty() {\n                        out.push(format!(\"{}}} else {{\", ind));",
      "if false && !o.is_empty() {\n                        out.push(format!(\"{}}} else {{\", ind));"),
 ];

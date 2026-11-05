@@ -1,13 +1,17 @@
 //! Differential test (port of validation/difftest.py): a compiled Kern module against the reference interpreter.
 //!
 //! ```text
-//! difftest [--per-def N] [--seed S] [MODULE.k ...]   (default: every example + tests/probes/runtime.k)
+//! difftest [--per-def N] [--seed S] [MODULE.k ...]   (default: every example + tests/probes/{runtime,invcheck}.k)
 //! ```
 //!
 //! Scorecard C1 and C2 of docs/research/RUNTIME_PLAN.md:
 //! - C1: every `eg` line, run in the binary, gives the eg's outcome and after-world;
 //! - C2: random worlds and calls (the same world, calls and provider values for both) give the same canonical line
 //!   per call (outcome, refusal payload, clock, events per channel) and the same world.
+//!
+//! The reference is the interpreter plus the host's key-scoped module-invariant check, for the invariants
+//! `kern build` compiles a check of (`kern::emit_rust::unproven_invariants`): a call that breaks one at a key it
+//! wrote is a fault, undone, with no clock tick.
 //!
 //! Values stay small, so no interpreter integer leaves i64 (overflow is a deliberate divergence, tested separately
 //! in kern/tests/runtime.rs). The random draws use the same Python-compatible generator and the same order as
@@ -95,8 +99,64 @@ fn channels(defs: &Module) -> Vec<String> {
     c
 }
 
-/// One call through the interpreter: (canonical line, provider values it drew).
-fn interp_call(interp: &mut Interp, w: &mut World, defs: &Module, name: &str, args: &[Value]) -> Result<(String, Vec<Value>), String> {
+/// A world as a read-only Store, so a checked call runs on `World::lazy` and its written keys are exact, as in the
+/// host (`kern host`'s call_in_tx).
+struct Snap(World);
+
+impl kern::run::Store for Snap {
+    fn balance(&self, a: &str) -> Option<i128> {
+        self.0.bal.get(a).copied()
+    }
+    fn owner(&self, a: &str) -> Option<String> {
+        self.0.own.get(a).cloned()
+    }
+    fn total(&self) -> i128 {
+        self.0.bal.values().sum()
+    }
+    fn cell(&self, state: &str, key: &Key) -> Option<i128> {
+        self.0.maps.get(state).and_then(|m| m.get(key)).copied()
+    }
+}
+
+/// Module invariants the compiled program checks after a call (`kern::emit_rust::unproven_invariants`): name ->
+/// indexes into `Module::invariants`.
+pub type Checks = IndexMap<String, Vec<usize>>;
+
+/// One call through the reference: the interpreter, plus, for a definition in `checks`, the host's key-scoped
+/// invariant check (only the invariants the compiled program checks): a successful call that breaks one at a key
+/// it wrote is undone as a fault and doesn't tick the clock. Returns (canonical line, provider values it drew).
+fn interp_call(interp: &mut Interp, w: &mut World, defs: &Module, checks: &Checks, name: &str, args: &[Value])
+    -> Result<(String, Vec<Value>), String> {
+    let Some(which) = checks.get(name) else { return interp_call_plain(interp, w, defs, name, args) };
+    let mut lw = World::lazy(std::rc::Rc::new(Snap(w.clone())));
+    lw.clock = w.clock;
+    let n_obs = interp.observations.len();
+    let res = interp_call_plain(interp, &mut lw, defs, name, args)?;
+    if res.0.starts_with("ok") {
+        let keys = lw.written_keys(&defs.states);
+        let texts: Vec<String> =
+            which.iter().map(|&i| { let (v, t, c) = &defs.invariants[i]; format!("{}:{} {}", v, t, kern::syntax::code(c)) }).collect();
+        let broken = interp.broken_invariants(&mut lw, Some(&keys)).map_err(|e| format!("interpreter: {e}"))?;
+        if broken.iter().any(|(t, _)| texts.contains(t)) {
+            let drawn = interp.observations[n_obs..].iter().map(|(_, _, v)| v.clone()).collect::<Vec<_>>();
+            return Ok((format!("fault t={}", w.clock), drawn));
+        }
+    }
+    // keep what the call did: its writes, events and clock
+    w.bal.extend(lw.bal);
+    w.own.extend(lw.own);
+    for (x, m) in lw.maps {
+        w.maps.entry(x).or_default().extend(m);
+    }
+    w.audit.extend(lw.audit);
+    for (c, evs) in lw.out {
+        w.out.entry(c).or_default().extend(evs);
+    }
+    w.clock = lw.clock;
+    Ok(res)
+}
+
+fn interp_call_plain(interp: &mut Interp, w: &mut World, defs: &Module, name: &str, args: &[Value]) -> Result<(String, Vec<Value>), String> {
     let d = &defs.defs[name];
     let before: Vec<usize> = channels(defs).iter().map(|c| w.events(c).len()).collect();
     let n_obs = interp.observations.len();
@@ -226,7 +286,7 @@ fn tok_of(k: &Key) -> String {
 
 /// The script and the interpreter's answers for one module. `provider` serves assumed handlers (None: the
 /// interpreter's seeded default); whatever it draws goes into the script as `obs` lines for the binary to replay.
-pub fn build_case<'m>(defs: &'m Module, rng: &mut Random, per_def: usize, seed: i128, provider: Option<kern::run::Provider<'m>>)
+pub fn build_case<'m>(defs: &'m Module, checks: &Checks, rng: &mut Random, per_def: usize, seed: i128, provider: Option<kern::run::Provider<'m>>)
     -> Result<(Case, Vec<(usize, Example)>), String> {
     let mut case = Case::default();
     let mut interp = Interp::with_provider(defs, provider, seed);
@@ -240,7 +300,7 @@ pub fn build_case<'m>(defs: &'m Module, rng: &mut Random, per_def: usize, seed: 
             let mut w = World::from_example(&ex.world, ex.now, &ex.maps);
             let (name, toks) = (&ex.call.0, ex.call.1.iter().map(tok_of).collect::<Vec<_>>());
             let Some(cd) = defs.defs.get(name) else { continue };
-            let (line, obs) = interp_call(&mut interp, &mut w, defs, name, &interp_args(cd, &toks))?;
+            let (line, obs) = interp_call(&mut interp, &mut w, defs, checks, name, &interp_args(cd, &toks))?;
             let ctx = format!("eg {}", ex.src);
             let mut all = vec![name.clone()];
             all.extend(toks);
@@ -276,7 +336,7 @@ pub fn build_case<'m>(defs: &'m Module, rng: &mut Random, per_def: usize, seed: 
                     }
                 })
                 .collect();
-            let (line, obs) = interp_call(&mut interp, &mut w, defs, name, &interp_args(d, &toks))?;
+            let (line, obs) = interp_call(&mut interp, &mut w, defs, checks, name, &interp_args(d, &toks))?;
             let mut all = vec![name.clone()];
             all.extend(toks.iter().cloned());
             case.call(format!("{} | {} {}", wl, name, toks.join(" ")), &all, line, &obs)?;
@@ -370,12 +430,14 @@ impl From<kern::emit_rust::BuildError> for ModuleError {
 pub fn run_module(path: &str, per_def: usize, seed: i128, show_max: usize) -> Result<ModuleResult, ModuleError> {
     let defs = kern::package::load(path, &IndexMap::new()).map_err(|e| ModuleError::Failed(e.0))?;
     let crate_dir = kern::emit_rust::emit(path, None)?;
+    // what `kern build` compiled in: the same list emit() computed
+    let checks = kern::emit_rust::unproven_invariants(&defs)?;
     let binary = kern::emit_rust::build(&crate_dir)?;
     let mut rng = Random::from_int(seed);
     let t0 = std::time::Instant::now();
     // build_case fails on a value the binary can't print (a nested constructor: unsupported, as in Python's
     // difftest) or on an interpreter error (a failure)
-    let (case, egs) = build_case(&defs, &mut rng, per_def, seed, None)
+    let (case, egs) = build_case(&defs, &checks, &mut rng, per_def, seed, None)
         .map_err(|e| if e.starts_with("interpreter: ") { ModuleError::Failed(e) } else { ModuleError::Unsupported(e) })?;
     let interp_s = t0.elapsed().as_secs_f64();
     let script = std::env::temp_dir().join(format!("kern-difftest-{}-{}.script", std::process::id(), kern::emit_rust::crate_name(path)));
@@ -463,6 +525,7 @@ pub fn main(argv: &[String]) -> i32 {
     if mods.is_empty() {
         mods = example_modules();
         mods.push(format!("{ROOT}/tests/probes/runtime.k")); // paths the examples never reach
+        mods.push(format!("{ROOT}/tests/probes/invcheck.k")); // compiled module-invariant checks that break
     }
     let (mut calls, mut divs, mut eg_fail, mut egs, mut failed) = (0, 0, 0, 0, 0usize);
     for m in &mods {
