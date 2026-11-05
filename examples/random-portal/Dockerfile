@@ -25,6 +25,7 @@ RUN python -m kern check portal.k --why portal.why --html /srv/www/proof.html --
  && python -m kern.host page portal.k --html /srv/www/host.html
 COPY examples/random-portal/nginx.conf /etc/nginx/conf.d/portal.conf
 COPY examples/random-portal/entrypoint.sh /entrypoint.sh
+ENV KERN_HOST="python -m kern.host"
 VOLUME /data
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s \

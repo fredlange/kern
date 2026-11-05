@@ -15,8 +15,9 @@ random-portal/
 ├── smoke.sh               the acceptance test: build, run, 16 checks, restart, replay
 ├── proof-pages/portal.html
 ├── web/                   the React app (Vite); talks to the host only through /api
-├── Dockerfile             builds web/, installs Kern from this checkout, renders the proof page
-├── Dockerfile.dockerignore, nginx.conf, entrypoint.sh, docker-compose.yml
+├── Dockerfile             builds web/, installs the Python Kern from this checkout, renders the proof pages
+├── Dockerfile.rust        the same app on the Rust toolchain: takes `kern` from the repository's image
+├── *.dockerignore, nginx.conf, entrypoint.sh, docker-compose.yml
 ```
 
 ## Status
@@ -43,6 +44,26 @@ Dockerfile runs `kern check`, which exits 1 if any definition isn't clean. Teste
 
 Since 1423327 the host records an empty genesis world for a new database, so `replay` works
 without `--world`. Rechecked in the container: "replay of 5 logged calls matches the database".
+
+## On the Rust toolchain
+
+The Python `kern/` is frozen while the toolchain moves to Rust (docs/research/RUST_PORT_PLAN.md).
+The app runs unchanged on the Rust binary (2026-11-05, on top of a295dcb):
+- `kern check portal.k` gives stdout byte-identical to Python's (same hashes, 58/58), and the proof
+  page is identical apart from the output path;
+- `kern host manifest` is identical;
+- `kern host serve` with real HTTPS replies works, and its database replays under both hosts
+  (8/8 logged calls each way);
+- `DOCKERFILE=Dockerfile.rust ./smoke.sh` passes 16/16, the same as the Python image.
+
+```text
+docker build --target kern -t kern .                                   # from the repository root
+docker build -f examples/random-portal/Dockerfile.rust -t random-portal:rust .
+```
+
+The Rust image is 234 MB, against 343 MB for the Python one. `ARG KERN_IMAGE` picks the image the
+binary comes from (default `kern`), for when a published tag exists. `entrypoint.sh` and
+`smoke.sh` take the host command from `KERN_HOST`, which each Dockerfile sets.
 
 ## What the proofs say, and what they don't
 
