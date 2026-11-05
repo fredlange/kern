@@ -231,6 +231,17 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Next:** none planned. Each needs a merge of after-states, which is the same machinery as S16's
   path merging.
 
+### S22. A full `check` of a loop writing a Text map and an Int map at a computed key doesn't finish
+- **Kind:** code gap. **Weakens:** bet 1 (verification fast enough for an agent's inner loop). Found 2026-11-05 by
+  app (.party/requests.md, booking #4).
+- **Evidence:** `examples/apps/booking/probes/clear_day_text_slow.k`: `kern check --cache ''` ran 15+ minutes
+  (28 CPU-minutes at the first stop); `--quick` is instant. The same loop over the Int map alone takes seconds;
+  a one-map Text loop under 40 s. So mutation testing, not the proof, has no working bound per mutant: the
+  `rlimit` doesn't cap this case. App split the definition in two to ship.
+- **Fixed when:** that probe's full `check` ends in bounded time, a mutant that exceeds its bound reported as
+  unscored (never as caught), with a gap test.
+- **Next:** not in this quest's list (like S16, the cost entry it extends).
+
 ## Closed
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
