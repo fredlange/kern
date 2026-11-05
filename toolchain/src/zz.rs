@@ -256,6 +256,9 @@ pub enum Check {
 }
 
 pub fn check(s: &Solver) -> Check {
+    if crate::prove::fault("unknown") {
+        return Check::Unknown; // the prover gets no answer from any solver (a test of the ◐ and "no answer" tiers)
+    }
     if std::env::var_os("KERN_Z3_TRACE").is_some() {
         eprintln!("=== check\n{s}");
     }

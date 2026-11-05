@@ -78,6 +78,7 @@ fn in_fresh_context<R>(f: impl FnOnce() -> R) -> R {
 ///   a: trust propagation ignores a loop goal's unproven sibling invariants (report.rs)
 ///   b: an assumed handler's value is taken as 0 instead of any value its spec allows
 ///   c: the loop exits at HI instead of max(LO, HI)
+///   unknown: every solver check answers "unknown" (Optimize excepted), as if each hit its step limit
 pub fn fault(c: &str) -> bool {
     cfg!(feature = "faults") && std::env::var("KERN_FAULT").as_deref() == Ok(c)
 }
