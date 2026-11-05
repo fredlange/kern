@@ -224,9 +224,12 @@ fn tok_of(k: &Key) -> String {
     key_str(k)
 }
 
-pub fn build_case(defs: &Module, rng: &mut Random, per_def: usize, seed: i128) -> Result<(Case, Vec<(usize, Example)>), String> {
+/// The script and the interpreter's answers for one module. `provider` serves assumed handlers (None: the
+/// interpreter's seeded default); whatever it draws goes into the script as `obs` lines for the binary to replay.
+pub fn build_case<'m>(defs: &'m Module, rng: &mut Random, per_def: usize, seed: i128, provider: Option<kern::run::Provider<'m>>)
+    -> Result<(Case, Vec<(usize, Example)>), String> {
     let mut case = Case::default();
-    let mut interp = Interp::with_provider(defs, None, seed);
+    let mut interp = Interp::with_provider(defs, provider, seed);
     // the module's own examples first (C1), then random worlds (C2)
     let mut egs = vec![];
     for d in defs.defs.values() {
@@ -331,14 +334,49 @@ pub struct ModuleResult {
     pub binary_s: f64,
 }
 
-/// Build the module, run the same script through both sides and compare. Err: Unsupported (or a build failure).
-pub fn run_module(path: &str, per_def: usize, seed: i128, show_max: usize) -> Result<ModuleResult, String> {
-    let defs = kern::package::load(path, &IndexMap::new()).map_err(|e| e.0)?;
-    let crate_dir = kern::emit_rust::emit(path, None).map_err(|e| e.to_string())?;
-    let binary = kern::emit_rust::build(&crate_dir).map_err(|e| e.to_string())?;
+/// Why a module wasn't compared: the emitter doesn't support it (skipped), or something failed (a test failure:
+/// a generated crate that doesn't build, a binary that crashes, an interpreter error).
+#[derive(Debug)]
+pub enum ModuleError {
+    Unsupported(String),
+    Failed(String),
+}
+
+impl std::fmt::Display for ModuleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ModuleError::Unsupported(m) => write!(f, "UNSUPPORTED {m}"),
+            ModuleError::Failed(m) => write!(f, "FAILED {m}"),
+        }
+    }
+}
+
+impl From<String> for ModuleError {
+    fn from(m: String) -> Self {
+        ModuleError::Failed(m)
+    }
+}
+
+impl From<kern::emit_rust::BuildError> for ModuleError {
+    fn from(e: kern::emit_rust::BuildError) -> Self {
+        match e {
+            kern::emit_rust::BuildError::Unsupported(m) => ModuleError::Unsupported(m),
+            other => ModuleError::Failed(other.to_string()),
+        }
+    }
+}
+
+/// Build the module, run the same script through both sides and compare.
+pub fn run_module(path: &str, per_def: usize, seed: i128, show_max: usize) -> Result<ModuleResult, ModuleError> {
+    let defs = kern::package::load(path, &IndexMap::new()).map_err(|e| ModuleError::Failed(e.0))?;
+    let crate_dir = kern::emit_rust::emit(path, None)?;
+    let binary = kern::emit_rust::build(&crate_dir)?;
     let mut rng = Random::from_int(seed);
     let t0 = std::time::Instant::now();
-    let (case, egs) = build_case(&defs, &mut rng, per_def, seed)?;
+    // build_case fails on a value the binary can't print (a nested constructor: unsupported, as in Python's
+    // difftest) or on an interpreter error (a failure)
+    let (case, egs) = build_case(&defs, &mut rng, per_def, seed, None)
+        .map_err(|e| if e.starts_with("interpreter: ") { ModuleError::Failed(e) } else { ModuleError::Unsupported(e) })?;
     let interp_s = t0.elapsed().as_secs_f64();
     let script = std::env::temp_dir().join(format!("kern-difftest-{}-{}.script", std::process::id(), kern::emit_rust::crate_name(path)));
     std::fs::write(&script, case.script.join("\n") + "\n").map_err(|e| e.to_string())?;
@@ -347,7 +385,7 @@ pub fn run_module(path: &str, per_def: usize, seed: i128, show_max: usize) -> Re
     let binary_s = t0.elapsed().as_secs_f64();
     let _ = std::fs::remove_file(&script);
     if !r.status.success() {
-        return Err(format!("{} failed: {}", binary, String::from_utf8_lossy(&r.stderr)));
+        return Err(format!("{} failed: {}", binary, String::from_utf8_lossy(&r.stderr)).into());
     }
     let got: Vec<String> = String::from_utf8_lossy(&r.stdout).lines().map(String::from).collect();
     let n = got.len().max(case.expected.len());
@@ -426,12 +464,13 @@ pub fn main(argv: &[String]) -> i32 {
         mods = example_modules();
         mods.push(format!("{ROOT}/tests/probes/runtime.k")); // paths the examples never reach
     }
-    let (mut calls, mut divs, mut eg_fail, mut egs) = (0, 0, 0, 0);
+    let (mut calls, mut divs, mut eg_fail, mut egs, mut failed) = (0, 0, 0, 0, 0usize);
     for m in &mods {
         let res = match run_module(m, per_def, seed, 5) {
             Ok(r) => r,
             Err(e) => {
-                println!("{:18} UNSUPPORTED {}", m.rsplit('/').next().unwrap_or(m), e);
+                println!("{:18} {}", m.rsplit('/').next().unwrap_or(m), e);
+                failed += matches!(e, ModuleError::Failed(_)) as usize;
                 continue;
             }
         };
@@ -457,8 +496,8 @@ pub fn main(argv: &[String]) -> i32 {
             println!("   DIV line {}: {}\n        interpreter: {}\n        binary:      {}", i, place, want, got);
         }
     }
-    println!("TOTAL calls={} egs={} eg_failures={} divergences={}", calls, egs, eg_fail, divs);
-    if divs == 0 && eg_fail == 0 {
+    println!("TOTAL calls={} egs={} eg_failures={} divergences={} failed_modules={}", calls, egs, eg_fail, divs, failed);
+    if divs == 0 && eg_fail == 0 && failed == 0 {
         0
     } else {
         1

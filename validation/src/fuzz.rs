@@ -326,10 +326,10 @@ pub fn template_mutants(root: &std::path::Path) -> Vec<(String, Module)> {
 
 // ---------------------------------------------------------------- the oracle
 
-type Rnd = Rc<RefCell<Random>>;
+pub type Rnd = Rc<RefCell<Random>>;
 
 /// Random values that satisfy each handler's assumed spec (an error if none in range).
-fn provider<'m>(defs: &'m Module, rnd: Rnd) -> kern::run::Provider<'m> {
+pub fn provider<'m>(defs: &'m Module, rnd: Rnd) -> kern::run::Provider<'m> {
     Box::new(move |name: &str, args: &[Value]| {
         let h = &defs.handlers[name];
         let env: IndexMap<String, Value> = h.params.iter().zip(args).map(|((p, _), a)| (p.clone(), a.clone())).collect();
