@@ -1,0 +1,74 @@
+<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Kern proof: catalog</title><style>
+:root{--bg:#f7f7f5;--card:#fff;--fg:#1d1d1b;--muted:#6b6b66;--line:#e4e4df;--ok:#1f7a4d;--fail:#b3261e;--warn:#a15c00;--code:#f0f0ec}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--card:#1f1f1d;--fg:#ececea;--muted:#9a9a94;--line:#33332f;--ok:#5cc28d;--fail:#ff7b72;--warn:#e3a54a;--code:#2a2a27}}
+:root[data-theme="dark"]{--bg:#161615;--card:#1f1f1d;--fg:#ececea;--muted:#9a9a94;--line:#33332f;--ok:#5cc28d;--fail:#ff7b72;--warn:#e3a54a;--code:#2a2a27}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:32px 16px}h1{font-size:22px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px 22px;margin-bottom:20px}
+.card header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.card h2{margin:0;font-size:19px}
+.badge{font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;border:1px solid currentColor}
+.badge.ok{color:var(--ok)}.badge.fail{color:var(--fail)}.badge.warn{color:var(--warn)}.hash{margin-left:auto;color:var(--muted);font:12px ui-monospace,monospace}
+h3{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:18px 0 6px}h3 .muted{text-transform:none;letter-spacing:0;font-weight:400}
+p{margin:4px 0}.muted{color:var(--muted)}code,pre{font:13px ui-monospace,SFMono-Regular,Menlo,monospace}code{background:var(--code);padding:1px 5px;border-radius:4px}
+pre{background:var(--code);padding:8px 10px;border-radius:6px;overflow-x:auto;margin:6px 0}
+table{border-collapse:collapse}td{padding:3px 14px 3px 0;vertical-align:top}
+ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line)}ul.g li:first-child{border-top:0}
+.ic{font-weight:700;width:16px;flex:none}li.proven .ic{color:var(--ok)}li.refuted .ic{color:var(--fail)}li.conditional .ic,li.unknown .ic{color:var(--warn)}
+.how{color:var(--muted);font-size:14px}.src{margin-top:2px;font-size:12px}ul.ex{margin:4px 0;padding-left:18px}
+.okc{color:var(--ok)}.failc{color:var(--fail)}.warnc{color:var(--warn)}details{margin-top:16px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;font-weight:600}
+</style></head><body><main><h1>Proof page · catalog</h1><p class='sub'>Generated from verifier results by fixed templates — no text here was written by a model.</p><section class="card"><header><h2><code>restock</code><span class="muted"> in stock</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 7853290c</span></header>
+<h3>Can touch</h3><p>the audit log, state <code>stock</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: stock.item. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<h3>Refuses when</h3><table><tr><td><code>item</code> ≤ 0</td><td class='fail-name'>→ <code>NoSuchItem</code></td></tr><tr><td><code>qty</code> ≤ 0</td><td class='fail-name'>→ <code>BadQuantity</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>stock of <code>item</code> <em>after</em> = stock of <code>item</code> <em>before</em> + <code>qty</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure stock.get&#x27; item = stock.get item + qty</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>i</code> (Int): stock of <code>i</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant i:Int stock.get i &gt;= 0</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>appends exactly one event to the audit log: <code>Restocked</code> (<code>item</code>, <code>qty</code>)</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>emit Restocked item qty</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>3/3 pass, executed against build 7853290c</span></h3><ul class='ex'>
+<li><code>stock.3:4 | restock 3 6 -&gt; ok | stock.3:10</code> <span class='okc'>✔</span></li>
+<li><code>| restock 0 6 -&gt; NoSuchItem</code> <span class='okc'>✔</span></li>
+<li><code>| restock 3 0 -&gt; BadQuantity</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 330 succeeded and were checked against every guarantee; refused: NoSuchItem 94, BadQuantity 76.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 8/8 deliberate bugs (100%)</span></h3><p>Caught by the prover: 8; by random tests checking the guarantees: 8. The examples alone catch 5/8; everything together 8/8.</p>
+<p>Refusals in the spec: 4/4 changes caught, by examples 4, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section>
+<section class="card"><header><h2><code>take</code><span class="muted"> in stock</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build fddf3d44</span></header>
+<h3>Can touch</h3><p>state <code>stock</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: stock.item. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<h3>Refuses when</h3><table><tr><td><code>qty</code> ≤ 0</td><td class='fail-name'>→ <code>BadQuantity</code></td></tr><tr><td>stock of <code>item</code> &lt; <code>qty</code></td><td class='fail-name'>→ <code>OutOfStock</code> <span class='muted'>with</span> <code>qty</code> − stock of <code>item</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>stock of <code>item</code> <em>after</em> = stock of <code>item</code> <em>before</em> − <code>qty</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure stock.get&#x27; item = stock.get item - qty</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>i</code> (Int): stock of <code>i</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant i:Int stock.get i &gt;= 0</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>3/3 pass, executed against build fddf3d44</span></h3><ul class='ex'>
+<li><code>stock.3:4 | take 3 4 -&gt; ok | stock.3:0</code> <span class='okc'>✔</span></li>
+<li><code>stock.3:4 | take 3 5 -&gt; OutOfStock 1</code> <span class='okc'>✔</span></li>
+<li><code>| take 3 0 -&gt; BadQuantity</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 18 succeeded and were checked against every guarantee; refused: OutOfStock 390, BadQuantity 92.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 5/5 deliberate bugs (100%)</span></h3><p>Caught by the prover: 5; by random tests checking the guarantees: 5. The examples alone catch 5/5; everything together 5/5.</p>
+<p>Refusals in the spec: 4/4 changes caught, by examples 4, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section>
+<section class="card"><header><h2><code>set_price</code><span class="muted"> in stock</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 6bc9a8a9</span></header>
+<h3>Can touch</h3><p>state <code>price</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: price.item. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<h3>Refuses when</h3><table><tr><td><code>item</code> ≤ 0</td><td class='fail-name'>→ <code>NoSuchItem</code></td></tr><tr><td><code>cents</code> ≤ 0</td><td class='fail-name'>→ <code>BadPrice</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>price of <code>item</code> <em>after</em> = <code>cents</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure price.get&#x27; item = cents</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>i</code> (Int): price of <code>i</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant i:Int price.get i &gt;= 0</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>4/4 pass, executed against build 6bc9a8a9</span></h3><ul class='ex'>
+<li><code>| set_price 3 250 -&gt; ok | price.3:250</code> <span class='okc'>✔</span></li>
+<li><code>| set_price 3 0 -&gt; BadPrice</code> <span class='okc'>✔</span></li>
+<li><code>| set_price 0 250 -&gt; NoSuchItem</code> <span class='okc'>✔</span></li>
+<li><code>| set_price 1 250 -&gt; ok | price.1:250</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 330 succeeded and were checked against every guarantee; refused: NoSuchItem 94, BadPrice 76.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 3/3 deliberate bugs (100%)</span></h3><p>Caught by the prover: 3; by random tests checking the guarantees: 3. The examples alone catch 3/3; everything together 3/3.</p>
+<p>Refusals in the spec: 4/4 changes caught, by examples 4, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section></main></body></html>

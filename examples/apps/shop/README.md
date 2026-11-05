@@ -1,13 +1,11 @@
 # shop: catalog + orders, two modules in one package
 
-Stock and prices in `catalog/stock.k`; orders in `orders.k` (`import catalog.stock`), each with a phase
-(`const placed 1`, `paid 2`, `shipped 3`, `cancelled 4`) advanced by `match`. Not yet used: recursion and imports
-across packages (not landed when this was written).
+Stock and prices live in their own package, `../catalog` (`kern.pkg` says `use ../catalog`); orders in `orders.k` (`import catalog.stock`), each with a phase
+(`const placed 1`, `paid 2`, `shipped 3`, `cancelled 4`) advanced by `match`. Imports across packages used since b71848b; recursion not yet landed.
 
 ```
 shop/
-├── kern.pkg
-├── catalog/stock.k      restock, take, set_price
+├── kern.pkg             `use ../catalog`
 ├── orders.k             place, advance (match on the phase), cancel (restocks)
 ├── probes/orders_with_invariants.k.txt   the cross-map-invariant version (see below)
 └── proof-pages/shop.html
@@ -20,7 +18,7 @@ cargo run --release -p kern -- check examples/apps/shop
 cargo run --release -p kern -- build examples/apps/shop
 ```
 
-## What `check` says (HEAD at recording: a8cee99 + e57aa80, `--cache ''`)
+## What `check` says (HEAD at recording: 8576908, `--cache ''`)
 
 | definition | status | spec strength |
 |---|---|---|
