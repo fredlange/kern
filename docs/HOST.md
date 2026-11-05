@@ -48,6 +48,12 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
 - **Recursion (2026-11-05).** A recursive definition runs once its `decreases` measure is proven; calls nest at
   most 200 deep in one call, the top-level one included (the interpreter's `MAX_CALL_DEPTH`; kern-rt's is the same
   number). Deeper is a resource error, like the iteration limit: undone, logged, skipped by replay.
+- **Definitions that write and return (2026-11-06).** A `-> Int` definition that writes, emits or refuses runs
+  like any other call; its value is the HTTP reply's `"result"` (`{"status": "ok", "events": [...], "result": 1}`)
+  and `repl` prints it as an `eg` line asserts it, `ok 1` (any definition with a result does). Nothing new is
+  logged: the value is a function of the state before the call, the arguments and the recorded handler values, so
+  replay gives it back. `kern build` compiles them as every definition (all go through the transaction, so a
+  refusal after a bound call `x = f a` undoes `f`'s writes too); difftest compares the value (`ok result=N`).
 - **`clock.tick` (S10, 2026-11-05).** Inside a call it adds exactly 1 to `clock.now` (the interpreter's
   semantics; replay re-runs it, nothing new is recorded). The host reads the wall clock once per call, so after a
   call that ticked, the next call's `now` is at least where that call ended plus 1 (meta `clock_floor`, kept across

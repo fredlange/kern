@@ -1561,7 +1561,11 @@ fn parse_args(text: &[&str]) -> Vec<Value> {
 
 fn said(r: &CallResult) -> String {
     match r["status"].as_str() {
-        Some("ok") => "ok".into(),
+        // a definition that returns a value shows it, as an `eg` line asserts it (`-> ok N`)
+        Some("ok") => match r.get("result") {
+            Some(v) if !v.is_null() => format!("ok {}", json_value(v).str()),
+            _ => "ok".into(),
+        },
         Some("refused") => {
             let mut parts = vec!["refused".to_string(), r["refused"].as_str().unwrap_or("").to_string()];
             parts.extend(r["args"].as_array().into_iter().flatten().map(|a| json_value(a).str()));
@@ -2494,6 +2498,42 @@ body
         // a tampered Text cell is caught by replay
         h.db.execute("update textcell set value='x' where key='1'", []).unwrap();
         assert!(h.replay().unwrap().iter().any(|m| m.starts_with("text state differs")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_definition_that_writes_and_returns_gives_its_value_and_stays_atomic() {
+        let src = "state next Int\nstate stock Int\n\ntake item:Int -> Int\n  need stock.get item > 0 else Empty\n  \
+                   ok otherwise\n  ensure result = next.get 0 + 1\nbody\n  id = next.get 0 + 1\n  next.set 0 id\n  \
+                   stock.set item (stock.get item - 1)\n  result = id\n\ntwo item:Int -> Int\nbody\n  a = take item\n  \
+                   b = take item\n  need b < 4 else Many\n  result = a * 10 + b\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let dir = std::env::temp_dir().join(format!("kern-ret-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("t.db").to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&db);
+        let open = || {
+            let o = Options { db: db.clone(), sinks: Some(vec![]), gate: false, ..Default::default() };
+            Host::new(&defs, IndexMap::new(), o).unwrap()
+        };
+        let mut h = open();
+        h.init("stock.1:5").unwrap();
+        let r = h.call("take", &[Value::Int(1)]).unwrap();
+        assert_eq!((&r["status"], &r["result"]), (&json!("ok"), &json!(1)));
+        assert_eq!(h.call("two", &[Value::Int(1)]).unwrap()["result"], json!(23));
+        // the second take's write is undone with the refusal after it, the first one's too
+        assert_eq!(h.call("two", &[Value::Int(1)]).unwrap()["refused"], json!("Many"));
+        let w = h.load().unwrap();
+        assert_eq!((w.maps["next"][&Key::Int(0)], w.maps["stock"][&Key::Int(1)]), (3, 2));
+        let mut out = vec![];
+        repl(&mut h, ["take 1", "two 1", "take 7"].iter().map(|l| l.to_string()), &mut |l| out.push(l)).unwrap();
+        // one copy left after `take 1`: the second take in `two` refuses, and the first one's write goes with it
+        assert_eq!(out, ["ok 4", "refused Empty", "refused Empty"]);
+        let w = h.load().unwrap();
+        assert_eq!((w.maps["next"][&Key::Int(0)], w.maps["stock"][&Key::Int(1)]), (4, 1));
+        drop(h);
+        assert!(open().replay().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
