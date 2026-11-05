@@ -1425,6 +1425,10 @@ pub fn manifest_text(host: &Host) -> String {
     };
     lines.push(format!("runtime checks: invariants audited in full at startup (passed); {}", per_call));
     lines.push(format!("iteration limit: {} loop and sum iterations per call; past it the call is a fault, undone", ITERATION_LIMIT));
+    lines.push(format!(
+        "call depth: definitions nest at most {} deep per call (recursion included); deeper is an error, undone",
+        crate::run::MAX_CALL_DEPTH
+    ));
     lines.push(String::new());
     for (n, v) in &m {
         let mark = if v["served"].as_bool().unwrap() { "serve" } else { "BLOCK" };
@@ -1502,6 +1506,11 @@ pub fn host_facts(host: &Host) -> HostInfo {
         "A call may run at most {} loop and sum iterations (`hi - lo` is counted when a loop or sum starts); past \
          that it is undone as a host fault. The proofs say a call succeeds, not how long it takes.",
         format_num(ITERATION_LIMIT)
+    ));
+    assumptions.push(format!(
+        "Definitions nest at most {} deep in one call, the top-level one included (recursion is licensed by its proven \
+         measure; this bounds the stack); deeper, the call is undone as an error.",
+        crate::run::MAX_CALL_DEPTH
     ));
     if !host.endpoints.is_empty() {
         assumptions.extend(NET_ASSUMPTIONS.iter().map(|s| s.to_string()));
@@ -2367,6 +2376,8 @@ nope x:Int k:Int
         assert!(h.replay().unwrap().is_empty());
         assert!(manifest_text(&h).contains("iteration limit: 10000000 loop and sum iterations per call"));
         assert!(host_facts(&h).assumptions.iter().any(|a| a.contains(&format_num(ITERATION_LIMIT))));
+        assert!(manifest_text(&h).contains("call depth: definitions nest at most 200 deep per call"));
+        assert!(host_facts(&h).assumptions.iter().any(|a| a.starts_with("Definitions nest at most 200 deep")));
         // the compiled program stops at the same number
         let rt = include_str!("../../runtime/src/lib.rs");
         assert!(rt.contains(&format!("pub const ITERATION_LIMIT: i64 = {};", "10_000_000")) && ITERATION_LIMIT == 10_000_000);
