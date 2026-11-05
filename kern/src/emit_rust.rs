@@ -71,6 +71,7 @@ fn rust_type(t: &str) -> Option<&'static str> {
         "Account" => "Acct",
         "Owner" => "Owner",
         "Bool" => "bool",
+        "Text" => "String",
         _ => return None,
     })
 }
@@ -160,8 +161,9 @@ pub struct Gen<'a> {
     /// ctor -> arg types, from constructor values
     events: IndexMap<String, Vec<String>>,
     channels: Vec<String>,
-    maps: Vec<(String, String, usize)>,
-    slot: IndexMap<String, (String, usize)>,
+    /// (name, key type, slot, holds Text): Int maps and Text maps are numbered apart, per key type
+    maps: Vec<(String, String, usize, bool)>,
+    slot: IndexMap<String, (String, usize, bool)>,
     /// definition -> the module invariants (indices into `invariants`) its top-level calls check at the keys they
     /// wrote: those the prover did not prove for it
     check: IndexMap<String, Vec<usize>>,
@@ -171,13 +173,14 @@ impl<'a> Gen<'a> {
     pub fn new(defs: &'a Module, modname: &str) -> Self {
         let mut channels = vec!["audit".to_string()];
         channels.extend(defs.channels.iter().cloned());
-        let (mut maps, mut slots) = (vec![], IndexMap::from([("Account".to_string(), 0usize), ("Int".to_string(), 0)]));
+        let (mut maps, mut slots) = (vec![], IndexMap::<(String, bool), usize>::new());
         for (name, key) in &defs.states {
-            let s = slots[key];
-            maps.push((name.clone(), key.clone(), s));
-            *slots.get_mut(key).unwrap() += 1;
+            let text = defs.text_states.contains(name);
+            let s = slots.entry((key.clone(), text)).or_insert(0);
+            maps.push((name.clone(), key.clone(), *s, text));
+            *s += 1;
         }
-        let slot = maps.iter().map(|(n, k, s)| (n.clone(), (k.clone(), *s))).collect();
+        let slot = maps.iter().map(|(n, k, s, t)| (n.clone(), (k.clone(), *s, *t))).collect();
         Gen {
             defs,
             modname: modname.into(),
@@ -246,12 +249,18 @@ impl<'a> Gen<'a> {
     fn expr(&mut self, e: &Expr, sc: &Scope) -> G<(String, String)> {
         match e {
             Expr::Int(n) => Ok((format!("{}i64", n), "Int".into())),
+            // Rust's Debug of a str is a valid string literal (escapes included)
+            Expr::Text(t) => Ok((format!("String::from({:?})", t), "Text".into())),
             Expr::Bin(op, l, r) => {
                 if *op == "when" {
                     return unsupported("`when` outside a spec");
                 }
-                let (l, _) = self.expr(l, sc)?;
-                let (r, _) = self.expr(r, sc)?;
+                let (l, lt) = self.expr(l, sc)?;
+                let (r, rt) = self.expr(r, sc)?;
+                if *op == "+" && lt == "Text" && rt == "Text" {
+                    // Text + Text joins them (wf typed it)
+                    return Ok((format!("format!(\"{{}}{{}}\", {}, {})", l, r), "Text".into()));
+                }
                 Ok(match *op {
                     "+" => (format!("rt::add({}, {})?", l, r), "Int".into()),
                     "-" => (format!("rt::sub({}, {})?", l, r), "Int".into()),
@@ -268,7 +277,7 @@ impl<'a> Gen<'a> {
                     return unsupported(format!("after-state read {}' outside a spec", name));
                 }
                 if let Some(t) = sc.get(name) {
-                    let clone = if t == "Event" { ".clone()" } else { "" };
+                    let clone = if t == "Event" || t == "Text" { ".clone()" } else { "" };
                     return Ok((format!("{}{}", ident(name), clone), t.clone()));
                 }
                 self.apply(name, &[], sc)
@@ -353,11 +362,15 @@ impl<'a> Gen<'a> {
         }
         if let Some((x, op, key)) = state_op(self.defs, name) {
             let pre = if key == "Account" { "a" } else { "i" };
-            let slot = self.slot[x].1;
+            let (_, slot, text) = self.slot[x].clone();
+            let (t, ty) = if text { ("t", "Text") } else { ("", "Int") };
             if op == "get" {
-                return Ok((Self::hoist(&format!("tx.{}get({}, {{}})", pre, slot), &vals), "Int".into()));
+                return Ok((Self::hoist(&format!("tx.{}{}get({}, {{}})", pre, t, slot), &vals), ty.into()));
             }
-            return Ok((Self::hoist(&format!("tx.{}set({}, {{}}, {{}})", pre, slot), &vals), "Unit".into()));
+            return Ok((Self::hoist(&format!("tx.{}{}set({}, {{}}, {{}})", pre, t, slot), &vals), "Unit".into()));
+        }
+        if name == "length" {
+            return Ok((Self::hoist("rt::length(&{})", &vals), "Int".into()));
         }
         if let Some(d) = self.defs.defs.get(name) {
             let fmt = format!("{}(tx{}{})?", ident(name), sep, ph);
@@ -499,7 +512,11 @@ impl<'a> Gen<'a> {
         let vals: Vec<String> = h
             .params
             .iter()
-            .map(|(p, t)| if t == "Int" { format!("Val::Int({})", ident(p)) } else { format!("Val::Acct({})", ident(p)) })
+            .map(|(p, t)| match t.as_str() {
+                "Int" => format!("Val::Int({})", ident(p)),
+                "Text" => format!("Val::Text({}.clone())", ident(p)),
+                _ => format!("Val::Acct({})", ident(p)),
+            })
             .collect();
         let vals = vals.join(", ");
         let mut out = vec![
@@ -545,6 +562,7 @@ impl<'a> Gen<'a> {
             .zip(types)
             .map(|(v, t)| match t.as_str() {
                 "Int" => format!("{}.to_string()", v),
+                "Text" => format!("{}.clone()", v),
                 "Account" => format!("w.name(*{}).to_string()", v),
                 "Owner" => format!("w.owner_name(*{}).to_string()", v),
                 _ => format!("rt::show_bool(*{}).to_string()", v),
@@ -624,7 +642,7 @@ impl<'a> Gen<'a> {
             let ps: Vec<String> = d
                 .params
                 .iter()
-                .map(|(p, t)| format!("({}, KeyType::{})", json_str(p), if t == "Account" { "Account" } else { "Int" }))
+                .map(|(p, t)| format!("({}, KeyType::{})", json_str(p), match t.as_str() { "Account" => "Account", "Text" => "Text", _ => "Int" }))
                 .collect();
             let us: Vec<String> = infer_uses(defs, d).iter().map(|u| json_str(u)).collect();
             out.push(format!(
@@ -640,7 +658,7 @@ impl<'a> Gen<'a> {
         let maps: Vec<String> = self
             .maps
             .iter()
-            .map(|(n, k, s)| format!("MapInfo {{ name: {}, key: KeyType::{}, slot: {} }}", json_str(n), k, s))
+            .map(|(n, k, s, t)| format!("MapInfo {{ name: {}, key: KeyType::{}, slot: {}, text: {} }}", json_str(n), k, s, t))
             .collect();
         out.push(format!("    const MAPS: &'static [MapInfo] = &[{}];", maps.join(", ")));
         let chans: Vec<String> = self.channels.iter().map(|c| json_str(c)).collect();
@@ -652,7 +670,7 @@ impl<'a> Gen<'a> {
                 .params
                 .iter()
                 .enumerate()
-                .map(|(j, (_, t))| format!("rt::{}(args[{}])", if t == "Account" { "acct" } else { "int" }, j))
+                .map(|(j, (_, t))| format!("rt::{}(&args[{}])", match t.as_str() { "Account" => "acct", "Text" => "text", _ => "int" }, j))
                 .collect();
             let wrap = if d.ret.is_some() { ".map(Some)" } else { ".map(|_| None)" };
             let call = format!("{}(tx{}{})", ident(&d.name), if conv.is_empty() { "" } else { ", " }, conv.join(", "));
@@ -888,9 +906,9 @@ body
         let check = super::unproven_invariants(&defs).unwrap();
         assert_eq!(check, IndexMap::from([("put".to_string(), vec![0]), ("mark".to_string(), vec![1])]));
         let src = super::Gen::new(&defs, "holds").checking(check).module().unwrap();
-        assert!(src.contains("{ let __r = put(tx, rt::int(args[0]), rt::int(args[1]))?; __inv_put(tx)?; Ok(__r) }"), "{src}");
-        assert!(src.contains("2 => exec.call(w, prov, |tx| safe(tx, rt::acct(args[0]))).map(|_| None),"));
-        assert!(src.contains("3 => exec.call(w, prov, |tx| note(tx, rt::acct(args[0]))).map(|_| None),"));
+        assert!(src.contains("{ let __r = put(tx, rt::int(&args[0]), rt::int(&args[1]))?; __inv_put(tx)?; Ok(__r) }"), "{src}");
+        assert!(src.contains("2 => exec.call(w, prov, |tx| safe(tx, rt::acct(&args[0]))).map(|_| None),"));
+        assert!(src.contains("3 => exec.call(w, prov, |tx| note(tx, rt::acct(&args[0]))).map(|_| None),"));
         assert!(src.contains("for o in tx.written_ints() {") && src.contains("for a in tx.written_accts() {"));
         assert!(!src.contains("fn __inv_safe") && !src.contains("fn __inv_note"));
     }
@@ -916,9 +934,9 @@ body
         let src = "state hold Int\n\nput k:Int\nbody\n  hold.set k 1\n\nget k:Int -> Int\nbody\n  result = k\n";
         let base = crate::syntax::parse_module(src, true).unwrap();
         let mut a = base.clone();
-        a.defs.get_mut("put").unwrap().params[0].1 = "Text".into();
+        a.defs.get_mut("put").unwrap().params[0].1 = "List".into();
         let e = super::Gen::new(&a, "t").module().unwrap_err().0;
-        assert!(e.contains("put: definition parameter k of type Text"), "{e}");
+        assert!(e.contains("put: definition parameter k of type List"), "{e}");
         let mut b = base.clone();
         b.defs.get_mut("get").unwrap().ret = Some("Text".into());
         let e = super::Gen::new(&b, "t").module().unwrap_err().0;

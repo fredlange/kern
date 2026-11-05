@@ -61,16 +61,19 @@ pub fn div(a: i64, b: i64) -> i64 {
 }
 
 /// A call argument at the boundary.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Val {
     Int(i64),
     Acct(Acct),
+    Text(String),
 }
 
+/// A parameter's type (and a map's key type: Int or Account only).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyType {
     Int,
     Account,
+    Text,
 }
 
 /// What the compiler knows about a definition.
@@ -82,11 +85,13 @@ pub struct DefInfo {
     pub uses: &'static [&'static str],
 }
 
-/// A declared `state NAME KeyType`; `slot` indexes the account maps or the Int maps.
+/// A declared `state NAME KeyType [-> Text]`; `slot` indexes the account or Int maps of its value type (Int maps and
+/// Text maps are numbered apart).
 pub struct MapInfo {
     pub name: &'static str,
     pub key: KeyType,
     pub slot: usize,
+    pub text: bool,
 }
 
 // ---- account names: stored once, in one byte arena, with an index that holds only ids
@@ -197,6 +202,10 @@ pub struct World {
     pub amaps: Vec<Vec<i64>>,
     /// `state X Int`: sparse; missing = 0
     pub imaps: Vec<HashMap<i64, i64>>,
+    /// `state X Account -> Text`: sparse by account id; missing = ""
+    pub atexts: Vec<HashMap<u32, String>>,
+    /// `state X Int -> Text`: sparse; missing = ""
+    pub itexts: Vec<HashMap<i64, String>>,
     pub clock: i64,
 }
 
@@ -210,6 +219,8 @@ impl World {
             owner_index: HashMap::new(),
             amaps: vec![Vec::new(); n_amaps],
             imaps: vec![HashMap::new(); n_imaps],
+            atexts: Vec::new(),
+            itexts: Vec::new(),
             clock: 0,
         }
     }
@@ -306,6 +317,8 @@ enum Undo {
     Bal(u32, i64),
     A(u16, u32, i64),
     I(u16, i64, Option<i64>),
+    TA(u16, u32, Option<String>),
+    TI(u16, i64, Option<String>),
 }
 
 /// Loop and sum iterations one top-level call may start (S21), charged as the interpreter charges its budget: `hi - lo`
@@ -390,6 +403,21 @@ impl<'a, E> Tx<'a, E> {
         let old = self.w.imaps[slot].insert(k, v);
         self.undo.push(Undo::I(slot as u16, k, old));
     }
+    /// Text maps: a missing entry reads "" (a clone: the caller owns its Text)
+    pub fn atget(&self, slot: usize, a: Acct) -> String {
+        self.w.atexts[slot].get(&a.0).cloned().unwrap_or_default()
+    }
+    pub fn atset(&mut self, slot: usize, a: Acct, v: String) {
+        let old = self.w.atexts[slot].insert(a.0, v);
+        self.undo.push(Undo::TA(slot as u16, a.0, old));
+    }
+    pub fn itget(&self, slot: usize, k: i64) -> String {
+        self.w.itexts[slot].get(&k).cloned().unwrap_or_default()
+    }
+    pub fn itset(&mut self, slot: usize, k: i64, v: String) {
+        let old = self.w.itexts[slot].insert(k, v);
+        self.undo.push(Undo::TI(slot as u16, k, old));
+    }
     #[inline(always)]
     pub fn emit(&mut self, channel: u16, e: E) {
         self.events.push((channel, e));
@@ -412,7 +440,8 @@ impl<'a, E> Tx<'a, E> {
         for u in self.undo.iter() {
             let a = match u {
                 Undo::Bal(i, _) | Undo::A(_, i, _) => *i,
-                Undo::I(..) => continue,
+                Undo::TA(_, i, _) => *i,
+                Undo::I(..) | Undo::TI(..) => continue,
             };
             if !out.iter().any(|x| x.0 == a) {
                 out.push(Acct(a));
@@ -424,7 +453,7 @@ impl<'a, E> Tx<'a, E> {
     pub fn written_ints(&self) -> Vec<i64> {
         let mut out: Vec<i64> = Vec::new();
         for u in self.undo.iter() {
-            if let Undo::I(_, k, _) = u {
+            if let Undo::I(_, k, _) | Undo::TI(_, k, _) = u {
                 if !out.contains(k) {
                     out.push(*k);
                 }
@@ -481,6 +510,22 @@ impl<E> Exec<E> {
                             w.imaps[m as usize].remove(&k);
                         }
                     },
+                    Undo::TA(m, a, v) => match v {
+                        Some(v) => {
+                            w.atexts[m as usize].insert(a, v);
+                        }
+                        None => {
+                            w.atexts[m as usize].remove(&a);
+                        }
+                    },
+                    Undo::TI(m, k, v) => match v {
+                        Some(v) => {
+                            w.itexts[m as usize].insert(k, v);
+                        }
+                        None => {
+                            w.itexts[m as usize].remove(&k);
+                        }
+                    },
                 }
             }
             self.events.clear();
@@ -512,8 +557,11 @@ pub trait Module {
     fn show_event(e: &Self::Event, w: &World) -> String;
 
     fn new_world() -> World {
-        let n_a = Self::MAPS.iter().filter(|m| m.key == KeyType::Account).count();
-        World::new(n_a, Self::MAPS.len() - n_a)
+        let count = |key: KeyType, text: bool| Self::MAPS.iter().filter(|m| m.key == key && m.text == text).count();
+        let mut w = World::new(count(KeyType::Account, false), count(KeyType::Int, false));
+        w.atexts = vec![HashMap::new(); count(KeyType::Account, true)];
+        w.itexts = vec![HashMap::new(); count(KeyType::Int, true)];
+        w
     }
 }
 
@@ -528,18 +576,83 @@ pub fn show_bool(b: bool) -> &'static str {
 
 /// Argument unpacking for the generated dispatch (the driver checked the types).
 #[inline(always)]
-pub fn acct(v: Val) -> Acct {
+pub fn acct(v: &Val) -> Acct {
     match v {
-        Val::Acct(a) => a,
-        Val::Int(_) => unreachable!("checked at the boundary"),
+        Val::Acct(a) => *a,
+        _ => unreachable!("checked at the boundary"),
     }
 }
 #[inline(always)]
-pub fn int(v: Val) -> i64 {
+pub fn int(v: &Val) -> i64 {
     match v {
-        Val::Int(n) => n,
-        Val::Acct(_) => unreachable!("checked at the boundary"),
+        Val::Int(n) => *n,
+        _ => unreachable!("checked at the boundary"),
     }
+}
+pub fn text(v: &Val) -> String {
+    match v {
+        Val::Text(t) => t.clone(),
+        _ => unreachable!("checked at the boundary"),
+    }
+}
+
+/// `length t`: the number of characters (code points), as the interpreter counts.
+pub fn length(t: &str) -> i64 {
+    t.chars().count() as i64
+}
+
+/// A Text as Kern source writes it: quoted, `"` and `\` escaped (the driver's dump and world lines).
+pub fn quote(t: &str) -> String {
+    format!("\"{}\"", t.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Split a script line on whitespace outside `"…"` (escapes `\"` and `\\`); a quoted token keeps its quotes.
+pub fn tokens(line: &str) -> Vec<String> {
+    let (mut out, mut cur, mut quoted, mut esc) = (Vec::new(), String::new(), false, false);
+    for c in line.chars() {
+        if quoted {
+            cur.push(c);
+            if esc {
+                esc = false;
+            } else if c == '\\' {
+                esc = true;
+            } else if c == '"' {
+                quoted = false;
+            }
+        } else if c.is_whitespace() {
+            if !cur.is_empty() {
+                out.push(std::mem::take(&mut cur));
+            }
+        } else {
+            if c == '"' {
+                quoted = true;
+            }
+            cur.push(c);
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// The Text inside a quoted token (`"a \"b\""` -> `a "b"`); None if it isn't one.
+pub fn unquote(tok: &str) -> Option<String> {
+    let inner = tok.strip_prefix('"')?.strip_suffix('"')?;
+    let (mut out, mut esc) = (String::new(), false);
+    for c in inner.chars() {
+        if esc {
+            out.push(c);
+            esc = false;
+        } else if c == '\\' {
+            esc = true;
+        } else if c == '"' {
+            return None;
+        } else {
+            out.push(c);
+        }
+    }
+    (!esc).then_some(out)
 }
 
 #[cfg(test)]
@@ -611,6 +724,37 @@ mod tests {
         assert!(matches!(run(&mut exec, &[(0, 4), (0, 7)]), Err(Stop::Fault(_)))); // 11
         assert_eq!(run(&mut exec, &[(0, 10)]), Ok(()), "a new call starts with the whole limit");
         assert!(matches!(run(&mut exec, &[(i64::MIN, i64::MAX)]), Err(Stop::Fault(_))));
+    }
+
+    #[test]
+    fn text_writes_roll_back_and_count_as_written() {
+        let mut w = World::new(0, 0);
+        w.atexts = vec![HashMap::new()];
+        w.itexts = vec![HashMap::new()];
+        let a = w.open("A", 0, "u1");
+        w.itexts[0].insert(1, "old".into());
+        let mut exec: Exec<()> = Exec::default();
+        let mut prov = Replay::default();
+        let r = exec.call(&mut w, &mut prov, |tx| -> Result<(), Stop<()>> {
+            tx.itset(0, 1, "new".into());
+            tx.itset(0, 2, "fresh".into());
+            tx.atset(0, a, "tag".into());
+            assert_eq!((tx.itget(0, 1), tx.itget(0, 9), tx.atget(0, a)), ("new".into(), String::new(), "tag".into()));
+            assert_eq!((tx.written_ints(), tx.written_accts().len()), (vec![1, 2], 1));
+            Err(Stop::Refused(()))
+        });
+        assert_eq!(r, Err(Stop::Refused(())));
+        assert_eq!(w.itexts[0], HashMap::from([(1, "old".to_string())]), "undone, the new key removed");
+        assert!(w.atexts[0].is_empty());
+    }
+
+    #[test]
+    fn script_tokens_keep_quoted_text_whole() {
+        assert_eq!(tokens(r#"call post 1 "a b" title.2:"x \"y\"" "#), ["call", "post", "1", "\"a b\"", r#"title.2:"x \"y\"""#]);
+        assert_eq!(unquote(r#""x \"y\" \\""#), Some(r#"x "y" \"#.to_string()));
+        assert_eq!(unquote("plain"), None);
+        let t = "q\"\\é";
+        assert_eq!(unquote(&quote(t)).as_deref(), Some(t));
     }
 
     #[test]

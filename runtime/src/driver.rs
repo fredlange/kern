@@ -1,9 +1,9 @@
 //! The R1 driver: `defs`, `run [SCRIPT]` (the differential-test protocol) and `bench`.
 //!
 //! Script lines (one command per line):
-//!   world ITEMS...        reset the world: `A:500@u1`, `hold.7:100`, `frozen.A:1`, `now:3`
+//!   world ITEMS...        reset the world: `A:500@u1`, `hold.7:100`, `frozen.A:1`, `title.2:"a b"`, `now:3`
 //!   obs V...              values the provider hands out next (recorded observations)
-//!   call DEF ARG...       one atomic call; prints one canonical line
+//!   call DEF ARG...       one atomic call; prints one canonical line (a Text argument is quoted: `"a \"b\""`)
 //!   dump                  prints the world, canonically
 //! The Python harness (validation/difftest.py) prints the same lines from kern/run.py.
 use crate::*;
@@ -51,6 +51,7 @@ fn find_def<M: Module>(name: &str) -> Option<usize> {
 
 /// Parse a world line's items into a fresh world. Accounts first, so map keys can name them.
 pub fn parse_world<M: Module>(items: &[&str]) -> Result<World, String> {
+    // items are tokens(): a Text entry `state.key:"…"` is one item
     let mut w = M::new_world();
     let mut later = Vec::new();
     for it in items {
@@ -65,16 +66,30 @@ pub fn parse_world<M: Module>(items: &[&str]) -> Result<World, String> {
         }
     }
     for it in later {
-        let (k, v) = it.rsplit_once(':').ok_or(format!("bad item {it}"))?;
+        // `state.key:value`; the key has no `:` or `"`, a Text value may have both
+        let (k, v) = it.split_once(':').ok_or(format!("bad item {it}"))?;
         let (m, key) = k.split_once('.').ok_or(format!("bad item {it}"))?;
-        let v: i64 = v.parse().map_err(|_| format!("bad value {it}"))?;
         let mi = M::MAPS.iter().find(|x| x.name == m).ok_or(format!("no state {m}"))?;
+        if mi.text {
+            let t = unquote(v).ok_or(format!("bad text {it}"))?;
+            match mi.key {
+                KeyType::Account => {
+                    let a = w.acct(key).ok_or(format!("no account {key}"))?;
+                    w.atexts[mi.slot].insert(a.0, t);
+                }
+                _ => {
+                    w.itexts[mi.slot].insert(key.parse().map_err(|_| format!("bad key {it}"))?, t);
+                }
+            }
+            continue;
+        }
+        let v: i64 = v.parse().map_err(|_| format!("bad value {it}"))?;
         match mi.key {
             KeyType::Account => {
                 let a = w.acct(key).ok_or(format!("no account {key}"))?;
                 w.amaps[mi.slot][a.0 as usize] = v;
             }
-            KeyType::Int => {
+            _ => {
                 w.imaps[mi.slot].insert(key.parse().map_err(|_| format!("bad key {it}"))?, v);
             }
         }
@@ -91,6 +106,20 @@ pub fn dump<M: Module>(w: &World) -> String {
     let mut maps: Vec<&MapInfo> = M::MAPS.iter().collect();
     maps.sort_by_key(|m| m.name);
     for m in maps {
+        if m.text {
+            // as the interpreter's dump: entries that aren't the default (""), sorted by key, quoted
+            let mut ks: Vec<(String, i64, &String)> = match m.key {
+                KeyType::Account => w.atexts[m.slot].iter().map(|(a, t)| (w.names.get(*a).to_string(), 0, t)).collect(),
+                _ => w.itexts[m.slot].iter().map(|(k, t)| (String::new(), *k, t)).collect(),
+            };
+            ks.retain(|(_, _, t)| !t.is_empty());
+            ks.sort();
+            for (a, k, t) in ks {
+                let key = if m.key == KeyType::Account { a } else { k.to_string() };
+                s += &format!(" {}.{key}:{}", m.name, quote(t));
+            }
+            continue;
+        }
         match m.key {
             KeyType::Account => {
                 let mut ks: Vec<(String, i64)> = w.amaps[m.slot]
@@ -104,7 +133,7 @@ pub fn dump<M: Module>(w: &World) -> String {
                     s += &format!(" {}.{k}:{v}", m.name);
                 }
             }
-            KeyType::Int => {
+            _ => {
                 let mut ks: Vec<(i64, i64)> = w.imaps[m.slot].iter().filter(|(_, v)| **v != 0).map(|(k, v)| (*k, *v)).collect();
                 ks.sort();
                 for (k, v) in ks {
@@ -118,6 +147,7 @@ pub fn dump<M: Module>(w: &World) -> String {
 
 /// Check and convert call arguments at the boundary, as run.py's `Interp.run` does.
 pub fn parse_args<M: Module>(w: &World, def: usize, raw: &[&str]) -> Result<Vec<Val>, String> {
+    // raw are tokens(): a Text argument is one quoted token
     let d = &M::DEFS[def];
     if raw.len() != d.params.len() {
         return Err(format!("{} takes {} argument(s), got {}", d.name, d.params.len(), raw.len()));
@@ -128,6 +158,7 @@ pub fn parse_args<M: Module>(w: &World, def: usize, raw: &[&str]) -> Result<Vec<
         .map(|((p, t), s)| match t {
             KeyType::Account => w.acct(s).map(Val::Acct).ok_or(format!("account {s:?} for `{p}` is not in the world")),
             KeyType::Int => s.parse().map(Val::Int).map_err(|_| format!("`{p}` must be an Int, got {s:?}")),
+            KeyType::Text => unquote(s).map(Val::Text).ok_or(format!("`{p}` must be a quoted Text, got {s}")),
         })
         .collect()
 }
@@ -138,7 +169,8 @@ pub fn run_script<M: Module>(input: Box<dyn BufRead>, out: &mut dyn Write) {
     let mut prov = Replay::default();
     for line in input.lines() {
         let line = line.unwrap();
-        let toks: Vec<&str> = line.split_whitespace().collect();
+        let owned = tokens(&line);
+        let toks: Vec<&str> = owned.iter().map(String::as_str).collect();
         match toks.first().copied() {
             None => {}
             Some("world") => match parse_world::<M>(&toks[1..]) {
@@ -223,6 +255,7 @@ fn bench<M: Module>(def: &str, n: u32, calls: u64) {
                     a
                 }
                 KeyType::Int => Val::Int(((x >> 40) % 1500) as i64 - 10),
+                KeyType::Text => Val::Text(String::new()),
             };
         }
         match M::call(&mut exec, &mut w, &mut prov, d, &args) {
