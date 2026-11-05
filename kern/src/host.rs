@@ -38,7 +38,7 @@ use crate::pyrepr::repr_str;
 use crate::render::HostInfo;
 use crate::report::{Report, Status as GStatus};
 use crate::run::{Interp, Outcome, ProvideError, Provider, RunError, Store, Value, World};
-use crate::syntax::{flat, parse_world, split_maps, Emit, Expr, Key, Module, Stmt};
+use crate::syntax::{flat, Emit, Expr, Key, Module, Stmt};
 use crate::Int;
 
 pub const SCHEMA: &str = "
@@ -46,6 +46,8 @@ create table if not exists meta(k text primary key, v text not null);
 create table if not exists account(name text primary key, balance integer not null, owner text not null);
 create table if not exists cell(state text not null, key text not null, value integer not null,
                                 primary key(state, key));
+create table if not exists textcell(state text not null, key text not null, value text not null,
+                                    primary key(state, key));
 create table if not exists log(seq integer primary key, name text not null, args text not null,
                                now integer not null, outcome text not null, observed text not null default '[]');
 create table if not exists outbox(seq integer primary key, call integer not null, event text not null,
@@ -248,12 +250,24 @@ fn key_str(k: &Key) -> String {
 
 // ---------------------------------------------------------------- the network
 
+/// A path or query value: unreserved characters as they are, everything else %-encoded (a Text may hold anything;
+/// account names and Ints are unchanged).
+fn url_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            _ => format!("%{:02X}", b),
+        })
+        .collect()
+}
+
 /// Constructor -> argument types, for every event a module can send on `net` (bodies and specs).
 pub fn net_requests(defs: &Module) -> IndexMap<String, Vec<String>> {
     let mut out: IndexMap<String, Vec<String>> = IndexMap::new();
     for d in defs.defs.values() {
         let ty = |a: &Expr| match a {
             Expr::Name(n, _) => d.params.iter().find(|(p, _)| p == n).map(|(_, t)| t.clone()).unwrap_or("Int".into()),
+            Expr::Text(_) => "Text".into(),
             _ => "Int".into(),
         };
         for s in flat(&d.body) {
@@ -295,6 +309,9 @@ pub struct Endpoint {
     pub fail_args: Vec<String>,
     /// seconds of the host clock (DEFAULT_TIMEOUT when the line has no clause)
     pub timeout: Int,
+    /// the reply definition's parameter types (load_config fills them): a `$.field` for a Text parameter takes a
+    /// JSON string, for an Int one a JSON integer
+    pub reply_types: Vec<String>,
     pub src: String,
 }
 
@@ -332,6 +349,7 @@ impl Endpoint {
             fail: fp[1].into(),
             fail_args: fp[2..].iter().map(|s| s.to_string()).collect(),
             timeout,
+            reply_types: vec![],
             src: line.trim().into(),
         })
     }
@@ -340,7 +358,8 @@ impl Endpoint {
     pub fn args_for(&self, ev: &Value, body: Option<&J>, which: &str) -> Result<Vec<Value>, String> {
         let Value::Ctor(_, evargs) = ev else { return Err("not an event".into()) };
         let mut out = vec![];
-        for a in if which == "reply" { &self.reply_args } else { &self.fail_args } {
+        for (j, a) in (if which == "reply" { &self.reply_args } else { &self.fail_args }).iter().enumerate() {
+            let text = which == "reply" && self.reply_types.get(j).map(|t| t == "Text").unwrap_or(false);
             if a.starts_with('{') {
                 let i: usize = a[1..a.len() - 1].parse().map_err(|_| format!("bad argument {}", a))?;
                 // ev[i]: index 0 is the constructor
@@ -354,8 +373,9 @@ impl Endpoint {
                     v = v.get(k).ok_or_else(|| repr_str(k))?;
                 }
                 match v {
-                    J::Number(n) if n.as_i64().is_some() => out.push(Value::Int(n.as_i64().unwrap() as Int)),
-                    _ => return Err(format!("{} is not an Int", a)),
+                    J::String(t) if text => out.push(Value::Str(t.clone())),
+                    J::Number(n) if !text && n.as_i64().is_some() => out.push(Value::Int(n.as_i64().unwrap() as Int)),
+                    _ => return Err(format!("{} is not {}", a, if text { "a Text" } else { "an Int" })),
                 }
             }
         }
@@ -384,7 +404,7 @@ impl Endpoint {
         let mut url = self.url.clone();
         if let Value::Ctor(_, args) = ev {
             for (i, a) in args.iter().enumerate() {
-                url = url.replace(&format!("{{{}}}", i + 1), &a.str());
+                url = url.replace(&format!("{{{}}}", i + 1), &url_encode(&a.str()));
             }
         }
         url
@@ -429,18 +449,23 @@ pub fn load_config(text: &str, defs: &Module) -> Result<IndexMap<String, Endpoin
                 problems.push(format!("{}: {} definition {} does not exist", ctor, which, repr_str(name)));
                 continue;
             };
+            let want: Vec<String> = d.params.iter().map(|(_, t)| t.clone()).collect();
             let got: Vec<String> = args
                 .iter()
-                .map(|a| {
+                .enumerate()
+                .map(|(j, a)| {
                     if a.starts_with('{') {
                         let i: usize = a[1..a.len() - 1].parse().unwrap_or(0);
                         req.get(i.wrapping_sub(1)).cloned().unwrap_or_else(|| "Int".into())
                     } else {
-                        "Int".into()
+                        // a reply field decodes to what the definition takes there, an Int or a Text
+                        match want.get(j).map(String::as_str) {
+                            Some("Text") => "Text".into(),
+                            _ => "Int".into(),
+                        }
                     }
                 })
                 .collect();
-            let want: Vec<String> = d.params.iter().map(|(_, t)| t.clone()).collect();
             if got != want {
                 problems.push(format!("{}: {} {} takes {}, the config gives {}", ctor, which, name, list(&want), list(&got)));
             }
@@ -448,6 +473,9 @@ pub fn load_config(text: &str, defs: &Module) -> Result<IndexMap<String, Endpoin
     }
     if !problems.is_empty() {
         return Err(ConfigError(problems.join("; ")));
+    }
+    for ep in eps.values_mut() {
+        ep.reply_types = defs.defs[&ep.reply].params.iter().map(|(_, t)| t.clone()).collect();
     }
     Ok(eps)
 }
@@ -555,6 +583,13 @@ impl Store for SqliteStore {
     }
     fn total(&self) -> Int {
         self.db.query_row("select coalesce(sum(balance), 0) from account", [], |r| r.get::<_, i64>(0)).unwrap_or(0) as Int
+    }
+    fn text_cell(&self, state: &str, key: &Key) -> Option<String> {
+        self.db
+            .query_row("select value from textcell where state=? and key=?", params![state, key_json(key)], |r| r.get(0))
+            .optional()
+            .ok()
+            .flatten()
     }
     fn cell(&self, state: &str, key: &Key) -> Option<Int> {
         self.db
@@ -759,8 +794,9 @@ impl<'m> Host<'m> {
         if self.has_genesis().map_err(|e| e.to_string())? {
             return Ok(false);
         }
-        let (rest, maps) = split_maps(world_src).map_err(|e| e.0)?;
-        let mut w = World::from_example(&parse_world(&rest, None).map_err(|e| e.0)?, 0, &maps);
+        // the eg world grammar: accounts, `state.key:N`, Text entries `state.key:"…"` (quoted)
+        let ex = crate::syntax::parse_call(world_src, "genesis").map_err(|e| e.0)?;
+        let mut w = World::from_example(&ex.world, 0, &ex.maps).with_texts(&ex.texts);
         if let Some(what) = out_of_range(&w, None) {
             return Err(format!("genesis world: Int out of the host's range (i64): {}", what));
         }
@@ -782,6 +818,22 @@ impl<'m> Host<'m> {
     }
 
     fn dump(w: &World) -> J {
+        let mut d = Self::dump_ints(w);
+        if w.texts.values().any(|m| !m.is_empty()) {
+            // only when there is Text state, so a genesis without it is stored exactly as before
+            d["texts"] = w
+                .texts
+                .iter()
+                .map(|(s, m)| {
+                    (s.clone(), J::Array(m.iter().map(|(k, v)| json!([match k { Key::Int(n) => json!(*n as i64), Key::Str(s) => json!(s) }, v])).collect()))
+                })
+                .collect::<Map<String, J>>()
+                .into();
+        }
+        d
+    }
+
+    fn dump_ints(w: &World) -> J {
         json!({
             "bal": w.bal.iter().map(|(a, b)| (a.clone(), json!(*b as i64))).collect::<Map<String, J>>(),
             "own": w.own.iter().map(|(a, o)| (a.clone(), json!(o))).collect::<Map<String, J>>(),
@@ -809,6 +861,17 @@ impl<'m> Host<'m> {
                 m.insert(k, p[1].as_i64().unwrap_or(0) as Int);
             }
         }
+        for (s, kv) in d.get("texts").and_then(|t| t.as_object()).into_iter().flatten() {
+            let m = w.texts.entry(s.clone()).or_default();
+            for p in kv.as_array().into_iter().flatten() {
+                let k = match &p[0] {
+                    J::Number(n) => Key::Int(n.as_i64().unwrap_or(0) as Int),
+                    J::String(s) => Key::Str(s.clone()),
+                    _ => continue,
+                };
+                m.insert(k, p[1].as_str().unwrap_or("").to_string());
+            }
+        }
         w
     }
 
@@ -830,6 +893,12 @@ impl<'m> Host<'m> {
                     params![x, key_json(k), *v as i64, *v as i64],
                 )?;
             }
+            for (k, v) in world.texts.get(x).into_iter().flatten() {
+                self.db.execute(
+                    "insert into textcell values(?,?,?) on conflict(state, key) do update set value=?",
+                    params![x, key_json(k), v, v],
+                )?;
+            }
         }
         Ok(())
     }
@@ -847,6 +916,11 @@ impl<'m> Host<'m> {
         for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)))? {
             let (s, k, v) = row?;
             w.maps.entry(s).or_default().insert(key_from_json(&k), v as Int);
+        }
+        let mut st = self.db.prepare("select state, key, value from textcell")?;
+        for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))? {
+            let (s, k, v) = row?;
+            w.texts.entry(s).or_default().insert(key_from_json(&k), v);
         }
         Ok(w)
     }
@@ -868,6 +942,17 @@ impl<'m> Host<'m> {
                     self.db.execute(
                         "insert into cell values(?,?,?) on conflict(state, key) do update set value=?",
                         params![s, key_json(k), *v as i64, *v as i64],
+                    )?;
+                }
+            }
+        }
+        for (s, m) in &after.texts {
+            let old = before.texts.get(s);
+            for (k, v) in m {
+                if old.and_then(|o| o.get(k)) != Some(v) {
+                    self.db.execute(
+                        "insert into textcell values(?,?,?) on conflict(state, key) do update set value=?",
+                        params![s, key_json(k), v, v],
                     )?;
                 }
             }
@@ -1204,6 +1289,14 @@ impl<'m> Host<'m> {
         let now = self.load().map_err(sql)?;
         let replay_maps: IndexMap<String, IndexMap<Key, Int>> =
             w.maps.iter().filter(|(_, m)| !m.is_empty()).map(|(s, m)| (s.clone(), m.clone())).collect();
+        let replay_texts: IndexMap<String, IndexMap<Key, String>> =
+            w.texts.iter().filter(|(_, m)| !m.is_empty()).map(|(s, m)| (s.clone(), m.clone())).collect();
+        if now.texts != replay_texts {
+            let texts = |m: &IndexMap<String, IndexMap<Key, String>>| {
+                dict_repr(m.iter(), |x| repr_str(x), |kv| dict_repr(kv.iter(), |k| key_repr(k), |v| repr_str(v)))
+            };
+            bad.push(format!("text state differs: db {}, replay {}", texts(&now.texts), texts(&replay_texts)));
+        }
         if now.bal != w.bal || now.maps != replay_maps {
             let bal = |w: &World| dict_repr(w.bal.iter(), |a| repr_str(a), |b| b.to_string());
             let maps = |m: &IndexMap<String, IndexMap<Key, Int>>| {
@@ -1411,7 +1504,12 @@ pub fn host_facts(host: &Host) -> HostInfo {
 fn state_json(w: &World) -> J {
     json!({
         "balances": w.bal.iter().map(|(a, b)| (a.clone(), json!(*b as i64))).collect::<Map<String, J>>(),
-        "state": w.maps.iter().map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), json!(*v as i64))).collect()))).collect::<Map<String, J>>(),
+        "state": w
+            .maps
+            .iter()
+            .map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), json!(*v as i64))).collect())))
+            .chain(w.texts.iter().map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), json!(v))).collect()))))
+            .collect::<Map<String, J>>(),
     })
 }
 
@@ -1474,7 +1572,19 @@ pub fn repl(host: &mut Host, lines: impl Iterator<Item = String>, out: &mut dyn 
             continue;
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
-        let (name, args) = (parts[0], parse_args(&parts[1..]));
+        let (name, args) = if line.contains('"') {
+            // a quoted Text argument: the eg grammar (`post 3 "hello world"`)
+            match crate::syntax::parse_call("", line) {
+                Ok(ex) => (ex.call.0.clone(), ex.call.1.iter().map(Value::from_key).collect()),
+                Err(e) => {
+                    out(format!("error: {}", e.0));
+                    continue;
+                }
+            }
+        } else {
+            (parts[0].to_string(), parse_args(&parts[1..]))
+        };
+        let name = name.as_str();
         match host.call(name, &args) {
             Err(HostError::NoDef(_)) => {
                 out(format!("error: no definition named {}", name));
@@ -2236,6 +2346,107 @@ nope x:Int k:Int
         // the compiled program stops at the same number
         let rt = include_str!("../../runtime/src/lib.rs");
         assert!(rt.contains(&format!("pub const ITERATION_LIMIT: i64 = {};", "10_000_000")) && ITERATION_LIMIT == 10_000_000);
+    }
+
+    const NOTES: &str = "state title Int -> Text
+state size Int
+channel net
+
+post k:Int t:Text
+  need length t > 0 else Empty
+  ok otherwise
+  ensure title.get' k = t + \"!\"
+  emit Posted k t
+body
+  title.set k (t + \"!\")
+  size.set k (length t)
+  audit.emit (Posted k t)
+
+ask k:Int q:Text
+  ok otherwise
+body
+  net.emit (Lookup k q)
+
+answer k:Int q:Text a:Text
+  ok otherwise
+body
+  title.set k a
+
+missed k:Int q:Text
+  ok otherwise
+body
+  title.set k \"?\"
+";
+
+    #[test]
+    fn text_state_is_stored_replayed_and_served() {
+        let defs = crate::syntax::parse_module(NOTES, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let config = "Lookup -> GET http://127.0.0.1:9/q/{1}/{2}; reply answer {1} {2} $.text; fail missed {1} {2}";
+        let eps = load_config(config, &defs).unwrap();
+        assert_eq!(eps["Lookup"].reply_types, ["Int", "Text", "Text"]);
+        // a reply field for a Text parameter is a JSON string; a number there is a failure
+        let ev = Value::Ctor("Lookup".into(), vec![Value::Int(1), Value::Str("a b/c".into())]);
+        assert_eq!(eps["Lookup"].args_for(&ev, Some(&json!({"text": "hi"})), "reply").unwrap()[2], Value::Str("hi".into()));
+        assert!(eps["Lookup"].args_for(&ev, Some(&json!({"text": 5})), "reply").is_err());
+        assert_eq!(eps["Lookup"].url_for(&ev), "http://127.0.0.1:9/q/1/a%20b%2Fc");
+
+        let dir = std::env::temp_dir().join(format!("kern-text-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("t.db").to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&db);
+        let q: Rc<std::cell::RefCell<Vec<(String, Vec<Value>)>>> = Default::default();
+        let open = |q: &Rc<std::cell::RefCell<Vec<(String, Vec<Value>)>>>| {
+            let o = Options {
+                db: db.clone(),
+                sinks: Some(vec![]),
+                gate: false,
+                endpoints: Some(load_config(config, &defs).unwrap()),
+                net: Some(Box::new(Scripted(q.clone()))),
+                ..Default::default()
+            };
+            Host::new(&defs, IndexMap::new(), o).unwrap()
+        };
+        {
+            let mut h = open(&q);
+            assert!(h.init("title.9:\"from \\\"genesis\\\"\"").unwrap());
+            let mut out = vec![];
+            let lines = ["post 1 \"hello world\"", "post 2 \"\"", "ask 3 \"why?\""].iter().map(|l| l.to_string());
+            q.borrow_mut().push(("answer".into(), vec![Value::Int(3), Value::Str("why?".into()), Value::Str("because".into())]));
+            repl(&mut h, lines, &mut |l| out.push(l)).unwrap();
+            assert_eq!(out, ["ok", "refused Empty", "ok", "reply answer 3 why? because -> ok"]);
+        }
+        // a new process on the same database
+        let mut h = open(&q);
+        let w = h.load().unwrap();
+        let t = |k: Int| w.texts["title"].get(&Key::Int(k)).cloned();
+        assert_eq!((t(9), t(1), t(2), t(3)), (Some("from \"genesis\"".into()), Some("hello world!".into()), None, Some("because".into())));
+        assert_eq!(w.maps["size"][&Key::Int(1)], 11);
+        assert!(h.replay().unwrap().is_empty(), "{:?}", h.replay());
+        // HTTP: a Text parameter is a JSON string; GET /state shows Text maps with string values
+        let srv = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let base = format!("http://127.0.0.1:{}", srv.server_addr().to_ip().unwrap().port());
+        let client = std::thread::spawn(move || {
+            let post = |b: &str| match ureq::post(&format!("{base}/post")).send_string(b) {
+                Ok(r) => r.status(),
+                Err(ureq::Error::Status(c, _)) => c,
+                Err(e) => panic!("{e}"),
+            };
+            let codes = (post(r#"{"k": 4, "t": "ünïcode"}"#), post(r#"{"k": 4, "t": 5}"#));
+            let state: J = serde_json::from_str(&ureq::get(&format!("{base}/state")).call().unwrap().into_string().unwrap()).unwrap();
+            (codes, state)
+        });
+        for _ in 0..3 {
+            handle_http(&mut h, srv.recv().unwrap()).unwrap();
+        }
+        let ((ok, bad), state) = client.join().unwrap();
+        assert_eq!((ok, bad), (200, 400));
+        assert_eq!(state["state"]["title"]["4"], "ünïcode!");
+        assert!(h.replay().unwrap().is_empty());
+        // a tampered Text cell is caught by replay
+        h.db.execute("update textcell set value='x' where key='1'", []).unwrap();
+        assert!(h.replay().unwrap().iter().any(|m| m.starts_with("text state differs")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

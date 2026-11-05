@@ -37,6 +37,13 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   (with the emitted events), declared refusal → 409 `{"refused": Ctor, "args": [...]}`,
   bad call (wrong type, unknown account, a number that isn't an i64 such as `1.5`) → 400, not proven → 403,
   runtime invariant broken (only possible with `--no-gate`) or an Int out of range (below) → 500.
+- **Text (2026-11-05).** A Text state map (`state title Int -> Text`) is stored in SQLite table `textcell`
+  (state, key, value text), read lazily like `cell`, written with the call; a missing entry reads `""`. The genesis
+  world takes `title.1:"…"` entries (the `eg` world grammar), `repl` takes quoted Text arguments
+  (`post 1 "hello world"`), HTTP takes JSON strings for Text parameters, and `GET /state` shows Text maps with
+  string values. `replay` compares Text state too. A `.host` reply `$.field` for a Text parameter of the reply
+  definition takes a JSON string (an Int parameter still takes an integer; anything else is the `fail` call), and
+  a Text in a request URL is %-encoded.
 - **One Int range, i64 (S20, 2026-11-05).** SQLite stores i64 and the compiled runtime computes in i64; the
   interpreter computes in i128. A successful call whose stored balance, map key or value, event or result, or a
   refusal whose payload, leaves i64 is a host fault (`"fault": "range"`): rolled back, logged as an error, which
@@ -82,9 +89,9 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
    channel `emit` and replies arrive as new calls; see [HOST_PLAN.md](research/HOST_PLAN.md).
 4. ~~**Effect labels have no resource.**~~ The manifest now lists every network endpoint, from the
    host config. File access still has no effect at all.
-5. **Int and Account only.** Real requests need Text (records arrive as nested JSON objects since 2026-11-05). The plan is for the host to
-   decode them against a declared schema at the boundary, the same way `run()` already
-   type-checks arguments, so Kern never parses bytes.
+5. ~~**Int and Account only.**~~ Text since 2026-11-05 (below); records arrive as nested JSON objects. The host
+   decodes at the boundary (JSON strings for Text, `$.field` by the reply definition's parameter type), so Kern
+   never parses bytes. Still missing: other types (lists, …).
 6. **No accounts created at runtime.** Accounts only come from the genesis world.
 
 ## Scorecard for HOST_PLAN.md (filled in step by step)
