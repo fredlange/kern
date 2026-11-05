@@ -1,8 +1,18 @@
 services:
+  # The Kern toolchain image (the repository's Dockerfile, target `kern`); the portal takes its binary.
+  kern:
+    image: kern
+    build:
+      context: ../..
+      target: kern
+    entrypoint: ["true"]
+    restart: "no"
   portal:
     build:
       context: ../..
       dockerfile: examples/random-portal/Dockerfile
+      additional_contexts:
+        kern: service:kern
     ports:
       - "8000:8000"
     volumes:

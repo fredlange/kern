@@ -12,19 +12,18 @@ random-portal/
 ├── portal.host            where each request goes, and which call carries the reply
 ├── portal.why             rationale, anchored to each definition's hash
 ├── portal.strength        the ratchet baseline (`kern baseline`): check flags any weakening
-├── smoke.sh               the acceptance test: build, run, 16 checks, restart, replay
+├── smoke.sh               the acceptance test: build, run, 17 checks, restart, replay
 ├── proof-pages/portal.html
 ├── web/                   the React app (Vite); talks to the host only through /api
-├── Dockerfile             builds web/, installs the Python Kern from this checkout, renders the proof pages
-├── Dockerfile.rust        the same app on the Rust toolchain: takes `kern` from the repository's image
-├── *.dockerignore, nginx.conf, entrypoint.sh, docker-compose.yml
+├── Dockerfile             builds web/, takes the `kern` binary from the repository's image, renders the proof pages
+├── Dockerfile.dockerignore, nginx.conf, entrypoint.sh, docker-compose.yml
 ```
 
 ## Status
 
 `kern check portal.k`: **5 of 5 definitions clean, every guarantee proven, spec strength
 58/58** (request 20/20, store 22/22, fetch_failed 7/7, give_up 4/4, upvote 5/5).
-`./smoke.sh`: **16/16 checks pass** (2026-11-04). The build itself is one of the checks: the
+`./smoke.sh`: **17/17 checks pass** (2026-11-05, Rust toolchain). The build itself is one of the checks: the
 Dockerfile runs `kern check`, which exits 1 if any definition isn't clean. Tested by mutating
 `upvote` to add 2: check exits 1, so the build fails.
 
@@ -32,11 +31,11 @@ Dockerfile runs `kern check`, which exits 1 if any definition isn't clean. Teste
 - three real fetches stored joke 162, pun 73 and joke 417, and `pending` went back to 0;
 - the vote landed, and a forged `POST /api/store` got 403;
 - the state survived `docker restart`;
-- `kern.host replay` inside the container: "replay of 7 logged calls matches the database".
+- `kern host replay` inside the container: "replay of 7 logged calls matches the database".
 
 | # | Requested from the Kern developers | Status |
 |---|---|---|
-| R1 | **Text.** `$.field` in `.host` must be an Int and state maps hold Ints | **Open.** Decided 2026-11-04: Text will be built in the Rust toolchain once the parser, type checker, interpreter, prover and then the host match Python. Not in the Python `kern/`. Until then Kern stores only each joke's id at its source, and the page shows "joke #162 at the source", not the joke |
+| R1 | **Text.** `$.field` in `.host` must be an Int and state maps hold Ints | **Open.** Decided 2026-11-04: Text will be built in the Rust toolchain after the port. Until then Kern stores only each joke's id at its source, and the page shows "joke #162 at the source", not the joke |
 | R2 | `serve` never ran network replies | Fixed in 6b166c5 |
 | R3 | invariants aren't proven at literal keys | Known prover gap, planned for the Rust prover; this module uses parameter keys |
 | R5 | `serve --bind` | Fixed in 6b166c5 (unused here: nginx proxies to 127.0.0.1) |
@@ -45,25 +44,19 @@ Dockerfile runs `kern check`, which exits 1 if any definition isn't clean. Teste
 Since 1423327 the host records an empty genesis world for a new database, so `replay` works
 without `--world`. Rechecked in the container: "replay of 5 logged calls matches the database".
 
-## On the Rust toolchain
+## The toolchain
 
-The Python `kern/` is frozen while the toolchain moves to Rust (docs/research/RUST_PORT_PLAN.md).
-The app runs unchanged on the Rust binary (2026-11-05, on top of a295dcb):
-- `kern check portal.k` gives stdout byte-identical to Python's (same hashes, 58/58), and the proof
-  page is identical apart from the output path;
-- `kern host manifest` is identical;
-- `kern host serve` with real HTTPS replies works, and its database replays under both hosts
-  (8/8 logged calls each way);
-- `DOCKERFILE=Dockerfile.rust ./smoke.sh` passes 16/16, the same as the Python image.
+The app needs only the Rust `kern` binary, no Python. It moved off the Python toolchain on
+2026-11-05, ahead of the planned removal of the Python `kern/`. Before the switch, the two agreed on this app:
+- `kern check` stdout was byte-identical (same hashes, 58/58), and so were the proof page and the
+  manifest;
+- each host replayed the other's database (8/8 logged calls each way);
+- the smoke test passed on both images.
 
-```text
-docker build --target kern -t kern .                                   # from the repository root
-docker build -f examples/random-portal/Dockerfile.rust -t random-portal:rust .
-```
-
-The Rust image is 234 MB, against 343 MB for the Python one. `ARG KERN_IMAGE` picks the image the
-binary comes from (default `kern`), for when a published tag exists. `entrypoint.sh` and
-`smoke.sh` take the host command from `KERN_HOST`, which each Dockerfile sets.
+The Rust image is 234 MB; the Python one was 343 MB. `ARG KERN_IMAGE` in the Dockerfile picks the
+image the binary comes from (default `kern`, built with `docker build --target kern -t kern .`
+from the repository root). docker-compose.yml builds that image first, as the `kern` service, and
+hands it to the portal build as a named context. That service only exits: it's there to be built.
 
 ## What the proofs say, and what they don't
 
@@ -94,11 +87,11 @@ Check and inspect, from the repository root:
 
 ```text
 kern check examples/random-portal/portal.k
-python -m kern.host manifest examples/random-portal/portal.k
-examples/random-portal/smoke.sh        # builds and tests the image; needs docker and internet
+kern host manifest examples/random-portal/portal.k
+examples/random-portal/smoke.sh        # builds both images and tests the portal; needs docker, jq and internet
 ```
 
-Docker (the build context is the repository root, because the image installs Kern from this
+Docker (the build context is the repository root, because the `kern` image is built from this
 checkout):
 
 ```text
@@ -106,7 +99,7 @@ cd examples/random-portal
 docker compose up --build          # http://localhost:8000, proof page at /proof.html
 ```
 
-Development: run `python -m kern.host serve portal.k --db portal.db --port 8080` here, then
+Development: run `kern host serve portal.k --db portal.db --port 8080` here, then
 `npm install && npm run dev` in `web/` (Vite proxies `/api` to the host).
 
 ## HTTP API (what the page calls)
@@ -123,7 +116,7 @@ Development: run `python -m kern.host serve portal.k --db portal.db --port 8080`
 any definition, so nginx blocks them from the public path (403).
 
 The image serves two proof pages: `/proof.html` (`kern check` with the `.why` rationale and spec
-strength; the build fails unless every definition is clean) and `/host.html` (`kern.host page`,
+strength; the build fails unless every definition is clean) and `/host.html` (`kern host page`,
 which adds the endpoints and the host's assumptions but doesn't read `.why`).
 
 ## Findings for the Kern developers (all reported)

@@ -1,4 +1,4 @@
-// The whole backend is portal.k behind `python -m kern.host serve`.
+// The whole backend is portal.k behind `kern host serve`.
 // POST /NAME takes exactly the definition's parameters; GET /state is the world.
 // Status codes come from the host: 200 ok, 409 a declared refusal, 400 bad call, 403 not proven.
 

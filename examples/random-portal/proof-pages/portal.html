@@ -41,7 +41,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 11 succeeded and were checked against every guarantee; refused: UnknownSource 467, AlreadyPending 18, TooSoon 4.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 20/20 deliberate bugs (100%)</span></h3><p>Caught by the prover: 20; by random tests checking the guarantees: 20. The examples alone catch 10/20; everything together 20/20.</p>
-<details><summary>Why (2)</summary><ul><li>the slot is reserved at request time and travels in the event, so the reply writes a parameter key; a computed key would leave the invariants unproven</li><li>one request per source at a time keeps the public APIs from being hammered by a button-masher</li></ul></details>
+<details><summary>Why (3)</summary><ul><li>the slot is reserved at request time and travels in the event, so the reply writes a parameter key; a computed key would leave the invariants unproven</li><li>one request per source at a time keeps the public APIs from being hammered by a button-masher</li><li>the 5-second cooldown is politeness toward free APIs with no key; 5 is a guess, not a published limit</li></ul></details>
 </section>
 <section class="card"><header><h2><code>store</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build bdae93ae</span></header>
 <h3>Can touch</h3><p>the audit log, the clock, state <code>pending</code> (read and write), state <code>ref</code> (read and write), state <code>source</code> (read and write), state <code>want</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
