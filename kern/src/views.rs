@@ -234,7 +234,7 @@ pub fn unguaranteed_writes(r: &Report) -> Vec<String> {
     }
     let mut out: Vec<String> =
         d.params.iter().filter(|(p, _)| r.writes.contains(p) && !said.contains(p)).map(|(p, _)| p.clone()).collect();
-    out.extend(r.writes.iter().filter(|w| w.contains('.') && !said.contains(*w)).cloned());
+    out.extend(r.writes.iter().filter(|w| crate::infer::split_write(w, d).is_some() && !said.contains(*w)).cloned());
     out
 }
 

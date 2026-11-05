@@ -211,8 +211,9 @@ fn effect_list(r: &Report) -> String {
     }
 }
 
-fn all_dotted(xs: &[String]) -> bool {
-    xs.iter().all(|x| x.contains('.'))
+/// Whether every write in xs is a state entry (not a balance; record fields make balance names dotted too).
+fn all_dotted(xs: &[String], d: &crate::syntax::Def) -> bool {
+    xs.iter().all(|x| crate::infer::split_write(x, d).is_some())
 }
 
 pub fn card(r: &Report, defs: &Module, why: &Status) -> String {
@@ -230,7 +231,11 @@ pub fn card(r: &Report, defs: &Module, why: &Status) -> String {
         effect_list(r)
     ));
     if !r.writes.is_empty() {
-        let what = if r.writes.iter().any(|w| w.contains('.')) { "Changes" } else { "Changes balances of" };
+        let what = if r.writes.iter().any(|w| crate::infer::split_write(w, d).is_some()) {
+            "Changes"
+        } else {
+            "Changes balances of"
+        };
         out.push(format!(
             "<p>{}: {}. <span class='muted'>Inferred; every other {} is unchanged.</span></p>",
             what,
@@ -241,7 +246,7 @@ pub fn card(r: &Report, defs: &Module, why: &Status) -> String {
         if !silent.is_empty() {
             out.push(format!(
                 "<p class='warnc'>No guarantee says what the new {} of {} is.</p>",
-                if all_dotted(&silent) { "value" } else { "balance" },
+                if all_dotted(&silent, d) { "value" } else { "balance" },
                 silent.iter().map(|p| format!("<code>{}</code>", p)).collect::<Vec<_>>().join(", ")
             ));
         }
@@ -756,7 +761,7 @@ pub fn terminal(reports: &IndexMap<String, Report>, defs: &Module, whys: &IndexM
             } else {
                 format!(
                     "   (no guarantee about the new {} of {})",
-                    if all_dotted(&silent) { "value" } else { "balance" },
+                    if all_dotted(&silent, &r.def) { "value" } else { "balance" },
                     silent.join(", ")
                 )
             };

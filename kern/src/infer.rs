@@ -239,8 +239,8 @@ fn writes_seen(defs: &Module, d: &Def, seen: &BTreeSet<String>) -> BTreeSet<Stri
                         let idx: IndexMap<&str, usize> =
                             callee.params.iter().enumerate().map(|(i, (p, _))| (p.as_str(), i)).collect();
                         for w in writes_seen(defs, callee, seen) {
-                            let (x, dot, p) = match w.rfind('.') {
-                                Some(i) => (&w[..i], true, &w[i + 1..]),
+                            let (x, dot, p) = match split_write(&w, callee) {
+                                Some((x, p)) => (x, true, p),
                                 None => ("", false, w.as_str()),
                             };
                             if p.starts_with('[') {
@@ -277,29 +277,39 @@ fn writes_seen(defs: &Module, d: &Def, seen: &BTreeSet<String>) -> BTreeSet<Stri
     out
 }
 
-pub fn ledger_writes(ws: &BTreeSet<String>) -> BTreeSet<String> {
-    ws.iter().filter(|w| !w.contains('.')).cloned().collect()
+/// One entry of `writes(defs, d)`: None for a balance (a parameter of d, or ANY_ACCOUNT), else (state, key). Record
+/// fields make parameter names dotted (`p.from`), so a balance is told apart by d's parameters, not by the dot; a
+/// state's name has no dot, so a state entry splits at its first one (`hold.p.x` is hold at key p.x).
+pub fn split_write<'a>(w: &'a str, d: &Def) -> Option<(&'a str, &'a str)> {
+    if w == ANY_ACCOUNT || d.params.iter().any(|(p, _)| p == w) {
+        return None;
+    }
+    w.split_once('.')
 }
 
-/// {state: {param or ANY_ACCOUNT}} from a writes() set.
-pub fn state_writes(ws: &BTreeSet<String>) -> IndexMap<String, BTreeSet<String>> {
+pub fn ledger_writes(ws: &BTreeSet<String>, d: &Def) -> BTreeSet<String> {
+    ws.iter().filter(|w| split_write(w, d).is_none()).cloned().collect()
+}
+
+/// {state: {param or ANY_ACCOUNT}} from a writes() set of d.
+pub fn state_writes(ws: &BTreeSet<String>, d: &Def) -> IndexMap<String, BTreeSet<String>> {
     let mut out: IndexMap<String, BTreeSet<String>> = IndexMap::new();
     for w in ws {
-        if let Some(i) = w.rfind('.') {
-            out.entry(w[..i].to_string()).or_default().insert(w[i + 1..].to_string());
+        if let Some((x, k)) = split_write(w, d) {
+            out.entry(x.to_string()).or_default().insert(k.to_string());
         }
     }
     out
 }
 
 pub fn fmt_writes(ws: &BTreeSet<String>, d: &Def) -> String {
-    let led = ledger_writes(ws);
+    let led = ledger_writes(ws, d);
     let mut parts: Vec<String> = if led.contains(ANY_ACCOUNT) {
         vec!["any account".into()]
     } else {
         d.params.iter().filter(|(p, _)| led.contains(p)).map(|(p, _)| p.clone()).collect()
     };
-    let mut sw: Vec<_> = state_writes(ws).into_iter().collect();
+    let mut sw: Vec<_> = state_writes(ws, d).into_iter().collect();
     sw.sort();
     for (x, ps) in sw {
         if ps.contains(ANY_ACCOUNT) {
@@ -785,7 +795,7 @@ impl<'a> Lifter<'a> {
         let total_kept = pins.iter().any(|(r, v)| is_total(r) && is_total(v));
         let mut wrote_balances = false;
         for w in &ws {
-            let (read, write): (Expr, Box<dyn Fn(Expr, Expr) -> Write>) = match w.rsplit_once('.') {
+            let (read, write): (Expr, Box<dyn Fn(Expr, Expr) -> Write>) = match split_write(w, callee) {
                 None if w != ANY_ACCOUNT => {
                     wrote_balances = true;
                     (Expr::App("ledger.balance".into(), false, vec![Expr::Name(w.clone(), false)]), Box::new(Write::BalSet))

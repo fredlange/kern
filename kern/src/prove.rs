@@ -604,7 +604,7 @@ impl<'m> Prover<'m> {
         }
         let pre = s.clone();
         let all_written = writes(self.defs, callee);
-        let written = ledger_writes(&all_written);
+        let written = ledger_writes(&all_written, callee);
         if written.contains(ANY_ACCOUNT) {
             s.bal = zz::array(&format!("bal{}", fresh()));
         }
@@ -615,7 +615,7 @@ impl<'m> Prover<'m> {
         if !written.is_empty() {
             s.total = fresh_int("total");
         }
-        let mut sw: Vec<(String, BTreeSet<String>)> = state_writes(&all_written).into_iter().collect();
+        let mut sw: Vec<(String, BTreeSet<String>)> = state_writes(&all_written, callee).into_iter().collect();
         sw.sort();
         for (x, ps) in sw {
             if ps.contains(ANY_ACCOUNT) {
@@ -872,14 +872,14 @@ impl<'m> Prover<'m> {
         let reads = names(cond);
         let ws = writes(self.defs, d);
         let mut hit = false;
-        let lw = ledger_writes(&ws);
+        let lw = ledger_writes(&ws, d);
         if (reads.contains("ledger.balance") || reads.contains("ledger.total")) && !lw.is_empty() {
             hit = true;
             if lw.contains(ANY_ACCOUNT) {
                 return Some(false);
             }
         }
-        for (x, ps) in state_writes(&ws) {
+        for (x, ps) in state_writes(&ws, d) {
             if reads.contains(&format!("{x}.get")) {
                 hit = true;
                 if ps.contains(ANY_ACCOUNT) {
@@ -972,7 +972,7 @@ impl<'m> Prover<'m> {
             } else if let Some(callee) = self.defs.defs.get(name.as_str()) {
                 let cenv: IndexMap<&str, &Expr> = callee.params.iter().zip(args).map(|((p, _), a)| (p.as_str(), a)).collect();
                 for w in writes(self.defs, callee) {
-                    match w.rsplit_once('.') {
+                    match crate::infer::split_write(&w, callee) {
                         None => acc.push(if w != ANY_ACCOUNT { Some(cenv[w.as_str()].clone()) } else { None }),
                         Some((x, _)) => {
                             full.insert(x.to_string());

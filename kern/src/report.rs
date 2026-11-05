@@ -239,8 +239,9 @@ fn store_kept(reports: &IndexMap<String, Report>, store: &str, exclude: Option<&
         if Some(n.as_str()) == exclude {
             continue;
         }
-        let writes_it = r.writes.iter().any(|w| w.contains('.') && w.split('.').next() == Some(store))
-            || (store == "ledger" && r.writes.iter().any(|w| !w.contains('.')));
+        let split = |w: &String| crate::infer::split_write(w, &r.def).map(|(x, _)| x.to_string());
+        let writes_it = r.writes.iter().any(|w| split(w).as_deref() == Some(store))
+            || (store == "ledger" && r.writes.iter().any(|w| split(w).is_none()));
         if writes_it && r.guarantees.iter().any(|g| g.kind == "invariant" && g.status != Status::Proven) {
             return false;
         }

@@ -133,6 +133,50 @@ fn s5_a_counterexample_for_a_record_parameter_replays_as_an_eg_line() {
 }
 
 #[test]
+fn s5_a_callee_that_writes_at_a_record_field_is_havocked_at_that_field() {
+    // found by tester (b18367a): `writes` entries are `state.key` or a balance's parameter, and a record field makes
+    // both dotted (`hold.p.x`, `p.from`); splitting at the last dot made the prover look up a parameter `hold.p`
+    let map_key = "state hold Int\n\nrecord Point x:Int y:Int\n\nput p:Point\n  ok otherwise\n  ensure hold.get' p.x = p.y\nbody\n  hold.set p.x p.y\n\nc a:Int b:Int\n  ok otherwise\n  ensure hold.get' a = b\nbody\n  put (Point a b)\n";
+    let reps = reports(&parse(map_key));
+    assert!(reps["c"].clean, "{:?}", reps["c"].guarantees);
+    assert_eq!(kern::infer::fmt_writes(&reps["put"].writes, &reps["put"].def), "hold.p.x");
+    let pay = "record Pay from:Account to:Account amount:Int
+
+send p:Pay
+  need p.amount > 0 else BadAmount
+  need p.from != p.to else SameAccount
+  need ledger.balance p.from >= p.amount else Insufficient
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' p.from = ledger.balance p.from - p.amount
+  ensure ledger.balance' p.to = ledger.balance p.to + p.amount
+body
+  ledger.debit p.from p.amount
+  ledger.credit p.to p.amount
+
+relay p:Pay
+  need as send p
+  ok otherwise
+  ensure ledger.balance' p.to = ledger.balance p.to + p.amount
+body
+  send p
+
+direct a:Account b:Account n:Int
+  need as send (Pay a b n)
+  ok otherwise
+  ensure ledger.balance' a = ledger.balance a - n
+body
+  send (Pay a b n)
+";
+    let reps = reports(&parse(pay));
+    let dirty: Vec<&String> = reps.iter().filter(|(_, r)| !r.clean).map(|(n, _)| n).collect();
+    assert!(dirty.is_empty(), "{dirty:?}");
+    // record fields that are accounts are balances, not state entries
+    assert_eq!(kern::infer::fmt_writes(&reps["relay"].writes, &reps["relay"].def), "p.from p.to");
+    assert_eq!(views::unguaranteed_writes(&reps["relay"]), ["p.from"]);
+}
+
+#[test]
 fn s5_a_record_is_read_by_field_or_passed_whole() {
     let cases = [
         ("g q:Pair\n  ensure 1 = 1\nbody\n  f q\n", "passes q (Pair) where a Point is wanted"),
