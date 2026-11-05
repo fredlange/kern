@@ -230,3 +230,11 @@ of what the Python oracles last said:
   - tests/determinism.rs: results don't depend on order;
   - the ported test suite: every pytest file has a cargo counterpart;
   - kern-9b's golden output.
+
+**After the cutover (2026-11-05, 90f3060 deletion, 37e5924 rename, eb6725f docs).**
+- **Tests:** `cargo test --workspace --release` gives 254 passed, 0 failed.
+- **Docker:** `docker build --target check .` runs the same suite inside the container, with Z3 5.3.3 linked
+  statically and no Python: 254 passed, 0 failed.
+- **A real app:** `examples/random-portal/smoke.sh`, kern-44's 17 checks against the Rust image, all pass. Those
+  include real HTTPS fetches, refusals, a restart and a matching replay.
+- **Install:** `cargo install --path kern --locked` installs a kern that works outside the checkout.
