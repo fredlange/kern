@@ -3,7 +3,7 @@
 //! docs/research/RUNTIME_PLAN.md beyond the examples.
 //!
 //! ```text
-//! fuzzdiff [--seed 1] [--loops 300] [--handlers 200] [--sums 150] [--texts 100] [--no-mutants] [--per-def 100]
+//! fuzzdiff [--seed 1] [--loops 300] [--handlers 200] [--sums 150] [--texts 100 (also the count of nest and match programs)] [--no-mutants] [--per-def 100]
 //! ```
 //!
 //! All programs go into one crate (one module each, picked by the binary's first argument), so there is one cargo
@@ -42,6 +42,8 @@ pub fn run(seed: i128, loops: usize, handlers: usize, sums: usize, texts: usize,
     let mut all = jobs(std::path::Path::new(ROOT), seed, loops, handlers, 0, mutants);
     all.extend(crate::fuzz::sum_jobs(seed, sums, 0));
     all.extend(crate::fuzz::text_jobs(seed, texts, 0));
+    all.extend(crate::fuzz::nest_jobs(seed, texts, 0));
+    all.extend(crate::fuzz::match_jobs(seed, texts, 0));
     for job in all {
         let defs = match (&job.module, &job.src) {
             (Some(m), _) => m.clone(),

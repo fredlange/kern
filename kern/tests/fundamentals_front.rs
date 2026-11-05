@@ -433,10 +433,12 @@ fn s1_and_binds_tighter_than_or() {
 
 #[test]
 fn s2_only_linear_arithmetic() {
-    for (expr, msg) in [("amount / 0", "positive number"), ("amount / amount", "positive number"), ("amount * amount", "number on one side")] {
+    // `/` still needs a positive literal; `*` of two variables is allowed since 59c9e66 (nonlinear goals may be `?`)
+    for (expr, msg) in [("amount / 0", "positive number"), ("amount / amount", "positive number")] {
         let e = wf_error(&format!("f to:Account amount:Int\nbody\n  ledger.credit to ({expr})\n"));
         assert!(e.contains(msg), "{expr}: {e}");
     }
+    assert_eq!(wf_error("f to:Account amount:Int\nbody\n  ledger.credit to (amount * amount)\n"), "");
 }
 
 #[test]
@@ -481,13 +483,16 @@ fn s3_functions_are_pure_total_and_only_they_appear_in_specs() {
 #[test]
 fn s4_loop_forms_are_checked() {
     for (src, msg) in [
-        ("f lo:Int hi:Int\nbody\n  for k from lo to hi\n    for m from lo to hi\n      ledger.total\n", "nested loops"),
         ("f a:Account\n  need a != a for j from 0 to 1 else Bad\nbody\n  ledger.credit a 1\n", "only allowed at the end"),
         ("f a:Account\nbody\n  invariant ledger.total' = ledger.total\n  ledger.credit a 1\n", "start of a `for` loop"),
     ] {
         let e = wf_error(src);
         assert!(e.contains(msg), "{src:?}: {e}");
     }
+    // nested loops are allowed since 59c9e66; an inner `for` must not reuse the outer loop's variable
+    assert_eq!(wf_error("state hold Int\n\nf lo:Int hi:Int\nbody\n  for k from lo to hi\n    for m from lo to hi\n      hold.set m k\n"), "");
+    let e = wf_error("state hold Int\n\nf lo:Int hi:Int\nbody\n  for k from lo to hi\n    for k from lo to hi\n      hold.set k 1\n");
+    assert!(e.contains("`k` shadows an existing name"), "{e}");
 }
 
 // ===================================================================================== S1: the ratchet sees refusals

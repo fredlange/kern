@@ -504,6 +504,163 @@ pub fn text_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         .collect()
 }
 
+// ---------------------------------------------------------------- nested loops, variable × variable (59c9e66)
+
+/// A nested-loop or nonlinear program: a nested counting loop whose invariants use `(r - lo) * n`, grid writes at
+/// `r * W + c` with frame claims, or a function with nonlinear identities. Correct, then (half the time) one
+/// claim perturbed or swapped for a near miss. Own stream (`nest_jobs`).
+pub fn gen_nest(rnd: &mut Random) -> String {
+    let kind = choice_str(rnd, &["count", "grid", "poly"]);
+    let mut lines: Vec<String> = vec!["state hold Int".into(), "state tally Int".into(), String::new()];
+    let wrong = rnd.random() < 0.5;
+    match kind {
+        "count" => {
+            let step = *rnd.choice(&[1i64, 2, 3]);
+            let mut ens = format!("tally.get' 0 = tally.get 0 + {step} * (hi - lo) * n");
+            let mut inner = format!("tally.get' 0 = tally.get 0 + {step} * (r - lo) * n + {step} * c");
+            let mut needs = vec!["need lo <= hi else Bad", "need n >= 0 else Neg"];
+            if wrong {
+                match rnd.randbelow(3) {
+                    0 => ens = format!("tally.get' 0 = tally.get 0 + {step} * (hi - lo) * (n + 1)"),
+                    1 => inner = format!("tally.get' 0 = tally.get 0 + {step} * (r - lo) * n + {step} * (c + 1)"),
+                    _ => needs = vec!["need lo <= hi else Bad"],
+                }
+            }
+            lines.push("f lo:Int hi:Int n:Int".into());
+            lines.extend(needs.iter().map(|x| format!("  {x}")));
+            lines.push("  ok otherwise".into());
+            lines.push(format!("  ensure {ens}"));
+            lines.push("body".into());
+            lines.push("  for r from lo to hi".into());
+            lines.push(format!("    invariant tally.get' 0 = tally.get 0 + {step} * (r - lo) * n"));
+            lines.push("    for c from 0 to n".into());
+            lines.push(format!("      invariant {inner}"));
+            lines.push(format!("      tally.set 0 (tally.get 0 + {step})"));
+        }
+        "grid" => {
+            let w = *rnd.choice(&[3i64, 5, 10]);
+            // keys r * W + c for r in [0, rows), c in [0, W): never below 0, never at rows * W or beyond
+            let mut ens = vec![
+                "hold.get' (0 - 1) = hold.get (0 - 1)".to_string(),
+                format!("hold.get' (rows * {w}) = hold.get (rows * {w}) when rows >= 0"),
+            ];
+            if wrong {
+                ens[rnd.randbelow(2) as usize] = choice_str(rnd, &["hold.get' 0 = hold.get 0", "hold.get' 1 = hold.get 1"]).to_string();
+            }
+            lines.push("f rows:Int v:Int".into());
+            lines.push("  ok otherwise".into());
+            lines.extend(ens.iter().map(|e| format!("  ensure {e}")));
+            lines.push("body".into());
+            lines.push("  for r from 0 to rows".into());
+            lines.push(format!("    for c from 0 to {w}"));
+            lines.push(format!("      hold.set (r * {w} + c) v"));
+        }
+        _ => {
+            let (good, bad) = *rnd.choice(&[
+                ("result = x * x + 2 * x * y + y * y", "result = x * x + x * y + y * y"),
+                ("result >= 0", "result > 0"),
+                ("result = (x + y) * (x + y)", "result = (x + y) * (x - y)"),
+            ]);
+            let body = if good.starts_with("result >= 0") { "(x - y) * (x - y)" } else { "(x + y) * (x + y)" };
+            let (good, bad) = if good.starts_with("result >= 0") { (good, bad) } else { (good, bad) };
+            lines.push("f x:Int y:Int -> Int".into());
+            lines.push(format!("  ensure {}", if wrong { bad } else { good }));
+            lines.push("body".into());
+            lines.push(format!("  result = {body}"));
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `n` nested-loop / nonlinear programs from their own stream, labelled `nest#i`.
+pub fn nest_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 59);
+    (0..n)
+        .map(|i| {
+            let src = gen_nest(&mut rnd);
+            Job { label: format!("nest#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------- match (a8cee99)
+
+/// A `match` program and its hand-written `if` chain (`match` is desugared to the chain at parse time, so the two
+/// must parse to the same definitions). The scrutinee is an Int parameter, a stored Int or a Text; arms are
+/// integers (negative too), a constant, Text literals, optionally `_`. Claims per arm, half the time one wrong.
+pub fn gen_match(rnd: &mut Random) -> (String, String) {
+    fn as_expr(p: &str) -> String {
+        if p.starts_with('-') { format!("(0 - {})", &p[1..]) } else { p.to_string() }
+    }
+    let text = rnd.random() < 0.3;
+    let n = 1 + rnd.randbelow(3) as usize;
+    let pats: Vec<String> = if text {
+        rnd.sample(&["\"\"", "\"a\"", "\"ab\"", "\"é\""], n).into_iter().map(String::from).collect()
+    } else {
+        rnd.sample(&["-1", "0", "1", "2", "lim"], n).into_iter().map(String::from).collect()
+    };
+    let wild = rnd.random() < 0.5;
+    let scrut = if text { "t" } else { *rnd.choice(&["k", "hold.get k"]) };
+    let header = if text { "f k:Int t:Text" } else { "f k:Int" };
+    let mut ens = vec![];
+    let mut arms = vec![];
+    let mut chain = vec![];
+    for (i, p) in pats.iter().enumerate() {
+        let v = 10 + i as i64;
+        arms.push(format!("    {p} -> tally.set k {v}"));
+        chain.push(format!("  {}if {scrut} = {p}", if i == 0 { "" } else { "else " }).replace("  else if", "  else\n    if"));
+        ens.push(format!("tally.get' k = {v} when {scrut} = {}", as_expr(p)));
+    }
+    if wild {
+        arms.push("    _ -> tally.set k 99".into());
+    }
+    // a pattern may be `-1`; an expression has no unary minus (as_expr)
+    let none = pats.iter().map(|p| format!("{scrut} != {}", as_expr(p))).collect::<Vec<_>>().join(" and ");
+    ens.push(if wild { format!("tally.get' k = 99 when {none}") } else { format!("tally.get' k = tally.get k when {none}") });
+    if rnd.random() < 0.5 {
+        let i = rnd.randbelow(ens.len() as u128) as usize;
+        ens[i] = perturb(rnd, &ens[i].clone(), "ens");
+    }
+    let head = |ls: &mut Vec<String>| {
+        ls.extend(["const lim 7".to_string(), "state hold Int".into(), "state tally Int".into(), String::new(), header.into(), "  ok otherwise".into()]);
+        ls.extend(ens.iter().map(|e| format!("  ensure {e}")));
+        ls.push("body".into());
+    };
+    let mut m = vec![];
+    head(&mut m);
+    m.push(format!("  match {scrut}"));
+    m.extend(arms.iter().cloned());
+    // the same as a nested if/else chain: if A / else (if B / else ...)
+    let mut c = vec![];
+    head(&mut c);
+    let mut ind = String::from("  ");
+    for (i, p) in pats.iter().enumerate() {
+        let v = 10 + i as i64;
+        c.push(format!("{ind}if {scrut} = {}", as_expr(p)));
+        c.push(format!("{ind}  tally.set k {v}"));
+        if i + 1 < pats.len() || wild {
+            c.push(format!("{ind}else"));
+            ind.push_str("  ");
+        }
+    }
+    if wild {
+        c.push(format!("{ind}tally.set k 99"));
+    }
+    let _ = chain;
+    (m.join("\n") + "\n", c.join("\n") + "\n")
+}
+
+/// `n` match programs from their own stream, labelled `match#i` (the `if` chains are for the AST test).
+pub fn match_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 88);
+    (0..n)
+        .map(|i| {
+            let (src, _) = gen_match(&mut rnd);
+            Job { label: format!("match#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -1030,7 +1187,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "contradictions": results.iter().map(|r| r.found.len()).sum::<usize>(),
         "programs_with_contradictions": results.iter().filter(|r| !r.found.is_empty()).map(|r| &r.label).collect::<Vec<_>>(),
         "tiers": tiers, "runs": runs, "ok_runs": ok, "skipped": skipped, "unmapped": unmapped, "unmapped_kinds": unmapped_kinds,
-        "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"), "text_well_formed": fam("text#"),
+        "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"), "text_well_formed": fam("text#"), "nest_well_formed": fam("nest#"), "match_well_formed": fam("match#"),
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"),
         "variant_mismatches": variant_mismatches(results),
     })
@@ -1044,12 +1201,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -1079,6 +1236,8 @@ pub fn main(argv: &[String]) -> i32 {
     let n_var = (num("variants", 50) as usize).min(num("sums", 150) as usize);
     js.extend(variant_jobs(num("seed", 1) as i128, n_var, num("runs", 300)));
     js.extend(text_jobs(num("seed", 1) as i128, num("texts", 100) as usize, num("runs", 300)));
+    js.extend(nest_jobs(num("seed", 1) as i128, num("nests", 100) as usize, num("runs", 300)));
+    js.extend(match_jobs(num("seed", 1) as i128, num("matches", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));

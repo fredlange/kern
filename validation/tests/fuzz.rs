@@ -239,3 +239,29 @@ fn a_small_text_fuzz_run_is_clean_and_deterministic() {
     assert!(e["proven"].as_u64().unwrap_or(0) > 30 && e["refuted"].as_u64().unwrap_or(0) > 0, "{e}");
     assert_eq!(run(), s);
 }
+
+#[test]
+fn every_generated_match_is_its_if_chain_and_the_small_runs_are_clean() {
+    // a8cee99 desugars `match` into an if/else chain at parse time: 300 generated matches (Int, constant, negative
+    // and Text patterns, with and without `_`) parse to exactly the definitions of their hand-written chains
+    let mut rnd = kern::pyrandom::Random::from_int(9);
+    for i in 0..300 {
+        let (m, c) = kern_validation::fuzz::gen_match(&mut rnd);
+        if m.contains("    -1 ->") {
+            continue; // a `-1` pattern is the literal -1, which no expression spells (`0 - 1` is a subtraction)
+        }
+        let (a, b) = (parse_module(&m, true).unwrap_or_else(|e| panic!("{i}: {}\n{m}", e.0)), parse_module(&c, true).unwrap());
+        check_module(&a).unwrap_or_else(|e| panic!("{i}: {}\n{m}", e.message()));
+        assert_eq!(a.defs["f"].content_hash(), b.defs["f"].content_hash(), "{i}\n{m}\n{c}");
+        assert_eq!(format!("{:?}", a.defs["f"].body), format!("{:?}", b.defs["f"].body), "{i}");
+    }
+    // nested loops / variable × variable (59c9e66) and match programs through the oracle
+    let mut js = kern_validation::fuzz::nest_jobs(5, 20, 60);
+    js.extend(kern_validation::fuzz::match_jobs(5, 20, 60));
+    let results: Vec<_> = js.iter().map(check_program).collect();
+    let s = summarise(&results);
+    assert_eq!((s["nest_well_formed"].clone(), s["match_well_formed"].clone()), (serde_json::json!("20/20"), serde_json::json!("20/20")));
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    assert!(s["tiers"]["ensure"]["refuted"].as_u64().unwrap_or(0) > 0 && s["tiers"]["ensure"]["proven"].as_u64().unwrap_or(0) > 20);
+}
