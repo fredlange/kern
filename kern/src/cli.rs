@@ -385,6 +385,9 @@ fn check_view_baseline(a: &Args, defs: &crate::syntax::Module, whys: &IndexMap<S
     let _ = writeln!(out, "{}", render::terminal(&reports, defs, whys, orphans));
     if let Some(html) = &a.html {
         let title = a.file.rsplit('/').next().unwrap_or(&a.file);
+        if let Some(dir) = std::path::Path::new(html).parent().filter(|d| !d.as_os_str().is_empty()) {
+            let _ = std::fs::create_dir_all(dir); // a missing build/ is created; a real failure shows in the write
+        }
         if let Err(e) = std::fs::write(html, render::page(&reports, defs, whys, title, orphans, None)) {
             let _ = writeln!(err, "error: {}: {}", html, e);
             return 2;

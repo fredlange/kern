@@ -1515,6 +1515,9 @@ pub fn main(argv: &[String], analyse: Analyse) -> i32 {
             };
             let out = opts.get("--html").cloned().unwrap_or_else(|| "proof.html".into());
             let page = crate::render::page(&reports, &defs, &whys, file, &IndexMap::new(), Some(&host_facts(&host)));
+            if let Some(dir) = std::path::Path::new(&out).parent().filter(|d| !d.as_os_str().is_empty()) {
+                let _ = std::fs::create_dir_all(dir);
+            }
             if let Err(e) = std::fs::write(&out, page) {
                 eprintln!("error: {}: {}", out, e);
                 return 2;
