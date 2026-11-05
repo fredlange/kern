@@ -420,6 +420,22 @@ pub fn load(path: &str, overrides: &IndexMap<String, String>) -> Result<Module, 
     Ok(merged)
 }
 
+/// The package roots, next to `path`'s own package, that use it (directly or through another): the sibling
+/// directories of its root with a kern.pkg whose dependencies include it. Empty outside a package.
+pub fn users_of(path: &str) -> Vec<String> {
+    let Some(root) = root_of(path) else { return vec![] };
+    let parent = dirname(&root);
+    let Ok(rd) = std::fs::read_dir(&parent) else { return vec![] };
+    let mut out: Vec<String> = rd
+        .flatten()
+        .map(|e| e.path().to_string_lossy().into_owned())
+        .filter(|d| *d != root && Path::new(&join(d, MARKER)).exists())
+        .filter(|d| dependencies(d).is_ok_and(|ds| ds.iter().any(|(_, r)| *r == root)))
+        .collect();
+    out.sort();
+    out
+}
+
 /// The packages `root` uses, transitively: (name, directory). kern.pkg holds `use PATH` lines (relative to the
 /// package), each naming a directory with its own kern.pkg; the name is the directory's. Blank lines are allowed.
 pub fn dependencies(root: &str) -> Result<Vec<(String, String)>, ParseError> {
@@ -436,7 +452,7 @@ pub fn dependencies(root: &str) -> Result<Vec<(String, String)>, ParseError> {
             let Some(rel) = line.strip_prefix("use ").map(str::trim) else {
                 return Err(load_error(&file, &format!("want `use ../other` (a package directory), got {}", repr_str(line)), Some(i + 1)));
             };
-            let target = abspath(&join(&dir, rel));
+            let target = if rel.starts_with('/') { abspath(rel) } else { abspath(&join(&dir, rel)) };
             if !Path::new(&join(&target, MARKER)).exists() {
                 return Err(load_error(&file, &format!("{} is not a package (no {} in it)", rel, MARKER), Some(i + 1)));
             }
@@ -446,6 +462,9 @@ pub fn dependencies(root: &str) -> Result<Vec<(String, String)>, ParseError> {
             }
             if chain.contains(&target) {
                 return Err(load_error(&file, &format!("packages use each other in a cycle through {}", name), Some(i + 1)));
+            }
+            if text.lines().filter(|l| l.trim() == line).count() > 1 {
+                return Err(load_error(&file, &format!("`{}` appears twice", line), Some(i + 1)));
             }
             match out.iter().find(|(n, _)| *n == name) {
                 Some((_, d)) if *d == target => continue,

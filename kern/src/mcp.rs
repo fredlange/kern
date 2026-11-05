@@ -353,8 +353,27 @@ pub fn kern_edit(file: &str, ops: &[Value]) -> T<Value> {
     now_stale.sort();
     let mut orphaned: Vec<String> = why::orphans(&store, &defs).into_keys().collect();
     orphaned.sort();
+    // packages that `use` this one: their callers of what changed are re-checked too (F2: an agent skips a
+    // body because its callers are checked against the new spec)
+    let mut users = Map::new();
+    let mut broken = broken;
+    for user in package::users_of(file) {
+        let udefs = package::load(&user, &IndexMap::new())
+            .map_err(|e| ToolError("ToolError", format!("{} (a package that uses this one): {}", user, e.0)))?;
+        let mut hit: BTreeSet<String> = BTreeSet::new();
+        for t in &touched {
+            hit.extend(callers(&udefs, t).into_iter().filter(|n| udefs.defs[n.as_str()].file.as_deref().map(package::root_of) != Some(package::root_of(file))));
+        }
+        if hit.is_empty() {
+            continue;
+        }
+        let ureps = reports(&udefs, false, &user)?;
+        let st: Map<String, Value> = hit.iter().map(|n| (n.clone(), json!(status(&ureps[n])))).collect();
+        broken.extend(st.iter().filter(|(_, s)| s.as_str() != Some("All guarantees proven")).map(|(n, _)| format!("{user}: {n}")));
+        users.insert(user.clone(), Value::Object(st));
+    }
     Ok(json!({"ok": broken.is_empty(), "affected": report, "broken": broken, "rechecked": rechecked,
-              "details": details, "why_now_stale": now_stale, "why_orphaned": orphaned}))
+              "details": details, "why_now_stale": now_stale, "why_orphaned": orphaned, "users": users}))
 }
 
 // --- tools -----------------------------------------------------------------------------------

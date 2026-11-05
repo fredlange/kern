@@ -702,6 +702,42 @@ fn s5_packages_use_packages_transitively_with_one_name_each() {
     assert!(kern::package::load(&bad.to_string_lossy(), &IndexMap::new()).unwrap_err().0.contains("want `use ../other`"));
 }
 
+#[test]
+fn an_mcp_edit_in_a_used_package_rechecks_the_packages_that_use_it() {
+    // tester on 6MMJO52XVD: shop `use`s money; an edit to money's transfer left shop's verdicts stale (F2)
+    let root = tmp("mcp-users");
+    write_tree(&root.join("money"), &[("ledger.k", &read("examples/money/ledger.k"))], true);
+    write_tree(
+        &root.join("shop"),
+        &[
+            ("kern.pkg", "use ../money\n"),
+            ("buy.k", "import money.ledger\n\nbuy a:Account b:Account\n  ok otherwise\n  ensure ledger.balance' b = ledger.balance b + 5\n  need as transfer a b 5\nbody\n  transfer a b 5\n"),
+        ],
+        false,
+    );
+    let ledger = root.join("money").join("ledger.k").to_string_lossy().into_owned();
+    // transfer now credits one less: shop's buy, which relies on it, breaks, and the edit result says so
+    let weaker = read("examples/money/ledger.k")
+        .replace("  ensure ledger.balance' to = ledger.balance to + amount\n", "  ensure ledger.balance' to = ledger.balance to + amount - 1\n")
+        .replace("  ledger.credit to amount\n", "  ledger.credit to (amount - 1)\n")
+        .replace("  keep ledger.total\n", "")
+        .replace("  eg A:500@u1 B:0@u2 | transfer A B 100 -> ok | A:400 B:100\n", "");
+    let r = kern::mcp::kern_edit(&ledger, &[serde_json::json!({"op": "replace", "name": "transfer", "source": weaker})])
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let shop = root.join("shop").to_string_lossy().into_owned();
+    let users = r["users"].as_object().unwrap();
+    let (user, st) = users.iter().next().unwrap_or_else(|| panic!("no user re-checked: {r}"));
+    assert!(user.ends_with("/shop") && kern::package::abspath(user) == kern::package::abspath(&shop), "{user}");
+    assert_ne!(st["buy"], "All guarantees proven", "{r}");
+    assert_eq!(r["ok"], false, "{r}");
+    // and a package that names one twice, or an absolute path, is read as written
+    std::fs::write(root.join("shop").join("kern.pkg"), "use ../money\nuse ../money\n").unwrap();
+    let e = kern::package::load(&root.join("shop").to_string_lossy(), &IndexMap::new()).unwrap_err();
+    assert!(e.0.contains("appears twice"), "{}", e.0);
+    std::fs::write(root.join("shop").join("kern.pkg"), format!("use {}\n", root.join("money").to_string_lossy())).unwrap();
+    assert!(kern::package::load(&root.join("shop").to_string_lossy(), &IndexMap::new()).is_ok());
+}
+
 // =====================================================================================
 // S6. Loops: the frame can't be stated, and there is no sum
 // =====================================================================================
