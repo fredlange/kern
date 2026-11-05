@@ -117,13 +117,26 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
 
 **How H3–H5 work:**
 - **Requests are events on `net`.** The `.host` file next to the module (`limits.host`) maps each
-  request constructor to `METHOD URL; reply DEF ARGS; fail DEF ARGS`. ARGS are `{i}` (the event's
-  i-th argument) or `$.field` (an Int field of the JSON reply).
+  request constructor to `METHOD URL; reply DEF ARGS; fail DEF ARGS[; timeout N]`. ARGS are `{i}` (the event's
+  i-th argument) or `$.field` (an Int field of the JSON reply; `reply` only, since a failure has no body).
 - **Replies are calls.** After commit, `flush` sends each request. `pump` runs whatever comes back
   as an ordinary logged top-level call, so replay covers it. Kern never sees bytes: a timeout, a
   non-2xx status or a non-Int becomes the `fail` call.
   `serve` and `repl` pump after every call (before 2026-11-04 only the Python API did, so under `serve` a
   reply never ran and its request stayed pending).
+- **Deadlines (S12, 2026-11-05).** A request is *answered* when a call to its endpoint's `reply` or `fail`
+  definition returns `ok` with the request's `{i}` arguments (in that call's transaction; the outbox row's
+  `answered` column holds the call's `seq`). A request still unanswered `timeout N` seconds after the call that
+  sent it (default 300, `DEFAULT_TIMEOUT`) gets its `fail` call, once, as an ordinary logged call, so `replay`
+  covers it; `repl` prints it as `timeout limit_failed A 1 -> ok`. Seconds of the *recorded* clock: `pump` compares
+  the latest `now` in `log` with the sending call's `now`, after the replies that did arrive have run, so a reply in
+  the same flush is never preempted and no extra clock read is made. An idle `serve` therefore fires a deadline
+  at its next call, not on the wall clock. A refused reply (BadValue, a garbled body) doesn't answer the request,
+  so it times out too; a reply that arrives after the timeout is an ordinary call, which limits.k refuses as
+  `Stale`. The mark is written after the timeout call, so a crash in between fires it again (at-least-once,
+  like delivery). Databases from before the column count their old requests as answered. Tests: the gap test
+  `s12_a_request_with_no_reply_times_out_into_a_call` (kern/tests/shortcomings.rs) and `host::tests` in
+  kern/src/host.rs (silence, an ok reply, a refused then late reply, a restart, an old database, config).
 - **Simulation:** `SimNet` is seeded. It drops, duplicates, delays or fails each reply, and
   `release()` lets held-back replies go in a random order.
 - **The page:** `kern host page FILE.k --html X` writes the proof page plus a Host
@@ -135,10 +148,14 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   delayed reply to an *old* request would be accepted while a *newer* request is pending. In
   `limits.k` each request carries a sequence number (`req.get a`), and `got_limit` and
   `limit_failed` need both `pending = 1` and a matching number.
-- **Liveness isn't covered.** A dropped or refused reply (BadValue) leaves `pending = 1`, and
-  `request_limit` then refuses `AlreadyPending` for good. In the 1000 runs, **1,952 accounts ended
-  pending**. Invariants hold; progress doesn't. It needs a timeout call (for example, the host
-  calls `limit_failed` after N seconds) or a `cancel_request` definition. Not built.
+- **Liveness wasn't covered until S12.** A dropped or refused reply (BadValue) left `pending = 1`, and
+  `request_limit` then refused `AlreadyPending` for good. In the 1000 runs, **1,952 accounts ended
+  pending**. Invariants held; progress didn't. **With deadlines (2026-11-05)**, the same hostile network
+  (1000 seeded runs, `timeout 20`, one clock second per call; `host::tests::measure_liveness_on_a_hostile_network`,
+  run with `--ignored`): 31,529 calls, 2,092 of them timeout calls, 0 invariant faults, 0 replay mismatches;
+  1,262 accounts pending right after the run (deadlines not yet reached), **0 once every deadline has
+  passed**. Not the same random stream as the 1,952 (a different harness and clock), so the two counts aren't
+  a before/after pair; the 0 is the claim.
 - **Requests are at-least-once too.** A crash during `flush` re-sends a request, so the risk
   service must tolerate duplicates. The reply side is safe (Stale); the request side relies on
   the server.
@@ -148,8 +165,7 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
 **Known gaps found while doing this, not fixed (not plan items):**
 - **A channel a definition uses but never specifies is unconstrained, and the page doesn't say
   so.** It should, the way it warns about writes no guarantee describes (F5).
-- **Config validation has two rough edges.** A `{i}` beyond the event's arity raises an
-  IndexError at startup rather than a ConfigError (it's still refused before anything runs). A
-  `$.field` in `fail` ARGS is accepted although a failure has no body.
+- ~~**Config validation has two rough edges.**~~ Fixed with S12: a `{i}` beyond the event's arity and a
+  `$.field` in `fail` ARGS are both ConfigErrors (the deadline's `fail` call is built from the event alone).
 - **`net_requests` reads the constructor from the `net.emit` argument syntactically.** An event
   bound by a `let` first would be misread.

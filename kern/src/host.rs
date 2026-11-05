@@ -49,7 +49,8 @@ create table if not exists cell(state text not null, key text not null, value in
 create table if not exists log(seq integer primary key, name text not null, args text not null,
                                now integer not null, outcome text not null, observed text not null default '[]');
 create table if not exists outbox(seq integer primary key, call integer not null, event text not null,
-                                  delivered integer not null default 0, channel text not null default 'audit');
+                                  delivered integer not null default 0, channel text not null default 'audit',
+                                  answered integer not null default 0);
 ";
 
 /// What can go wrong around a call (inside one, everything is the call's result).
@@ -226,8 +227,12 @@ pub fn net_requests(defs: &Module) -> IndexMap<String, Vec<String>> {
     out
 }
 
-/// `Ctor -> GET URL; reply DEF ARGS; fail DEF ARGS`. ARGS are `{i}` (the event's i-th argument) or `$.field`
-/// (an Int field of the JSON reply). Kern never sees the bytes.
+/// A request's deadline when its `.host` line has no `timeout` clause: seconds of the host clock.
+pub const DEFAULT_TIMEOUT: Int = 300;
+
+/// `Ctor -> GET URL; reply DEF ARGS; fail DEF ARGS[; timeout N]`. ARGS are `{i}` (the event's i-th argument) or
+/// `$.field` (an Int field of the JSON reply; `reply` only). Kern never sees the bytes. A request no call has answered
+/// within `timeout` seconds of the host clock gets its `fail` call (S12).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Endpoint {
     pub ctor: String,
@@ -237,14 +242,27 @@ pub struct Endpoint {
     pub reply_args: Vec<String>,
     pub fail: String,
     pub fail_args: Vec<String>,
+    /// seconds of the host clock (DEFAULT_TIMEOUT when the line has no clause)
+    pub timeout: Int,
     pub src: String,
 }
 
 impl Endpoint {
     pub fn parse(line: &str, no: usize) -> Result<Endpoint, ConfigError> {
-        let bad = || ConfigError(format!("line {}: want `Ctor -> GET URL; reply DEF ARGS; fail DEF ARGS`", no));
+        let bad =
+            || ConfigError(format!("line {}: want `Ctor -> GET URL; reply DEF ARGS; fail DEF ARGS[; timeout SECONDS]`", no));
         let parts: Vec<&str> = line.split(';').map(str::trim).collect();
-        let [head, reply, fail] = parts[..] else { return Err(bad()) };
+        let (head, reply, fail, timeout) = match parts[..] {
+            [h, r, f] => (h, r, f, DEFAULT_TIMEOUT),
+            [h, r, f, t] => match t.split_whitespace().collect::<Vec<_>>()[..] {
+                ["timeout", n] => match n.parse::<Int>() {
+                    Ok(n) if n > 0 => (h, r, f, n),
+                    _ => return Err(bad()),
+                },
+                _ => return Err(bad()),
+            },
+            _ => return Err(bad()),
+        };
         let hp: Vec<&str> = head.split("->").map(str::trim).collect();
         let [ctor, target] = hp[..] else { return Err(bad()) };
         let tp: Vec<&str> = target.split_whitespace().collect();
@@ -262,6 +280,7 @@ impl Endpoint {
             reply_args: rp[2..].iter().map(|s| s.to_string()).collect(),
             fail: fp[1].into(),
             fail_args: fp[2..].iter().map(|s| s.to_string()).collect(),
+            timeout,
             src: line.trim().into(),
         })
     }
@@ -290,6 +309,24 @@ impl Endpoint {
             }
         }
         Ok(out)
+    }
+
+    /// Does the call `name args` answer the request `ev`: is it this endpoint's reply or fail definition, with the
+    /// event's arguments wherever the config passes `{i}`?
+    pub fn answers(&self, name: &str, args: &[Value], ev: &Value) -> bool {
+        let Value::Ctor(c, evargs) = ev else { return false };
+        [(&self.reply, &self.reply_args), (&self.fail, &self.fail_args)].iter().any(|(def, spec)| {
+            *def == name
+                && spec.len() == args.len()
+                && spec.iter().zip(args).all(|(a, v)| match a.strip_prefix('{').and_then(|x| x.strip_suffix('}')) {
+                    Some(i) => match i.parse::<usize>() {
+                        Ok(0) => *v == Value::Str(c.clone()),
+                        Ok(i) => evargs.get(i - 1) == Some(v),
+                        Err(_) => false,
+                    },
+                    None => true, // `$.field`: from the reply body, any value
+                })
+        })
     }
 
     pub fn url_for(&self, ev: &Value) -> String {
@@ -327,6 +364,16 @@ pub fn load_config(text: &str, defs: &Module) -> Result<IndexMap<String, Endpoin
             continue;
         };
         for (which, name, args) in [("reply", &ep.reply, &ep.reply_args), ("fail", &ep.fail, &ep.fail_args)] {
+            for a in args.iter() {
+                if which == "fail" && !a.starts_with('{') {
+                    // the fail call also runs at the deadline (S12), when there is no reply at all
+                    problems.push(format!("{}: fail {} takes {}, but a failure has no reply body", ctor, name, a));
+                }
+                let i = a.strip_prefix('{').and_then(|x| x.strip_suffix('}')).map(|x| x.parse::<usize>().ok());
+                if matches!(i, Some(None)) || matches!(i, Some(Some(i)) if i > req.len()) {
+                    problems.push(format!("{}: {} {} takes {}, and {} has {} arguments", ctor, which, name, a, ctor, req.len()));
+                }
+            }
             let Some(d) = defs.defs.get(name) else {
                 problems.push(format!("{}: {} definition {} does not exist", ctor, which, repr_str(name)));
                 continue;
@@ -584,6 +631,13 @@ impl<'m> Host<'m> {
         if !cols("outbox").map_err(cfg)?.iter().any(|c| c == "channel") {
             // a database from before channels
             db.execute_batch("alter table outbox add column channel text not null default 'audit'").map_err(cfg)?;
+        }
+        if !cols("outbox").map_err(cfg)?.iter().any(|c| c == "answered") {
+            // a database from before request deadlines: its requests are not timed out after the fact
+            db.execute_batch(
+                "begin; alter table outbox add column answered integer not null default 0; update outbox set answered=-1; commit",
+            )
+            .map_err(cfg)?;
         }
         let invariant_proven = reports.iter().map(|(n, r)| (n.clone(), invariants_proven(r))).collect();
         let mut h = Host {
@@ -873,6 +927,7 @@ impl<'m> Host<'m> {
             .map_err(sql)?;
         let seq = self.db.last_insert_rowid();
         if res["status"] == "ok" {
+            self.answer(name, args, seq).map_err(sql)?;
             self.write_dirty(&world).map_err(sql)?;
             for (ch, ev) in ordered_events(&world, defs) {
                 self.db
@@ -882,6 +937,56 @@ impl<'m> Host<'m> {
         }
         res.insert("call".into(), json!(seq));
         Ok(res)
+    }
+
+    /// The open requests (`net` events no call has answered yet), oldest first: (outbox seq, event, the issuing
+    /// call's `now`).
+    fn open_requests(&self) -> Result<Vec<(i64, Value, Int)>, rusqlite::Error> {
+        let mut st = self.db.prepare(
+            "select o.seq, o.event, l.now from outbox o join log l on l.seq = o.call \
+             where o.channel = 'net' and o.answered = 0 order by o.seq",
+        )?;
+        let rows = st
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows.into_iter().map(|(s, e, n)| (s, json_value(&serde_json::from_str(&e).unwrap_or(J::Null)), n as Int)).collect())
+    }
+
+    /// An ok call to a reply or fail definition answers the oldest open request it matches (in the call's
+    /// transaction). Other definitions cost no statement.
+    fn answer(&self, name: &str, args: &[Value], call: i64) -> Result<(), rusqlite::Error> {
+        if !self.endpoints.values().any(|ep| ep.reply == name || ep.fail == name) {
+            return Ok(());
+        }
+        for (seq, ev, _) in self.open_requests()? {
+            let Value::Ctor(c, _) = &ev else { continue };
+            if self.endpoints.get(c).map_or(false, |ep| ep.answers(name, args, &ev)) {
+                self.db.execute("update outbox set answered=? where seq=?", params![call, seq])?;
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Requests past their deadline: the latest recorded `now` is at least the issuing call's `now` plus the
+    /// endpoint's timeout. Each gives (outbox seq, the fail call).
+    fn overdue(&self) -> Result<Vec<(i64, String, Vec<Value>)>, rusqlite::Error> {
+        let open = self.open_requests()?;
+        if open.is_empty() {
+            return Ok(vec![]);
+        }
+        let latest: i64 = self.db.query_row("select coalesce(max(now), 0) from log", [], |r| r.get(0))?;
+        let mut due = vec![];
+        for (seq, ev, sent) in open {
+            let Value::Ctor(c, _) = &ev else { continue };
+            let Some(ep) = self.endpoints.get(c) else { continue };
+            if latest as Int >= sent + ep.timeout {
+                // load_config made sure the fail ARGS come from the event alone
+                let args = ep.args_for(&ev, None, "fail").unwrap_or_default();
+                due.push((seq, ep.fail.clone(), args));
+            }
+        }
+        Ok(due)
     }
 
     /// Deliver committed outbox events to every sink, then mark them. At-least-once. Returns how many.
@@ -916,17 +1021,35 @@ impl<'m> Host<'m> {
     }
 
     /// Run replies as new top-level calls (each one atomic and logged like any other call), then deliver what they
-    /// emitted. Returns the replies' results.
+    /// emitted. Then every request past its deadline gets its `fail` call, once (S12); the result carries
+    /// `"timeout": <the request's outbox seq>`. Returns the calls' results.
     pub fn pump(&mut self, extra: Vec<(String, Vec<Value>)>) -> Result<Vec<(String, Vec<Value>, CallResult)>, HostError> {
         self.inbox.extend(extra);
         let mut results = vec![];
-        while !self.inbox.is_empty() {
-            let (name, args) = self.inbox.remove(0);
-            let r = self.call(&name, &args)?;
-            results.push((name, args, r));
-            self.flush()?;
+        loop {
+            while !self.inbox.is_empty() {
+                let (name, args) = self.inbox.remove(0);
+                let r = self.call(&name, &args)?;
+                results.push((name, args, r));
+                self.flush()?;
+            }
+            // after the replies that did arrive, so a reply in this same flush is never preempted
+            let due = self.overdue().map_err(sql)?;
+            if due.is_empty() {
+                return Ok(results);
+            }
+            for (req, name, args) in due {
+                let r = self.call(&name, &args);
+                // once, whatever the outcome; marked after the call, so a crash in between fires it again
+                // (at-least-once, like delivery). An ok call has already marked it with its own seq.
+                let call = r.as_ref().ok().and_then(|r| r["call"].as_i64()).unwrap_or(-2);
+                self.db.execute("update outbox set answered=? where seq=? and answered=0", params![call, req]).map_err(sql)?;
+                let mut r = r?;
+                r.insert("timeout".into(), json!(req));
+                results.push((name, args, r));
+                self.flush()?;
+            }
         }
-        Ok(results)
     }
 
     // --- determinism
@@ -1068,7 +1191,8 @@ pub fn host_effect(root: &str) -> &'static str {
         "console" => "SQLite table `outbox` (channel console); one line per event on stdout after commit (at-least-once)",
         "net" => {
             "SQLite table `outbox` (channel net); each event is an HTTP request from the host config, sent after commit \
-             (at-least-once); the reply or failure arrives as a new top-level call"
+             (at-least-once); the reply or failure arrives as a new top-level call, and a request with no answer by its \
+             deadline gets its failure call"
         }
         _ => "SQLite table `cell`, one transaction per call",
     }
@@ -1090,7 +1214,10 @@ pub fn manifest_text(host: &Host) -> String {
         for i in 1..10 {
             pattern = pattern.replace(&format!("{{{}}}", i), "*");
         }
-        lines.push(format!("  net: {} -> {} {}  reply {}, fail {}", ctor, ep.method, pattern, ep.reply, ep.fail));
+        lines.push(format!(
+            "  net: {} -> {} {}  reply {}, fail {}; no answer within {}s -> {}",
+            ctor, ep.method, pattern, ep.reply, ep.fail, ep.timeout, ep.fail
+        ));
     }
     lines.push("nothing else: the module cannot name any other effect or endpoint.".into());
     let per_call = if host.skip_proven {
@@ -1146,8 +1273,10 @@ pub const ASSUMPTIONS: [&str; 4] = [
 pub const NET_ASSUMPTIONS: [&str; 2] = [
     "A network reply becomes a new top-level call. The host decodes each `$.field` as an Int; a timeout, a non-2xx \
      status or anything that isn't an Int becomes the `fail` call. Kern never sees bytes.",
-    "There is no request timeout: a reply that never arrives, or one the module refuses, leaves the request pending \
-     (docs/HOST.md has the measured count).",
+    "A request that no call to its reply or fail definition has answered (returned ok) within its deadline gets its \
+     `fail` call, once, as a new top-level call: a reply that never arrives, or one the module refuses. The deadline \
+     is `timeout N` in the host config, default 300 seconds of the recorded clock, checked after each call's replies, \
+     so an idle host fires it at its next call. A reply that arrives later is an ordinary call the module may refuse.",
 ];
 
 /// The data for render::host_html: effects the module uses, endpoints, assumptions.
@@ -1217,7 +1346,8 @@ pub fn run_replies(host: &mut Host, out: &mut dyn FnMut(String)) -> Result<(), H
             for (name, args, r) in results {
                 let mut call = vec![name];
                 call.extend(args.iter().map(Value::str));
-                out(format!("reply {} -> {}", call.join(" "), said(&r)));
+                let how = if r.contains_key("timeout") { "timeout" } else { "reply" };
+                out(format!("{} {} -> {}", how, call.join(" "), said(&r)));
             }
             Ok(())
         }
@@ -1563,5 +1693,223 @@ pub fn main(argv: &[String], analyse: Analyse) -> i32 {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! S12: a request no call answers gets its `fail` call at its deadline. kern/tests/host.rs (tester's) and
+    //! kern/tests/shortcomings.rs (the gap test) cover the rest of the host.
+    use super::*;
+    use serde_json::json;
+
+    const LIMITS: &str = include_str!("../../examples/limits/limits.k");
+    const CONFIG: &str = "Fetch -> GET http://127.0.0.1:9/limit/{1}; reply got_limit {1} {2} $.value; fail limit_failed {1} {2}";
+
+    fn module() -> Module {
+        let m = crate::syntax::parse_module(LIMITS, true).unwrap();
+        crate::wf::check_module(&m).unwrap();
+        m
+    }
+
+    /// Replies the test hands over: `send` answers with whatever is queued, else nothing.
+    struct Scripted(Rc<std::cell::RefCell<Vec<(String, Vec<Value>)>>>);
+    impl Net for Scripted {
+        fn send(&mut self, _: i64, _: &Value, _: &IndexMap<String, Endpoint>) -> Vec<(String, Vec<Value>)> {
+            std::mem::take(&mut *self.0.borrow_mut())
+        }
+    }
+
+    /// A host whose clock moves `step` per call, ungated (the proofs are not what this tests).
+    fn host<'m>(defs: &'m Module, db: &str, config: &str, step: Int, net: Box<dyn Net>) -> Host<'m> {
+        let mut t = 0;
+        let o = Options {
+            db: db.into(),
+            clock: Some(Box::new(move || {
+                t += step;
+                t
+            })),
+            sinks: Some(vec![]),
+            gate: false,
+            endpoints: Some(load_config(config, defs).unwrap()),
+            net: Some(net),
+            ..Default::default()
+        };
+        let mut h = Host::new(defs, IndexMap::new(), o).unwrap();
+        h.init("A:500@u1 B:500@u2 K:0@u9").unwrap();
+        h
+    }
+
+    fn a() -> Value {
+        Value::Str("A".into())
+    }
+
+    fn pending(h: &Host) -> Option<Int> {
+        h.load().unwrap().maps.get("pending").and_then(|m| m.get(&Key::Str("A".into())).copied())
+    }
+
+    /// One tick: an unrelated call, flush, pump. The names of the calls pump ran, with "timeout " in front of timeouts.
+    fn tick(h: &mut Host) -> Vec<String> {
+        h.call("reset_day", &[Value::Str("B".into())]).unwrap();
+        h.flush().unwrap();
+        h.pump(vec![]).unwrap().into_iter().map(|(n, _, r)| if r.contains_key("timeout") { format!("timeout {n}") } else { n }).collect()
+    }
+
+    #[test]
+    fn deadline_is_stated_or_defaulted() {
+        let defs = module();
+        let eps = load_config(CONFIG, &defs).unwrap();
+        assert_eq!(eps["Fetch"].timeout, DEFAULT_TIMEOUT);
+        assert_eq!(load_config(&format!("{CONFIG}; timeout 30"), &defs).unwrap()["Fetch"].timeout, 30);
+        for bad in ["; timeout 0", "; timeout -5", "; timeout x", "; after 30", "; timeout 30; timeout 40"] {
+            assert!(load_config(&format!("{CONFIG}{bad}"), &defs).is_err(), "{bad}");
+        }
+        // the fail call must be buildable from the event alone, since it also runs when nothing came back
+        let e = load_config(&CONFIG.replace("fail limit_failed {1} {2}", "fail got_limit {1} {2} $.value"), &defs).unwrap_err().0;
+        assert!(e.contains("a failure has no reply body"), "{e}");
+        let e = load_config(&CONFIG.replace("fail limit_failed {1} {2}", "fail limit_failed {1} {3}"), &defs).unwrap_err().0;
+        assert!(e.contains("Fetch has 2 arguments"), "{e}");
+    }
+
+    #[test]
+    fn silence_times_out_once_at_the_deadline() {
+        let defs = module();
+        let mut h = host(&defs, ":memory:", &format!("{CONFIG}; timeout 100"), 30, Box::new(Scripted(Default::default())));
+        assert_eq!(h.call("request_limit", &[a()]).unwrap()["status"], "ok"); // now 30, deadline 130
+        let ran: Vec<Vec<String>> = (0..5).map(|_| tick(&mut h)).collect(); // now 60, 90, 120, 150 (+ the timeout), ...
+        assert_eq!(ran, [vec![], vec![], vec![], vec!["timeout limit_failed".to_string()], vec![]]);
+        assert_eq!(pending(&h), Some(0));
+        assert_eq!(h.call("request_limit", &[a()]).unwrap()["status"], "ok", "progress: a new request is allowed");
+        assert!(h.replay().unwrap().is_empty());
+        assert!(manifest_text(&h).contains("reply got_limit, fail limit_failed; no answer within 100s -> limit_failed"));
+    }
+
+    #[test]
+    fn an_ok_reply_answers_the_request() {
+        let defs = module();
+        let q: Rc<std::cell::RefCell<Vec<(String, Vec<Value>)>>> = Default::default();
+        let mut h = host(&defs, ":memory:", CONFIG, 100, Box::new(Scripted(q.clone())));
+        h.call("request_limit", &[a()]).unwrap();
+        q.borrow_mut().push(("got_limit".into(), vec![a(), Value::Int(1), Value::Int(250)]));
+        assert_eq!(tick(&mut h), ["got_limit"]);
+        assert!((0..10).all(|_| tick(&mut h).is_empty()), "answered: no timeout, ever");
+        assert_eq!(h.load().unwrap().maps["limit"][&Key::Str("A".into())], 250);
+    }
+
+    #[test]
+    fn a_refused_reply_does_not_answer_and_a_late_one_is_stale() {
+        let defs = module();
+        let q: Rc<std::cell::RefCell<Vec<(String, Vec<Value>)>>> = Default::default();
+        let mut h = host(&defs, ":memory:", CONFIG, 100, Box::new(Scripted(q.clone())));
+        h.call("request_limit", &[a()]).unwrap();
+        q.borrow_mut().push(("got_limit".into(), vec![a(), Value::Int(1), Value::Int(-7)])); // BadValue
+        assert_eq!(tick(&mut h), ["got_limit"]);
+        let mut ran = vec![];
+        for _ in 0..4 {
+            ran.extend(tick(&mut h));
+        }
+        assert_eq!(ran, ["timeout limit_failed"]);
+        assert_eq!(pending(&h), Some(0));
+        // the reply that finally shows up is an ordinary call, refused as stale
+        let r = h.pump(vec![("got_limit".into(), vec![a(), Value::Int(1), Value::Int(250)])]).unwrap();
+        assert_eq!(r[0].2["refused"], "Stale");
+        assert!(h.replay().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_deadline_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("kern-s12-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("h.db").to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&db);
+        let defs = module();
+        {
+            let mut h = host(&defs, &db, CONFIG, 100, Box::new(Scripted(Default::default())));
+            h.call("request_limit", &[a()]).unwrap();
+            h.flush().unwrap(); // sent; the process dies before any answer
+        }
+        let mut h = host(&defs, &db, CONFIG, 1000, Box::new(Scripted(Default::default())));
+        assert_eq!(tick(&mut h), ["timeout limit_failed"]);
+        assert_eq!(pending(&h), Some(0));
+        assert!(h.replay().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// HOST.md's liveness measurement (item 5's hostile network, with deadlines): `cargo test --release -p kern --lib
+    /// host::tests::measure -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn measure_liveness_on_a_hostile_network() {
+        let defs = module();
+        let (mut stuck, mut stuck_without, mut timeouts, mut faults, mut mismatches, mut calls) = (0, 0, 0, 0, 0, 0);
+        for run in 0..1000 {
+            let rng = Rc::new(std::cell::RefCell::new(Random::from_int(run)));
+            let r2 = rng.clone();
+            let values = Box::new(move |_: &Value| {
+                let mut r = r2.borrow_mut();
+                let v = r.randint(0, 900);
+                r.choice(&[json!({"value": v}), json!({"value": -1}), json!({"value": "x"}), json!({})]).clone()
+            });
+            let mut h = host(&defs, ":memory:", &format!("{CONFIG}; timeout 20"), 1, Box::new(SimNet::new(values, run)));
+            for _ in 0..25 {
+                let who = Value::Str(rng.borrow_mut().choice(&["A", "B", "K"]).to_string());
+                let op = rng.borrow_mut().random();
+                let r = if op < 0.35 {
+                    h.call("request_limit", &[who]).unwrap()
+                } else if op < 0.65 {
+                    let amount = *rng.borrow_mut().choice(&[1, 50, 200, 600]);
+                    h.call("withdraw", &[who, Value::Str("K".into()), Value::Int(amount)]).unwrap()
+                } else {
+                    h.call("reset_day", &[who]).unwrap()
+                };
+                calls += 1;
+                faults += (r.get("fault") == Some(&json!("module"))) as u64;
+                h.flush().unwrap();
+                let held = if rng.borrow_mut().random() < 0.5 { h.net.as_mut().unwrap().release() } else { vec![] };
+                for (_, _, r) in h.pump(held).unwrap() {
+                    calls += 1;
+                    timeouts += r.contains_key("timeout") as u64;
+                    faults += (r.get("fault") == Some(&json!("module"))) as u64;
+                }
+            }
+            let ones = |h: &Host| h.load().unwrap().maps.get("pending").map_or(0, |m| m.values().filter(|v| **v == 1).count());
+            stuck_without += ones(&h); // before the last deadline passed
+            for _ in 0..25 {
+                h.call("reset_day", &[Value::Str("B".into())]).unwrap(); // let 25 ticks pass, no new requests
+                h.flush().unwrap();
+                for (_, _, r) in h.pump(vec![]).unwrap() {
+                    timeouts += r.contains_key("timeout") as u64;
+                }
+            }
+            stuck += ones(&h);
+            mismatches += (!h.replay().unwrap().is_empty()) as u64;
+        }
+        eprintln!(
+            "1000 runs, {calls} calls: {timeouts} timeout calls, {faults} invariant faults, {mismatches} replay mismatches; \
+             accounts pending: {stuck_without} right after the run, {stuck} once every deadline has passed"
+        );
+        assert_eq!((stuck, faults, mismatches), (0, 0, 0));
+    }
+
+    #[test]
+    fn requests_from_before_deadlines_are_not_timed_out() {
+        let dir = std::env::temp_dir().join(format!("kern-s12-old-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("h.db").to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&db);
+        let defs = module();
+        {
+            let mut h = host(&defs, &db, CONFIG, 100, Box::new(Scripted(Default::default())));
+            h.call("request_limit", &[a()]).unwrap();
+            h.flush().unwrap();
+        }
+        // make it a database from before the column
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch("create table o2 as select seq, call, event, delivered, channel from outbox; drop table outbox; alter table o2 rename to outbox").unwrap();
+        drop(c);
+        let mut h = host(&defs, &db, CONFIG, 1000, Box::new(Scripted(Default::default())));
+        assert!(tick(&mut h).is_empty());
+        assert_eq!(pending(&h), Some(1));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
