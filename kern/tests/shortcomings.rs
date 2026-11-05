@@ -6,7 +6,7 @@
 //! The day a gap closes, its test fails. In the same commit it becomes an ordinary test (drop `should_panic`),
 //! and the entry moves to "Closed" in SHORTCOMINGS.md.
 //!
-//! Some gaps have no syntax yet (records, text, `match`, `sum`, `clock.tick`, events in `eg`).
+//! Some gaps have no syntax yet (text, `match`, `sum`, `clock.tick`, events in `eg`).
 //! Those tests write a *placeholder* syntax, marked `placeholder:`. Whoever builds the feature adjusts the
 //! source to the syntax actually chosen, and the test must then pass. A test that still panics after a feature
 //! has landed means the placeholder was never updated, not that the gap is still open.
@@ -52,9 +52,8 @@ fn must_check(gap: &str, src: &str) {
 // =====================================================================================
 
 #[test]
-#[should_panic(expected = "gap S5 records:")]
 fn s5_records_check() {
-    // gap (S5): no records; parameters are Int and Account only. placeholder: `record` declaration, field access
+    // closed (S5): record-typed parameters, flattened to their fields at load time (DECISIONS.md, 2026-11-05)
     must_check(
         "gap S5 records",
         "record Point x:Int y:Int
@@ -68,6 +67,107 @@ body
   px.set k (p.x + dx)
 ",
     );
+}
+
+const RECORD_SRC: &str = "record Point x:Int y:Int
+
+state px Int
+state py Int
+
+move_x k:Int p:Point dx:Int
+  ok otherwise
+  ensure px.get' k = p.x + dx
+  eg | move_x 1 3 4 2 -> ok | px.1:5
+body
+  px.set k (p.x + dx)
+
+place k:Int p:Point
+  ok otherwise
+  ensure px.get' k = p.x
+  ensure py.get' k = p.y
+body
+  move_x k p 0
+  py.set k p.y
+
+origin k:Int
+  ok otherwise
+  ensure py.get' k = 7
+body
+  place k (Point 0 7)
+
+norm p:Point -> Int
+  ensure result = p.x + p.y
+body
+  result = p.x + p.y
+";
+
+#[test]
+fn s5_a_record_parameter_is_its_fields_to_the_checker_and_declared_in_views() {
+    let defs = parse(RECORD_SRC);
+    let params: Vec<(&str, &str)> = defs.defs["move_x"].params.iter().map(|(p, t)| (p.as_str(), t.as_str())).collect();
+    assert_eq!(params, [("k", "Int"), ("p.x", "Int"), ("p.y", "Int"), ("dx", "Int")]);
+    // passing a record whole, and building one as an argument, become its fields in order
+    assert!(defs.defs["place"].body.iter().any(|s| kern::syntax::stmt_code(s) == "move_x k p.x p.y 0"));
+    assert!(defs.defs["origin"].body.iter().any(|s| kern::syntax::stmt_code(s) == "place k 0 7"));
+    let reps = reports(&defs);
+    let dirty: Vec<&String> = reps.iter().filter(|(_, r)| !r.clean).map(|(n, _)| n).collect();
+    assert!(dirty.is_empty(), "{dirty:?}");
+    // the header stays as written, and a caller reads the fields it needs to build one
+    let view = views::iface(&reps["place"], &why::Status::default());
+    assert!(view.starts_with("place k:Int p:Point\n  record Point x:Int y:Int\n  uses"), "{view}");
+}
+
+#[test]
+fn s5_a_counterexample_for_a_record_parameter_replays_as_an_eg_line() {
+    // eg arguments are positional (p is `3 4`), and so are counterexamples: F8's round trip holds
+    let src = RECORD_SRC.replace("ensure px.get' k = p.x + dx", "ensure px.get' k = p.y + dx");
+    let defs = parse(&src);
+    let reps = reports(&defs);
+    let g = reps["move_x"].guarantees.iter().find(|g| g.clause.contains("p.y + dx")).unwrap();
+    let cx = g.counterexample.clone().expect("refuted");
+    assert!(cx.confirmed_by_interpreter);
+    let mut d = defs.defs["move_x"].clone();
+    d.examples = vec![kern::syntax::parse_example(cx.eg.trim_start_matches("eg").trim(), None).unwrap()];
+    assert_eq!(d.examples[0].call.1.len(), 4, "{}", cx.eg);
+    assert!(kern::check::run_examples(&defs, &d).unwrap()[0].pass, "{}", cx.eg);
+}
+
+#[test]
+fn s5_a_record_is_read_by_field_or_passed_whole() {
+    let cases = [
+        ("g q:Pair\n  ensure 1 = 1\nbody\n  f q\n", "passes q (Pair) where a Point is wanted"),
+        ("g k:Int\n  ensure 1 = 1\nbody\n  f k\n", "takes a Point here"),
+        ("g k:Int\n  ensure 1 = 1\nbody\n  f (Point k)\n", "has 2 field(s), got 1"),
+        ("g p:Point\n  ensure 1 = 1\nbody\n  x = p + 1\n", "p is a Point: read a field"),
+        ("g p:Point\n  ensure 1 = 1\nbody\n  x = p.z\n", "has no field z"),
+        ("g k:Int\n  ensure 1 = 1\nbody\n  x = Point k k\n", "only as the argument of a call"),
+        ("g hold:Point\n  ensure 1 = 1\nbody\n  x = hold.x\n", "has the name of a state"),
+    ];
+    for (def, want) in cases {
+        let src = format!("record Point x:Int y:Int\nrecord Pair a:Int b:Int\nstate hold Int\n\nf p:Point\n  ensure 1 = 1\nbody\n  x = p.x\n\n{def}");
+        let e = parse_module(&src, true).expect_err(def);
+        assert!(e.0.contains(want), "{def}: {}", e.0);
+    }
+    for (src, want) in [
+        ("record Int a:Int\n", "built-in type"),
+        ("record P get:Int\n", "can't be named get"),
+        ("record P a:Q\n", "must be Int or Account"),
+    ] {
+        assert!(parse_module(src, true).unwrap_err().0.contains(want), "{src}");
+    }
+}
+
+#[test]
+fn s5_a_record_from_another_module_needs_an_import() {
+    let root = tmp("s5-record-import");
+    let shapes = ("shapes.k", "record Point x:Int y:Int\n\nstate px Int\n");
+    let mv = "move_x k:Int p:Point\n  ok otherwise\n  ensure px.get' k = p.x\nbody\n  px.set k p.x\n";
+    let dir = write_tree(&root.join("ok"), &[shapes, ("app.k", &format!("import shapes\n\n{mv}"))], true);
+    let defs = kern::package::load(&dir.join("app.k").to_string_lossy(), &IndexMap::new()).unwrap();
+    assert!(reports(&defs)["move_x"].clean);
+    let dir = write_tree(&root.join("bad"), &[shapes, ("app.k", mv)], true);
+    let e = kern::package::load(&dir.join("app.k").to_string_lossy(), &IndexMap::new()).unwrap_err();
+    assert!(e.0.contains("move_x uses record Point, which shapes declares: add `import shapes`"), "{}", e.0);
 }
 
 #[test]

@@ -131,7 +131,9 @@ fn one_def(source: &str) -> T<String> {
     }
     let m = Regex::new(r"^([a-z]\w*)").unwrap().captures(heads[0]).map(|c| c[1].to_string());
     let h = heads[0];
-    let Some(name) = m.filter(|_| !["state ", "invariant ", "channel ", "const "].iter().any(|k| h.starts_with(k)))
+    let Some(name) = m.filter(|_| !["state ", "invariant ", "channel "].iter().any(|k| h.starts_with(k))
+        && !(h.starts_with("const ") && !h.contains(':'))
+        && !(h.starts_with("record ") && h["record ".len()..].starts_with(|c: char| c.is_uppercase())))
     else {
         return tool(format!("not a definition header: {}", repr_str(h)));
     };

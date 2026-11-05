@@ -100,6 +100,10 @@ body
 | `spec` | + need, keep, ensure, emit, own `body need` lines, proof status | 77 tokens |
 | `editor` | own full definition + the `spec` view of each callee (never callee bodies) | 251 tokens |
 
+A record type in the header adds a line `  record Name f:Type …` to every view (a caller needs the fields to build
+one). The checker flattens a record parameter `p:Point` into `p.x`, `p.y` at load time, so `eg` lines,
+counterexamples, mutants and the host take its fields as separate arguments, in order.
+
 A `const NAME N` the shown source mentions adds a line `  const NAME N` after the interface lines. The checker
 substitutes the value at load time, so lines printed from the checked code (`check` output, `body need` lines,
 expanded `need as`, counterexamples, the proof page) show the value, and changing a constant's value changes the

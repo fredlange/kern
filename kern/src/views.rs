@@ -53,7 +53,12 @@ fn proof_line(r: &Report) -> String {
 /// What a caller that only needs to *use* the definition reads.
 pub fn iface(r: &Report, why: &Status) -> String {
     let d = &r.def;
-    let mut lines = vec![d.src_lines["header"][0].clone(), format!("  uses {}", fmt_uses(&r.uses))];
+    let mut lines = vec![d.src_lines["header"][0].clone()];
+    for (name, fields) in &d.records {
+        let fs: Vec<String> = fields.iter().map(|(f, t)| format!("{}:{}", f, t)).collect();
+        lines.push(format!("  record {} {}", name, fs.join(" ")));
+    }
+    lines.push(format!("  uses {}", fmt_uses(&r.uses)));
     if !r.writes.is_empty() {
         lines.push(format!("  writes {}", fmt_writes(&r.writes, d)));
     }

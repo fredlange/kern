@@ -189,8 +189,7 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
 - `need as C args` / `emit as C args` expand a callee's spec at parse time; only right when
   the callee runs first (otherwise the prover refutes it and the caller restates).
 - Arithmetic is linear: `*` needs a literal on one side, `/` a positive literal on the right.
-- Types: only `Int` and `Account` parameters (plus internal Owner/Bool/Event/Unit); no
-  records. Return values only for pure, total functions (`-> Int`, set `result`), which specs
+- Types: `Int`, `Account` and record parameters (plus internal Owner/Bool/Event/Unit). Return values only for pure, total functions (`-> Int`, set `result`), which specs
   may call (modularly: uninterpreted + their ensures). Recursion is rejected (no termination measures yet).
 - Bodies are guards plus `if`/`else` blocks (the prover forks a path per branch; paths grow as
   2^ifs per body) and bounded loops `for k from LO to HI` with `invariant` lines (a proposal, roadmap
@@ -248,7 +247,10 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
 - Packages (a proposal, roadmap run P): `import a.b` brings a module's names in unqualified; names are unique
   per package; imports reach within one package only (each example app copies its ledger). Missing for
   ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): Accounts as state values, iteration over
-  accounts, variable × variable, effects that return values, records, text.
+  accounts, variable × variable, effects that return values, records as state values, text.
+- Records (first cut): `record Name f:Int|Account …`; record-typed parameters only, flattened to their fields
+  at load time (`syntax::flatten_records`); `eg` and counterexamples pass the fields positionally. Not yet:
+  records as state values, `-> Record`, nested records, record equality, records in `let`s.
 - Named constants: `const NAME N` (N ≥ 0) is substituted at load time (`syntax::resolve_consts`), so checker,
   host and compiled program see a literal; views add `const NAME N` lines. No negative values, no constant
   expressions, none in `eg` lines. A name that would hide one (parameter, `let`, loop variable) is an error.

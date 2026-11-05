@@ -12,7 +12,9 @@ body
   STATEMENTS                     how; callers never read this
 ```
 
-- **Parameter types:** `Int` and `Account`.
+- **Parameter types:** `Int`, `Account` and declared records. A record parameter `p:Point` is read by field,
+  `p.x`, or passed whole to a definition taking a Point (`move p`); build one only as a call argument,
+  `move (Point a b)`. In `eg` lines its fields are separate arguments, in order.
 - **`-> Int`** makes a function: pure (no state, no effects), total (no `need`), and every
   path sets `result`. Specs may call functions; nothing else.
 
@@ -52,6 +54,7 @@ body
 |---|---|
 | `state NAME Int` or `state NAME Account` | a map to Int (default 0): `NAME.get k` (specs may read it), `NAME.set k v` |
 | `invariant x:Type COND` | COND holds for every key, before and after every call. It may read state only at `x` |
+| `record Name f:Type …` | a record type: Int or Account fields. Views add its `record` line |
 | `const NAME N` | a named integer (N ≥ 0), usable wherever a literal is (`amount * rate` stays linear). Views add a `const NAME N` line |
 | `channel NAME` | another output stream: `NAME.emit (Ev …)` |
 | `handler a.b p:Int -> Int`, then `need` and `ensure` lines (no body) | an observation inside a call, such as `rand.below n`. Its spec is *assumed*: it may read only its arguments and `result`. Its `need`s are preconditions every call must meet. The host provides the value and checks the spec at runtime |

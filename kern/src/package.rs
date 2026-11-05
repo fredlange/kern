@@ -318,6 +318,34 @@ pub fn load(path: &str, overrides: &IndexMap<String, String>) -> Result<Module, 
             origin.get_mut("def").unwrap().insert(n.clone(), m.clone());
         }
     }
+    // records: unique across the package; a definition may name only those its file declares or imports
+    let mut record_origin: IndexMap<String, String> = IndexMap::new();
+    for m in &mods {
+        let (p, defs, _) = &files[m];
+        for (r, fields) in &defs.records {
+            if let Some(other) = record_origin.get(r) {
+                return Err(load_error(p, &format!("record {} is already declared in {}", r, other), None));
+            }
+            record_origin.insert(r.clone(), m.clone());
+            merged.records.insert(r.clone(), fields.clone());
+        }
+    }
+    let record_uses = crate::syntax::flatten_records(&mut merged).map_err(|e| load_error(&path, &e.0, None))?;
+    for (name, rs) in &record_uses {
+        let d = &merged.defs[name];
+        let m = d.module.clone().unwrap_or_default();
+        for r in rs {
+            let owner = &record_origin[r];
+            if *owner != m && !imports[&m].iter().any(|(i, _)| i == owner) {
+                let p = d.file.clone().unwrap_or_default();
+                return Err(load_error(
+                    &p,
+                    &format!("{} uses record {}, which {} declares: add `import {}`", name, r, owner, owner),
+                    d.line,
+                ));
+            }
+        }
+    }
     for (n, owner) in &const_origin {
         let kind = ["def", "state", "handler", "channel"].into_iter().find(|k| origin[*k].contains_key(n));
         if let Some(kind) = kind {

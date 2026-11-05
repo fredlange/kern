@@ -105,6 +105,9 @@ pub struct Def {
     /// the named constants (`const NAME N`) the spec / body source mentions, with their values, for views
     pub spec_consts: Vec<(String, Int)>,
     pub body_consts: Vec<(String, Int)>,
+    /// the record types (`record Point x:Int y:Int`) of the header's parameters, as declared, for views; the
+    /// parameters themselves are flattened to their fields (`p:Point` -> `p.x:Int p.y:Int`)
+    pub records: Vec<(String, Vec<(String, String)>)>,
     raw: Vec<(usize, String, usize)>,
 }
 
@@ -117,6 +120,8 @@ pub struct Module {
     pub handlers: IndexMap<String, Def>,
     /// `const NAME N`: substituted into every use at load time (`resolve_consts`), kept for views and checks
     pub consts: IndexMap<String, Int>,
+    /// `record NAME f:Type ...`: record-typed parameters are flattened to their fields at load time (`flatten_records`)
+    pub records: IndexMap<String, Vec<(String, String)>>,
     /// set by the package loader (kern/package.py's `defs.package`)
     pub package: Option<crate::package::Package>,
 }
@@ -777,6 +782,10 @@ fn const_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     re(&R, r"^const ([a-z]\w*) (\d+)$")
 }
+fn record_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    re(&R, r"^record ([A-Z]\w*)((?:\s+[a-z]\w*:\w+)+)\s*$")
+}
 fn invariant_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     re(&R, r"^invariant ([a-z]\w*):(Int|Account) (.+)$")
@@ -851,7 +860,22 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
                 in_body = false;
                 continue;
             }
-            if line.starts_with("const ") || line == "const" {
+            // `record Name …` (a definition may itself be named `record`: `record x:Int`)
+            if line.starts_with("record ") && line["record ".len()..].starts_with(|c: char| c.is_uppercase()) {
+                let Some(m) = record_re().captures(line) else {
+                    return Err(ParseError::at("want `record Name field:Type ...` (Int or Account fields)", no));
+                };
+                if defs.records.contains_key(&m[1]) {
+                    return Err(ParseError::at(format!("record {} is declared twice", &m[1]), no));
+                }
+                defs.records.insert(m[1].to_string(), params_of(&m[2]));
+                finish_cur(&mut defs, &cur)?;
+                cur = None;
+                in_body = false;
+                continue;
+            }
+            // `const NAME N` (a definition may itself be named `const`: `const x:Int`)
+            if line.starts_with("const ") && !line.contains(':') {
                 let Some(m) = const_re().captures(line) else {
                     return Err(ParseError::at("want `const NAME N` (a lower-case name, a non-negative integer)", no));
                 };
@@ -972,6 +996,7 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
     if expand {
         let consts = defs.consts.clone();
         resolve_consts(&mut defs, &consts, &IndexMap::new())?;
+        flatten_records(&mut defs)?;
         expand_refs(&mut defs)?;
     }
     Ok(defs)
@@ -1160,6 +1185,213 @@ pub fn resolve_consts(
     }
     defs.invariants = invs;
     Ok(())
+}
+
+/// Flattens record-typed parameters into their fields (DECISIONS.md, records).
+struct Records<'a> {
+    records: &'a IndexMap<String, Vec<(String, String)>>,
+    /// definition -> its parameters as declared (record types not yet flattened)
+    sigs: &'a IndexMap<String, Vec<(String, String)>>,
+    /// this definition's record parameters -> their record type
+    recs: IndexMap<String, String>,
+    who: String,
+    /// record types this definition names (header and literals), for the package's import rule
+    used: Vec<String>,
+}
+
+impl Records<'_> {
+    fn err(&self, msg: String) -> ParseError {
+        ParseError(format!("{}: {}", self.who, msg))
+    }
+    fn note(&mut self, r: &str) {
+        if !self.used.iter().any(|u| u == r) {
+            self.used.push(r.to_string());
+        }
+    }
+    /// The fields of a whole-record argument `arg` for a parameter of record type `want`.
+    fn whole(&mut self, arg: &Expr, want: &str, callee: &str) -> PResult<Vec<Expr>> {
+        let fields = &self.records[want];
+        match arg {
+            Expr::Name(q, false) if self.recs.contains_key(q) => {
+                if self.recs[q] != want {
+                    return Err(self.err(format!("`{}` passes {} ({}) where a {} is wanted", callee, q, self.recs[q], want)));
+                }
+                Ok(fields.iter().map(|(f, _)| Expr::Name(format!("{}.{}", q, f), false)).collect())
+            }
+            Expr::App(r, false, args) if r == want => {
+                self.note(want);
+                if args.len() != fields.len() {
+                    return Err(self.err(format!("`{}` has {} field(s), got {}", want, fields.len(), args.len())));
+                }
+                args.iter().map(|a| self.expr(a)).collect()
+            }
+            _ => Err(self.err(format!(
+                "`{}` takes a {} here: pass a {} parameter, or build one with ({} {})",
+                callee,
+                want,
+                want,
+                want,
+                fields.iter().map(|(f, _)| f.as_str()).collect::<Vec<_>>().join(" ")
+            ))),
+        }
+    }
+    /// A call's arguments with each record-typed one replaced by its fields.
+    fn args(&mut self, callee: &str, args: &[Expr]) -> PResult<Vec<Expr>> {
+        let Some(sig) = self.sigs.get(callee).filter(|s| s.len() == args.len()) else {
+            return args.iter().map(|a| self.expr(a)).collect();
+        };
+        let mut out = vec![];
+        for (a, (_, t)) in args.iter().zip(sig.clone()) {
+            if self.records.contains_key(&t) {
+                out.extend(self.whole(a, &t, callee)?);
+            } else {
+                out.push(self.expr(a)?);
+            }
+        }
+        Ok(out)
+    }
+    fn expr(&mut self, e: &Expr) -> PResult<Expr> {
+        Ok(match e {
+            Expr::Int(_) => e.clone(),
+            Expr::Name(n, _) | Expr::App(n, _, _) if self.records.contains_key(n) => {
+                return Err(self.err(format!(
+                    "`{}` builds a {} only as the argument of a call that takes one",
+                    code(e),
+                    n
+                )))
+            }
+            Expr::Name(n, _) if self.recs.contains_key(n) => {
+                return Err(self.err(format!(
+                    "{} is a {}: read a field ({}.{}) or pass it whole to a definition that takes one",
+                    n, self.recs[n], n, self.records[&self.recs[n]][0].0
+                )))
+            }
+            Expr::Name(n, _) => {
+                if let Some((q, f)) = n.split_once('.') {
+                    if let Some(r) = self.recs.get(q) {
+                        if !self.records[r].iter().any(|(x, _)| x == f) {
+                            return Err(self.err(format!("{} ({}) has no field {}", q, r, f)));
+                        }
+                    }
+                }
+                e.clone()
+            }
+            Expr::App(h, p, args) => Expr::App(h.clone(), *p, self.args(h, args)?),
+            Expr::Bin(op, l, r) => Expr::Bin(op, Box::new(self.expr(l)?), Box::new(self.expr(r)?)),
+            Expr::All(j, a, b, x) => {
+                Expr::All(j.clone(), Box::new(self.expr(a)?), Box::new(self.expr(b)?), Box::new(self.expr(x)?))
+            }
+        })
+    }
+    fn exprs(&mut self, es: &[Expr]) -> PResult<Vec<Expr>> {
+        es.iter().map(|e| self.expr(e)).collect()
+    }
+    fn stmts(&mut self, ss: &[Stmt]) -> PResult<Vec<Stmt>> {
+        let mut out = vec![];
+        for s in ss {
+            out.push(match s {
+                Stmt::Let(x, e) => Stmt::Let(x.clone(), self.expr(e)?),
+                Stmt::Need(c, ctor, args) => Stmt::Need(self.expr(c)?, ctor.clone(), self.exprs(args)?),
+                Stmt::Do(e) => Stmt::Do(self.expr(e)?),
+                Stmt::If(c, t, o) => Stmt::If(self.expr(c)?, self.stmts(t)?, self.stmts(o)?),
+                Stmt::For(k, lo, hi, invs, body) => {
+                    Stmt::For(k.clone(), self.expr(lo)?, self.expr(hi)?, self.exprs(invs)?, self.stmts(body)?)
+                }
+                Stmt::Inv(e) => Stmt::Inv(self.expr(e)?),
+            });
+        }
+        Ok(out)
+    }
+    fn def(&mut self, d: &mut Def) -> PResult<()> {
+        let mut needs = vec![];
+        for n in &d.needs {
+            needs.push(match n {
+                Need::Need(c, ctor, args) => Need::Need(self.expr(c)?, ctor.clone(), self.exprs(args)?),
+                Need::As(callee, args, no) => Need::As(callee.clone(), self.args(callee, args)?, *no),
+            });
+        }
+        d.needs = needs;
+        d.keeps = self.exprs(&d.keeps)?;
+        d.ensures = self.exprs(&d.ensures)?;
+        let mut emits = vec![];
+        for ev in &d.emits {
+            emits.push(match ev {
+                Emit::Ev(ctor, args, c) => {
+                    Emit::Ev(ctor.clone(), self.exprs(args)?, c.as_ref().map(|c| self.expr(c)).transpose()?)
+                }
+                Emit::As(callee, args, no, c) => Emit::As(
+                    callee.clone(),
+                    self.args(callee, args)?,
+                    *no,
+                    c.as_ref().map(|c| self.expr(c)).transpose()?,
+                ),
+            });
+        }
+        d.emits = emits;
+        d.body = self.stmts(&d.body)?;
+        Ok(())
+    }
+}
+
+/// Flatten record-typed parameters (`p:Point` -> `p.x:Int p.y:Int`) and whole-record arguments (`move p`,
+/// `move (Point a b)`) into fields, in every definition. Returns definition -> the record types it names, for the
+/// package's import rule. A module without records is left exactly as it was.
+pub fn flatten_records(defs: &mut Module) -> PResult<IndexMap<String, Vec<String>>> {
+    if defs.records.is_empty() {
+        return Ok(IndexMap::new());
+    }
+    for (r, fields) in &defs.records {
+        if ["Int", "Account", "Owner", "Bool", "Event", "Unit", "Text"].contains(&r.as_str()) {
+            return Err(ParseError(format!("record {} has the name of a built-in type", r)));
+        }
+        for (i, (f, t)) in fields.iter().enumerate() {
+            if ["get", "set", "emit"].contains(&f.as_str()) {
+                return Err(ParseError(format!("record {}: a field can't be named {}", r, f)));
+            }
+            if fields[..i].iter().any(|(g, _)| g == f) {
+                return Err(ParseError(format!("record {}: field {} appears twice", r, f)));
+            }
+            if t != "Int" && t != "Account" {
+                return Err(ParseError(format!("record {}: field {} must be Int or Account, not {}", r, f, t)));
+            }
+        }
+    }
+    for h in defs.handlers.values() {
+        if let Some((p, t)) = h.params.iter().find(|(_, t)| defs.records.contains_key(t)) {
+            return Err(ParseError(format!("handler {}: parameter {} can't be a record ({})", h.name, p, t)));
+        }
+    }
+    let mut roots: Vec<String> = ["ledger", "clock", "audit"].iter().map(|s| s.to_string()).collect();
+    roots.extend(defs.states.keys().cloned());
+    roots.extend(defs.channels.iter().cloned());
+    roots.extend(defs.handlers.keys().map(|h| h.split('.').next().unwrap().to_string()));
+    let sigs: IndexMap<String, Vec<(String, String)>> =
+        defs.defs.iter().map(|(n, d)| (n.clone(), d.params.clone())).collect();
+    let records = defs.records.clone();
+    let mut used = IndexMap::new();
+    for d in defs.defs.values_mut() {
+        let mut k = Records { records: &records, sigs: &sigs, recs: IndexMap::new(), who: d.name.clone(), used: vec![] };
+        let mut params = vec![];
+        for (p, t) in &d.params {
+            let Some(fields) = records.get(t) else {
+                params.push((p.clone(), t.clone()));
+                continue;
+            };
+            if roots.contains(p) {
+                return Err(k.err(format!("the record parameter {} has the name of a state, channel or handler", p)));
+            }
+            k.recs.insert(p.clone(), t.clone());
+            k.note(t);
+            if !d.records.iter().any(|(r, _)| r == t) {
+                d.records.push((t.clone(), fields.clone()));
+            }
+            params.extend(fields.iter().map(|(f, ft)| (format!("{}.{}", p, f), ft.clone())));
+        }
+        k.def(d)?;
+        d.params = params;
+        used.insert(d.name.clone(), k.used);
+    }
+    Ok(used)
 }
 
 /// Replace `need as C args` / `emit as C args` by C's spec needs / emits with C's parameters replaced by args.
