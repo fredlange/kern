@@ -1,0 +1,129 @@
+<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Kern proof: booking.k</title><style>
+:root{--bg:#f7f7f5;--card:#fff;--fg:#1d1d1b;--muted:#6b6b66;--line:#e4e4df;--ok:#1f7a4d;--fail:#b3261e;--warn:#a15c00;--code:#f0f0ec}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--card:#1f1f1d;--fg:#ececea;--muted:#9a9a94;--line:#33332f;--ok:#5cc28d;--fail:#ff7b72;--warn:#e3a54a;--code:#2a2a27}}
+:root[data-theme="dark"]{--bg:#161615;--card:#1f1f1d;--fg:#ececea;--muted:#9a9a94;--line:#33332f;--ok:#5cc28d;--fail:#ff7b72;--warn:#e3a54a;--code:#2a2a27}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:32px 16px}h1{font-size:22px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px 22px;margin-bottom:20px}
+.card header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.card h2{margin:0;font-size:19px}
+.badge{font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;border:1px solid currentColor}
+.badge.ok{color:var(--ok)}.badge.fail{color:var(--fail)}.badge.warn{color:var(--warn)}.hash{margin-left:auto;color:var(--muted);font:12px ui-monospace,monospace}
+h3{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:18px 0 6px}h3 .muted{text-transform:none;letter-spacing:0;font-weight:400}
+p{margin:4px 0}.muted{color:var(--muted)}code,pre{font:13px ui-monospace,SFMono-Regular,Menlo,monospace}code{background:var(--code);padding:1px 5px;border-radius:4px}
+pre{background:var(--code);padding:8px 10px;border-radius:6px;overflow-x:auto;margin:6px 0}
+table{border-collapse:collapse}td{padding:3px 14px 3px 0;vertical-align:top}
+ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line)}ul.g li:first-child{border-top:0}
+.ic{font-weight:700;width:16px;flex:none}li.proven .ic{color:var(--ok)}li.refuted .ic{color:var(--fail)}li.conditional .ic,li.unknown .ic{color:var(--warn)}
+.how{color:var(--muted);font-size:14px}.src{margin-top:2px;font-size:12px}ul.ex{margin:4px 0;padding-left:18px}
+.okc{color:var(--ok)}.failc{color:var(--fail)}.warnc{color:var(--warn)}details{margin-top:16px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;font-weight:600}
+</style></head><body><main><h1>Proof page · booking.k</h1><p class='sub'>Generated from verifier results by fixed templates — no text here was written by a model.</p><section class="card"><header><h2><code>book</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build eacddb59</span></header>
+<h3>Can touch</h3><p>the audit log, state <code>slot</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: slot.*. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<p class='warnc'>No guarantee says what the new value of <code>slot.*</code> is.</p>
+<h3>Refuses when</h3><table><tr><td><code>b.room</code> &lt; 0</td><td class='fail-name'>→ <code>NoSuchRoom</code></td></tr><tr><td><code>b.room</code> ≥ 5</td><td class='fail-name'>→ <code>NoSuchRoom</code></td></tr><tr><td><code>b.day</code> &lt; 0</td><td class='fail-name'>→ <code>NoSuchDay</code></td></tr><tr><td><code>b.day</code> ≥ 7</td><td class='fail-name'>→ <code>NoSuchDay</code></td></tr><tr><td><code>b.guest</code> ≤ 0</td><td class='fail-name'>→ <code>NoGuest</code></td></tr><tr><td>slot of <code>b.room</code> × 7 + <code>b.day</code> ≠ 0</td><td class='fail-name'>→ <code>Taken</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>slot of <code>b.room</code> × 7 + <code>b.day</code> <em>after</em> = <code>b.guest</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure slot.get&#x27; (b.room * 7 + b.day) = b.guest</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>for every <code>s</code> from 0 to 35 (not included): <em>when</em> <code>s</code> ≠ <code>b.room</code> × 7 + <code>b.day</code>: slot of <code>s</code> <em>after</em> = slot of <code>s</code> <em>before</em></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure slot.get&#x27; s = slot.get s when s != b.room * 7 + b.day for s from 0 to 35</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>appends exactly one event to the audit log: <code>Booked</code> (<code>b.room</code>, <code>b.day</code>, <code>b.guest</code>)</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>emit Booked b.room b.day b.guest</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>8/8 pass, executed against build eacddb59</span></h3><ul class='ex'>
+<li><code>| book 2 3 9 -&gt; ok | slot.17:9</code> <span class='okc'>✔</span></li>
+<li><code>slot.17:4 | book 2 3 9 -&gt; Taken</code> <span class='okc'>✔</span></li>
+<li><code>| book 5 0 9 -&gt; NoSuchRoom</code> <span class='okc'>✔</span></li>
+<li><code>| book -1 0 9 -&gt; NoSuchRoom</code> <span class='okc'>✔</span></li>
+<li><code>| book 0 -1 9 -&gt; NoSuchDay</code> <span class='okc'>✔</span></li>
+<li><code>| book 4 6 9 -&gt; ok | slot.34:9</code> <span class='okc'>✔</span></li>
+<li><code>| book 0 7 9 -&gt; NoSuchDay</code> <span class='okc'>✔</span></li>
+<li><code>| book 0 0 0 -&gt; NoGuest</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 15 succeeded and were checked against every guarantee; refused: NoSuchRoom 396, NoSuchDay 81, NoGuest 6, Taken 2.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 17/17 deliberate bugs (100%)</span></h3><p>Caught by the prover: 17; by random tests checking the guarantees: 17. The examples alone catch 10/17; everything together 17/17.</p>
+<p>Refusals in the spec: 12/12 changes caught, by examples 12, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section>
+<section class="card"><header><h2><code>cancel</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 7594aee0</span></header>
+<h3>Can touch</h3><p>the audit log, state <code>slot</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: slot.*. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<p class='warnc'>No guarantee says what the new value of <code>slot.*</code> is.</p>
+<h3>Refuses when</h3><table><tr><td><code>room</code> &lt; 0</td><td class='fail-name'>→ <code>NoSuchRoom</code></td></tr><tr><td><code>room</code> ≥ 5</td><td class='fail-name'>→ <code>NoSuchRoom</code></td></tr><tr><td><code>day</code> &lt; 0</td><td class='fail-name'>→ <code>NoSuchDay</code></td></tr><tr><td><code>day</code> ≥ 7</td><td class='fail-name'>→ <code>NoSuchDay</code></td></tr><tr><td>slot of <code>room</code> × 7 + <code>day</code> ≠ <code>guest</code></td><td class='fail-name'>→ <code>NotYours</code></td></tr><tr><td><code>guest</code> ≤ 0</td><td class='fail-name'>→ <code>NoGuest</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>slot of <code>room</code> × 7 + <code>day</code> <em>after</em> = 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure slot.get&#x27; (room * 7 + day) = 0</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>for every <code>s</code> from 0 to 35 (not included): <em>when</em> <code>s</code> ≠ <code>room</code> × 7 + <code>day</code>: slot of <code>s</code> <em>after</em> = slot of <code>s</code> <em>before</em></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure slot.get&#x27; s = slot.get s when s != room * 7 + day for s from 0 to 35</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>appends exactly one event to the audit log: <code>Cancelled</code> (<code>room</code>, <code>day</code>, <code>guest</code>)</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>emit Cancelled room day guest</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>9/9 pass, executed against build 7594aee0</span></h3><ul class='ex'>
+<li><code>slot.17:9 | cancel 2 3 9 -&gt; ok | slot.17:0</code> <span class='okc'>✔</span></li>
+<li><code>slot.17:4 | cancel 2 3 9 -&gt; NotYours</code> <span class='okc'>✔</span></li>
+<li><code>slot.0:9 | cancel 0 0 9 -&gt; ok | slot.0:0</code> <span class='okc'>✔</span></li>
+<li><code>slot.34:9 | cancel 4 6 9 -&gt; ok | slot.34:0</code> <span class='okc'>✔</span></li>
+<li><code>| cancel -1 0 9 -&gt; NoSuchRoom</code> <span class='okc'>✔</span></li>
+<li><code>| cancel 5 0 9 -&gt; NoSuchRoom</code> <span class='okc'>✔</span></li>
+<li><code>| cancel 0 -1 9 -&gt; NoSuchDay</code> <span class='okc'>✔</span></li>
+<li><code>| cancel 0 7 9 -&gt; NoSuchDay</code> <span class='okc'>✔</span></li>
+<li><code>slot.0:0 | cancel 0 0 0 -&gt; NoGuest</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 0 succeeded and were checked against every guarantee; refused: NoSuchRoom 396, NoSuchDay 81, NotYours 23.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 16/16 deliberate bugs (100%)</span></h3><p>Caught by the prover: 16; by random tests checking the guarantees: 0. The examples alone catch 9/16; everything together 16/16.</p>
+<p>Refusals in the spec: 12/12 changes caught, by examples 12, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section>
+<section class="card"><header><h2><code>nights_booked</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build afed9ce2</span></header>
+<h3>Can touch</h3><p>state <code>slot</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div><code>result</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result &gt;= 0</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div><code>result</code> ≤ 7</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result &lt;= 7</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>1/1 pass, executed against build afed9ce2</span></h3><ul class='ex'>
+<li><code>slot.14:3 slot.16:5 | nights_booked 2 -&gt; ok</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 0/0 deliberate bugs (100%)</span></h3><p>Caught by the prover: 0; by random tests checking the guarantees: 0. The examples alone catch 0/0; everything together 0/0.</p>
+</section>
+<section class="card"><header><h2><code>guest_nights</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 45b98eb8</span></header>
+<h3>Can touch</h3><p>state <code>slot</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div><code>result</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result &gt;= 0</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div><code>result</code> ≤ 35</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result &lt;= 35</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>1/1 pass, executed against build 45b98eb8</span></h3><ul class='ex'>
+<li><code>slot.3:4 slot.20:4 slot.21:5 | guest_nights 4 -&gt; ok</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 0/0 deliberate bugs (100%)</span></h3><p>Caught by the prover: 0; by random tests checking the guarantees: 0. The examples alone catch 0/0; everything together 0/0.</p>
+</section>
+<section class="card"><header><h2><code>busy_on</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 570fcd25</span></header>
+<h3>Can touch</h3><p>state <code>slot</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div><code>result</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result &gt;= 0</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div><code>result</code> ≤ 5</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result &lt;= 5</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>0/0 pass, executed against build 570fcd25</span></h3><ul class='ex'>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 0/0 deliberate bugs (100%)</span></h3><p>Caught by the prover: 0; by random tests checking the guarantees: 0. The examples alone catch 0/0; everything together 0/0.</p>
+</section>
+<section class="card"><header><h2><code>clear_day</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 30a2e1a6</span></header>
+<h3>Can touch</h3><p>state <code>slot</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: slot.*. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<p class='warnc'>No guarantee says what the new value of <code>slot.*</code> is.</p>
+<h3>Refuses when</h3><table><tr><td><code>day</code> &lt; 0</td><td class='fail-name'>→ <code>NoSuchDay</code></td></tr><tr><td><code>day</code> ≥ 7</td><td class='fail-name'>→ <code>NoSuchDay</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>for every <code>r</code> from 0 to 5 (not included): slot of <code>r</code> × 7 + <code>day</code> <em>after</em> = 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure slot.get&#x27; (r * 7 + day) = 0 for r from 0 to 5</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>for every <code>s</code> from 0 to 35 (not included): <em>when</em> <code>s</code> − <code>s</code> ÷ 7 × 7 ≠ <code>day</code>: slot of <code>s</code> <em>after</em> = slot of <code>s</code> <em>before</em></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure slot.get&#x27; s = slot.get s when s - s / 7 * 7 != day for s from 0 to 35</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>loop invariant (holds when the loop starts; at the start of each iteration, primed reads are the current state and unprimed reads the state before the call): for every <code>q</code> from 0 to <code>r</code> (not included): slot of <code>q</code> × 7 + <code>day</code> <em>after</em> = 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>loop slot.get&#x27; (q * 7 + day) = 0 for q from 0 to r  (holds when the loop starts)</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>loop invariant (holds when the loop starts; at the start of each iteration, primed reads are the current state and unprimed reads the state before the call): for every <code>s</code> from 0 to 35 (not included): <em>when</em> <code>s</code> − <code>s</code> ÷ 7 × 7 ≠ <code>day</code> or <code>s</code> ÷ 7 ≥ <code>r</code>: slot of <code>s</code> <em>after</em> = slot of <code>s</code> <em>before</em></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>loop slot.get&#x27; s = slot.get s when s - s / 7 * 7 != day or s / 7 &gt;= r for s from 0 to 35  (holds when the loop starts)</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>loop invariant (is kept by every iteration; at the start of each iteration, primed reads are the current state and unprimed reads the state before the call): for every <code>q</code> from 0 to <code>r</code> (not included): slot of <code>q</code> × 7 + <code>day</code> <em>after</em> = 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>loop slot.get&#x27; (q * 7 + day) = 0 for q from 0 to r  (kept by every iteration)</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>loop invariant (is kept by every iteration; at the start of each iteration, primed reads are the current state and unprimed reads the state before the call): for every <code>s</code> from 0 to 35 (not included): <em>when</em> <code>s</code> − <code>s</code> ÷ 7 × 7 ≠ <code>day</code> or <code>s</code> ÷ 7 ≥ <code>r</code>: slot of <code>s</code> <em>after</em> = slot of <code>s</code> <em>before</em></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>loop slot.get&#x27; s = slot.get s when s - s / 7 * 7 != day or s / 7 &gt;= r for s from 0 to 35  (kept by every iteration)</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>4/4 pass, executed against build 30a2e1a6</span></h3><ul class='ex'>
+<li><code>slot.3:4 slot.10:5 slot.11:6 | clear_day 3 -&gt; ok | slot.3:0 slot.10:0 slot.11:6</code> <span class='okc'>✔</span></li>
+<li><code>slot.0:4 slot.7:5 slot.1:6 | clear_day 0 -&gt; ok | slot.0:0 slot.7:0 slot.1:6</code> <span class='okc'>✔</span></li>
+<li><code>| clear_day -1 -&gt; NoSuchDay</code> <span class='okc'>✔</span></li>
+<li><code>| clear_day 7 -&gt; NoSuchDay</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 99 succeeded and were checked against every guarantee; refused: NoSuchDay 401.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 10/12 deliberate bugs (83%)</span></h3><p>Caught by the prover: 9; by random tests checking the guarantees: 7. The examples alone catch 9/12; everything together 10/12.</p>
+<p>No guarantee rules out these changes to the body. Either a guarantee is missing, or the code is unnecessary:</p><ul class='ex'><li>`0` → `0 - 1` in `for r from 0 to 5` <span class='failc'>(nothing catches it)</span></li><li>`5` → `5 + 1` in `for r from 0 to 5` <span class='failc'>(nothing catches it)</span></li></ul>
+<p>Refusals in the spec: 4/4 changes caught, by examples 4, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section></main></body></html>
