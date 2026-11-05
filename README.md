@@ -71,6 +71,48 @@ payout from:Account to:Account house:Account amount:Int fee:Int
 The same bug in a fuller module is step 1 of [examples/ledger-tour](examples/ledger-tour/), seven
 versions of one ledger, each fixing what the previous proof page showed.
 
+## The proof page
+
+The page is what the human reads. `kern check --html` renders one card per definition. This is
+`transfer` in the tour's last step
+([examples/ledger-tour/proof-pages/ledger_v7.html](examples/ledger-tour/proof-pages/ledger_v7.html)):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/proof-page-dark.png">
+  <img alt="The proof page card for transfer: what it can touch, when it refuses, five proven guarantees, examples, random tests and spec strength" src="docs/images/proof-page-light.png" width="720">
+</picture>
+
+Read a card from top to bottom:
+
+- **The badge** is the verdict for the whole definition: "All guarantees proven", "Broken
+  guarantees", "Tested only, not proven" and so on. `build` is the definition's hash. The examples
+  ran against that build, and the `why` entries are anchored to it.
+- **Can touch** is inferred from the body, not written by the author. It lists the effects the call
+  can reach and the balances it can change. If a definition changes a balance that no guarantee
+  mentions, an orange line says so. On the same page, payout's card says "No guarantee says what
+  the new balance of `to`, `house` is."
+- **Refuses when** lists every way the call can fail, with the failure it returns. Refusals that
+  come from a callee are marked "(from transfer)". A refusal rolls back the whole call.
+- **Guarantees** are the claims. Each one is in plain English from a fixed template, with how it
+  was established and the spec line it came from.
+  - ✔ is proven for all inputs.
+  - ✗ is refuted, with a counterexample replayed in the interpreter. Step 1 of the tour shows one:
+    [ledger_v1.html](examples/ledger-tour/proof-pages/ledger_v1.html).
+  - `!` relies on something unproven.
+  - `?` means the prover gave no answer, or its counterexample didn't replay.
+  - ⊙ relies on an assumed handler.
+- **Examples** and **random tests** are evidence, not proof. The `eg` lines are run, and every
+  success in 500 random worlds is checked against every guarantee.
+- **Spec strength** plants deliberate bugs in the body (mutants) and counts how many the guarantees
+  catch. A bug that survives points at a missing guarantee. Strength is measured only when every
+  guarantee holds.
+- **Why** is folded away. It holds rationale, never rules, and it is flagged stale when the
+  definition or its interface changes.
+
+The page answers whether the code does what its spec says. The reviewer's job is the other
+question: is this the right spec? Whether a person can answer that from the page alone is
+challenge C4, which hasn't been run yet.
+
 ## Why this design
 
 - **Verification is what licenses not reading.** Skipping a callee's body is safe only if its
