@@ -336,10 +336,26 @@ pub struct Lifted {
 ///
 /// Spec needs are already in the interface; this adds the *body-level* ones (own `need`s and, transitively,
 /// callees' needs), so callers and the prover can see when a call refuses. A condition is lifted only when it can be
-/// stated in the pre-state: it comes before any ledger write, or it does not read balances at all.
+/// stated exactly in the pre-state: it doesn't read state, or every write before it is a direct one (`ledger.debit`,
+/// `ledger.credit`, `x.set`) whose after-values can be written in pre-state terms. A read after such a write is
+/// rewritten through the writes, splitting on aliasing (`ledger.balance x` after `ledger.debit a n` is
+/// `ledger.balance x - n` if x = a, else unchanged). A callee that writes, a loop with effects, or an `if` whose
+/// branches write still ends lifting for state-reading conditions: the after-state is no longer exact there.
 pub fn lifted(defs: &Module, d: &Def) -> Vec<Lifted> {
     lifted_seen(defs, d, &BTreeSet::new())
 }
+
+/// A direct write, in pre-state terms.
+#[derive(Clone, Debug, PartialEq)]
+enum Write {
+    /// `ledger.debit a n` (op "-") or `ledger.credit a n` (op "+")
+    Bal(Expr, &'static str, Expr),
+    /// `x.set k v`
+    Map(String, Expr, Expr),
+}
+
+/// The most case combinations a rewritten condition may have; beyond it the condition isn't lifted.
+const MAX_CASES: usize = 8;
 
 struct Lifter<'a> {
     defs: &'a Module,
@@ -347,45 +363,231 @@ struct Lifter<'a> {
     out: Vec<Lifted>,
     /// name -> (expr in pre-state terms, usable)
     lets: IndexMap<String, (Expr, bool)>,
-    clean: bool,
+    /// the direct writes so far, in order; None once the after-state can't be stated exactly
+    log: Option<Vec<Write>>,
+    /// pairs that differ on every path reaching this point: `a != b` refusal points already passed
+    distinct: Vec<(Expr, Expr)>,
+}
+
+fn bin(op: &'static str, l: Expr, r: Expr) -> Expr {
+    Expr::Bin(op, Box::new(l), Box::new(r))
+}
+
+/// Replace whole sub-expressions (simultaneously; replacements are not searched again).
+fn replace_terms(e: &Expr, m: &[(Expr, Expr)]) -> Expr {
+    if let Some((_, v)) = m.iter().find(|(t, _)| t == e) {
+        return v.clone();
+    }
+    match e {
+        Expr::Bin(op, l, r) => bin(op, replace_terms(l, m), replace_terms(r, m)),
+        Expr::App(h, p, args) => Expr::App(h.clone(), *p, args.iter().map(|a| replace_terms(a, m)).collect()),
+        Expr::All(j, a, b, body) => {
+            Expr::All(j.clone(), Box::new(replace_terms(a, m)), Box::new(replace_terms(b, m)), Box::new(replace_terms(body, m)))
+        }
+        _ => e.clone(),
+    }
+}
+
+fn is_total(e: &Expr) -> bool {
+    matches!(e, Expr::Name(n, false) if n == "ledger.total") || matches!(e, Expr::App(n, false, a) if n == "ledger.total" && a.is_empty())
 }
 
 impl<'a> Lifter<'a> {
-    fn pre_state(&self, e: &Expr) -> Option<Expr> {
+    fn same(a: &Expr, b: &Expr) -> bool {
+        a == b
+    }
+
+    fn differ(&self, a: &Expr, b: &Expr) -> bool {
+        matches!((a, b), (Expr::Int(x), Expr::Int(y)) if x != y) || self.distinct.iter().any(|(l, r)| (l == a && r == b) || (l == b && r == a))
+    }
+
+    /// `e` with lets substituted, or None if it uses a let that has no pre-state value.
+    fn with_lets(&self, e: &Expr) -> Option<Expr> {
         if names(e).iter().any(|n| matches!(self.lets.get(n), Some((_, false)))) {
             return None;
         }
         let m: IndexMap<String, Expr> = self.lets.iter().map(|(n, (v, _))| (n.clone(), v.clone())).collect();
-        let e2 = subst(e, &m);
-        if self.clean || !reads_state(&e2) {
-            Some(e2)
-        } else {
-            None
+        Some(subst(e, &m))
+    }
+
+    /// The state reads in `e` and, for each, its possible values after the logged writes: (conditions, value).
+    /// None if a read can't be resolved (its key reads written state, or the after-state is unknown).
+    fn read_cases(&self, e: &Expr) -> Option<Vec<(Expr, Vec<(Vec<Expr>, Expr)>)>> {
+        let log = self.log.as_ref()?;
+        let mut terms: Vec<Expr> = vec![];
+        for t in walk(e) {
+            let is_read = is_total(t)
+                || matches!(t, Expr::App(n, false, a) if a.len() == 1 && (n == "ledger.balance" || matches!(state_op(self.defs, n), Some((_, "get", _)))));
+            if is_read && !terms.contains(t) {
+                terms.push(t.clone());
+            }
+        }
+        let mut out = vec![];
+        for t in terms {
+            let mut cases: Vec<(Vec<Expr>, Expr)> = vec![(vec![], t.clone())];
+            if is_total(&t) {
+                for w in log {
+                    if let Write::Bal(_, op, n) = w {
+                        cases[0].1 = bin(op, cases[0].1.clone(), n.clone());
+                    }
+                }
+                out.push((t, cases));
+                continue;
+            }
+            let Expr::App(name, _, args) = &t else { unreachable!() };
+            let key = &args[0];
+            let map = name.strip_suffix(".get");
+            let hit = |w: &Write| -> Option<(Expr, Box<dyn Fn(&Expr) -> Expr>)> {
+                match (w, map) {
+                    (Write::Bal(a, op, n), None) => {
+                        let (op, n) = (*op, n.clone());
+                        Some((a.clone(), Box::new(move |v: &Expr| bin(op, v.clone(), n.clone()))))
+                    }
+                    (Write::Map(x, k, v), Some(m)) if x == m => {
+                        let v = v.clone();
+                        Some((k.clone(), Box::new(move |_: &Expr| v.clone())))
+                    }
+                    _ => None,
+                }
+            };
+            let touched = log.iter().any(|w| hit(w).is_some());
+            if touched && reads_state(key) {
+                return None; // the key itself may have changed
+            }
+            for w in log {
+                let Some((at, apply)) = hit(w) else { continue };
+                let mut next = vec![];
+                for (conds, v) in cases {
+                    if Self::same(key, &at) {
+                        next.push((conds, apply(&v)));
+                    } else if self.differ(key, &at) {
+                        next.push((conds, v));
+                    } else {
+                        let eq = bin("=", key.clone(), at.clone());
+                        let ne = bin("!=", key.clone(), at.clone());
+                        if !conds.contains(&ne) {
+                            let mut c = conds.clone();
+                            if !c.contains(&eq) {
+                                c.push(eq.clone());
+                            }
+                            next.push((c, apply(&v)));
+                        }
+                        if !conds.contains(&eq) {
+                            let mut c = conds;
+                            if !c.contains(&ne) {
+                                c.push(ne);
+                            }
+                            next.push((c, v));
+                        }
+                    }
+                }
+                cases = next;
+                if cases.len() > MAX_CASES {
+                    return None;
+                }
+            }
+            out.push((t, cases));
+        }
+        Some(out)
+    }
+
+    /// A value in pre-state terms, only when it has exactly one (no case split).
+    fn pre_value(&self, e: &Expr) -> Option<Expr> {
+        let e2 = self.with_lets(e)?;
+        if !reads_state(&e2) {
+            return Some(e2);
+        }
+        let reads = self.read_cases(&e2)?;
+        let mut m = vec![];
+        for (t, cases) in reads {
+            match cases.as_slice() {
+                [(conds, v)] if conds.is_empty() => m.push((t, v.clone())),
+                _ => return None,
+            }
+        }
+        Some(replace_terms(&e2, &m))
+    }
+
+    /// A condition in pre-state terms: one disjunct per aliasing case, at most MAX_CASES.
+    fn pre_cond(&self, e: &Expr) -> Option<Expr> {
+        let e2 = self.with_lets(e)?;
+        if !reads_state(&e2) {
+            return Some(e2);
+        }
+        let reads = self.read_cases(&e2)?;
+        let mut combos: Vec<(Vec<Expr>, Vec<(Expr, Expr)>)> = vec![(vec![], vec![])];
+        for (t, cases) in &reads {
+            let mut next = vec![];
+            for (conds, m) in &combos {
+                for (cs, v) in cases {
+                    let mut c = conds.clone();
+                    c.extend(cs.iter().filter(|x| !conds.contains(x)).cloned());
+                    let mut m = m.clone();
+                    m.push((t.clone(), v.clone()));
+                    next.push((c, m));
+                }
+            }
+            combos = next;
+            if combos.len() > MAX_CASES {
+                return None;
+            }
+        }
+        let mut alts = combos.into_iter().map(|(conds, m)| {
+            let body = replace_terms(&e2, &m);
+            conds.into_iter().rev().fold(body, |acc, c| bin("and", c, acc))
+        });
+        let first = alts.next()?;
+        Some(alts.fold(first, |acc, a| bin("or", acc, a)))
+    }
+
+    /// Record `a != b` refusal points: past them, a and b differ.
+    fn learn(&mut self, cond: &Expr) {
+        match cond {
+            Expr::Bin("and", l, r) => {
+                self.learn(l);
+                self.learn(r);
+            }
+            Expr::Bin("!=", l, r) => {
+                if let (Some(l), Some(r)) = (self.pre_value(l), self.pre_value(r)) {
+                    self.distinct.push((l, r));
+                }
+            }
+            _ => {}
         }
     }
 
     fn add(&mut self, cond: &Expr, ctor: &str, payload: &[Expr], origin: &str, guards: &[Option<Expr>]) {
-        let Some(mut c) = self.pre_state(cond) else { return };
-        if guards.iter().any(|g| g.is_none()) {
-            return;
+        let lifted = self.pre_cond(cond);
+        // the call refuses unless cond holds here, so later reads may use it (even when it can't be lifted)
+        let learn_from = cond.clone();
+        if let Some(mut c) = lifted {
+            if guards.iter().all(|g| g.is_some()) {
+                let mut ok = true;
+                for g in guards.iter().rev() {
+                    // inside `if G`: the call refuses when G and not cond, so callers may assume `not G or cond`
+                    let Some(ng) = negate(g.as_ref().unwrap()) else {
+                        ok = false;
+                        break;
+                    };
+                    c = bin("or", ng, c);
+                }
+                if ok {
+                    let p: Vec<Option<Expr>> = payload.iter().map(|a| self.pre_value(a)).collect();
+                    let payload = if p.iter().any(|x| x.is_none()) { None } else { Some(p.into_iter().map(Option::unwrap).collect()) };
+                    if self.out.iter().all(|o| !(o.cond == c && o.ctor == ctor)) {
+                        self.out.push(Lifted { cond: c, ctor: ctor.to_string(), payload, origin: origin.to_string() });
+                    }
+                }
+            }
         }
-        for g in guards.iter().rev() {
-            // inside `if G`: the call refuses when G and not cond, so callers may assume `not G or cond`
-            let Some(ng) = negate(g.as_ref().unwrap()) else { return };
-            c = Expr::Bin("or", Box::new(ng), Box::new(c));
-        }
-        let p: Vec<Option<Expr>> = payload.iter().map(|a| self.pre_state(a)).collect();
-        let payload = if p.iter().any(|x| x.is_none()) { None } else { Some(p.into_iter().map(Option::unwrap).collect()) };
-        if self.out.iter().all(|o| !(o.cond == c && o.ctor == ctor)) {
-            self.out.push(Lifted { cond: c, ctor: ctor.to_string(), payload, origin: origin.to_string() });
-        }
+        self.learn(&learn_from);
     }
 
     fn walk(&mut self, stmts: &[Stmt], guards: &[Option<Expr>]) {
         for s in stmts {
             match s {
                 Stmt::Let(x, e) => {
-                    let v = self.pre_state(e);
+                    let v = self.pre_value(e);
                     let usable = v.is_some();
                     self.lets.insert(x.clone(), (v.unwrap_or_else(|| e.clone()), usable));
                 }
@@ -394,22 +596,26 @@ impl<'a> Lifter<'a> {
                 Stmt::For(_, _, _, _, body) => {
                     // a loop's refusals depend on earlier iterations: never lifted; any effect ends lifting
                     if flat(body).iter().any(|x| matches!(x, Stmt::Do(_))) {
-                        self.clean = false;
+                        self.log = None;
                     }
                 }
                 Stmt::If(c, t, o) => {
-                    let g = self.pre_state(c);
+                    let g = self.pre_cond(c);
                     let ng = g.as_ref().and_then(negate);
-                    let before = self.clean;
+                    let (log0, distinct0) = (self.log.clone(), self.distinct.clone());
                     let mut g1 = guards.to_vec();
                     g1.push(g);
                     self.walk(t, &g1);
-                    let after_then = self.clean;
-                    self.clean = before;
+                    let log_then = std::mem::replace(&mut self.log, log0.clone());
+                    self.distinct = distinct0.clone();
                     let mut g2 = guards.to_vec();
                     g2.push(ng);
                     self.walk(o, &g2);
-                    self.clean = self.clean && after_then;
+                    // the after-state stays exact only if neither branch wrote (no merge of conditional writes)
+                    if log_then != log0 || self.log != log0 {
+                        self.log = None;
+                    }
+                    self.distinct = distinct0;
                 }
                 Stmt::Do(Expr::App(name, _, args)) => {
                     if let Some(callee) = self.defs.defs.get(name) {
@@ -430,22 +636,44 @@ impl<'a> Lifter<'a> {
                             self.add(&subst(&l.cond, &m), &l.ctor, &a, &origin, guards);
                         }
                         if !writes(self.defs, callee).is_empty() {
-                            self.clean = false;
+                            self.log = None;
                         }
-                    } else if WRITERS.contains(&name.as_str())
-                        || matches!(state_op(self.defs, name), Some((_, "set", _)))
-                    {
-                        self.clean = false;
+                    } else if WRITERS.contains(&name.as_str()) {
+                        let op = if name == "ledger.debit" { "-" } else { "+" };
+                        let w = match (self.pre_value(&args[0]), self.pre_value(&args[1])) {
+                            (Some(a), Some(n)) => Some(Write::Bal(a, op, n)),
+                            _ => None,
+                        };
+                        self.push_write(w);
+                    } else if let Some((x, "set", _)) = state_op(self.defs, name) {
+                        let w = match (self.pre_value(&args[0]), self.pre_value(&args[1])) {
+                            (Some(k), Some(v)) => Some(Write::Map(x.to_string(), k, v)),
+                            _ => None,
+                        };
+                        self.push_write(w);
                     }
                 }
                 Stmt::Do(_) => {}
             }
         }
     }
+
+    fn push_write(&mut self, w: Option<Write>) {
+        match (w, self.log.as_mut()) {
+            (Some(w), Some(log)) => log.push(w),
+            _ => self.log = None,
+        }
+    }
 }
 
 fn lifted_seen(defs: &Module, d: &Def, seen: &BTreeSet<String>) -> Vec<Lifted> {
-    let mut l = Lifter { defs, seen: with_seen(seen, &d.name), out: vec![], lets: IndexMap::new(), clean: true };
+    let mut l = Lifter { defs, seen: with_seen(seen, &d.name), out: vec![], lets: IndexMap::new(), log: Some(vec![]), distinct: vec![] };
+    // spec needs are refusal points before the body
+    for n in &d.needs {
+        if let Need::Need(c, _, _) = n {
+            l.learn(c);
+        }
+    }
     l.walk(&d.body, &[]);
     l.out
 }

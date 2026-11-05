@@ -265,7 +265,7 @@ body
 }
 
 // =====================================================================================
-// S7. Refusal conditions are lifted only up to the first ledger write
+// S7. Refusal conditions after a write (closed: lifted through direct writes, with aliasing)
 // =====================================================================================
 
 const S7_SPEC: &str = "pay from:Account to:Account amount:Int
@@ -281,15 +281,95 @@ fn s7_spec_view(body: &str) -> String {
     views::spec(&reports(&defs)["pay"], &why::Status::default())
 }
 
+/// The lifted conditions of `name` in `src`, as code (cond, ctor, payload given).
+fn s7_lifted(src: &str, name: &str) -> Vec<(String, String, bool)> {
+    let defs = parse(src);
+    kern::infer::lifted(&defs, &defs.defs[name]).iter().map(|l| (kern::syntax::code(&l.cond), l.ctor.clone(), l.payload.is_some())).collect()
+}
+
 #[test]
-#[should_panic(expected = "gap S7 lifted refusal:")]
 fn s7_a_refusal_after_a_write_shows_in_the_spec_view() {
-    // gap (S7): a body `need` after the first ledger write isn't lifted, so neither the definition's spec view
-    // nor a caller shows when it refuses (only `fails … TooRich`). Control first: before the write it shows.
+    // was a gap (S7): a body `need` after the first ledger write wasn't lifted. Before the write it always showed.
     let before = s7_spec_view("  need ledger.balance to < 1000 else TooRich\n  ledger.debit from amount\n  ledger.credit to amount\n");
     assert!(before.contains("body need ledger.balance to < 1000 else TooRich"), "control: {before}");
+    // after `ledger.debit from amount`: `to` is not `from` (a spec need says so), so its balance is unchanged
     let after = s7_spec_view("  ledger.debit from amount\n  need ledger.balance to < 1000 else TooRich\n  ledger.credit to amount\n");
-    assert!(after.contains("ledger.balance to < 1000 else TooRich"), "gap S7 lifted refusal: not in the spec view:\n{after}");
+    assert!(after.contains("body need ledger.balance to < 1000 else TooRich"), "{after}");
+}
+
+#[test]
+fn s7_a_condition_after_a_write_is_rewritten_into_the_pre_state() {
+    let body = |b: &str| format!("pay from:Account to:Account amount:Int\nbody\n{b}");
+    // the written account itself: no case split
+    assert_eq!(
+        s7_lifted(&body("  ledger.debit from amount\n  need ledger.balance from >= 0 else Overdrawn (ledger.balance from)\n"), "pay"),
+        [("ledger.balance from - amount >= 0".to_string(), "Overdrawn".to_string(), true)]
+    );
+    // another account that may be the same one: one case each way, and no payload (it differs between them)
+    assert_eq!(
+        s7_lifted(&body("  ledger.debit from amount\n  need ledger.balance to < 1000 else TooRich (ledger.balance to)\n"), "pay"),
+        [("to = from and ledger.balance to - amount < 1000 or to != from and ledger.balance to < 1000".to_string(), "TooRich".to_string(), false)]
+    );
+    // a `need from != to` passed earlier in the body prunes the aliasing case, as a spec need does
+    assert_eq!(
+        s7_lifted(&body("  need from != to else Same\n  ledger.debit from amount\n  need ledger.balance to < 1000 else TooRich\n"), "pay")[1],
+        ("ledger.balance to < 1000".to_string(), "TooRich".to_string(), true)
+    );
+    // the total moves by every write; state maps split on the key
+    assert_eq!(
+        s7_lifted(&body("  ledger.credit to amount\n  need ledger.total <= 500 else Full\n"), "pay"),
+        [("ledger.total + amount <= 500".to_string(), "Full".to_string(), true)]
+    );
+    let src = "state hold Int\n\nput k:Int j:Int v:Int\nbody\n  hold.set k v\n  need hold.get j > 0 else Empty\n";
+    assert_eq!(s7_lifted(src, "put"), [("j = k and v > 0 or j != k and hold.get j > 0".to_string(), "Empty".to_string(), true)]);
+    // the printed condition parses back to itself (`and` binds tighter than `or`)
+    let defs = parse(&body("  ledger.debit from amount\n  need ledger.balance to < 1000 else TooRich\n"));
+    let l = &kern::infer::lifted(&defs, &defs.defs["pay"])[0];
+    assert_eq!(kern::syntax::parse_expr(&kern::syntax::code(&l.cond), None).unwrap(), l.cond);
+}
+
+#[test]
+fn s7_lifting_still_stops_where_the_after_state_is_not_exact() {
+    // after a callee that writes (its after-state is only its spec), after a loop with effects, and after an `if`
+    // whose branches write, a state-reading condition is not lifted; one that reads no state still is
+    let src = "state hold Int
+
+move a:Account b:Account
+  keep ledger.total
+body
+  ledger.debit a 1
+  ledger.credit b 1
+
+via_callee a:Account b:Account n:Int
+body
+  move a b
+  need ledger.balance a >= 0 else Low
+  need n > 0 else Bad
+
+via_loop a:Account n:Int
+body
+  for k from 0 to n
+    hold.set k 0
+  need hold.get 0 >= 0 else Low
+
+via_if a:Account n:Int
+body
+  if n > 0
+    ledger.debit a 1
+  need ledger.balance a >= 0 else Low
+
+inside_if a:Account n:Int
+body
+  if n > 0
+    ledger.debit a 1
+    need ledger.balance a >= 0 else Low
+";
+    let ctors = |n: &str| s7_lifted(src, n).into_iter().map(|(c, k, _)| format!("{c} else {k}")).collect::<Vec<_>>();
+    assert_eq!(ctors("via_callee"), ["n > 0 else Bad"]);
+    assert!(ctors("via_loop").is_empty());
+    assert!(ctors("via_if").is_empty());
+    // inside the branch that wrote, the write is exact: lifted under the branch's guard
+    assert_eq!(ctors("inside_if"), ["n <= 0 or ledger.balance a - 1 >= 0 else Low"]);
 }
 
 // =====================================================================================

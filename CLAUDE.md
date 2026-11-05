@@ -211,8 +211,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   needed). Example worlds take `now:N`.
 - Audit spec (`emit`) is exact-sequence only; no way to say "emits nothing"; `eg`
   can't assert audit events.
-- Lifted refusal conditions (`body need`) stop at the first ledger write; later ones
-  that read balances aren't visible to callers. Agent views show only a definition's
+- Lifted refusal conditions (`body need`): direct writes (debit/credit, `x.set`) are rewritten into the
+  pre-state, with aliasing split into cases (at most 8); lifting stops after a callee that writes, a loop
+  with effects, or an `if` whose branches wrote (SHORTCOMINGS.md S17). Agent views show only a definition's
   *own* body needs (inherited ones measured at ~2x the spec-view tokens).
 - Counterexamples from modular proofs may not replay; those show as `?` unconfirmed,
   never ✗. Results repeat, within one process too: since 2026-11-05 every proof gets a fresh Z3

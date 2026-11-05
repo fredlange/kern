@@ -126,15 +126,6 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Fixed when:** `s6_a_guarantee_kills_the_sweep_one_too_many_mutant` (on `advance_subs`; closing it
   means stating the frame in batch.k itself) and `s6_a_sum_invariant_proves` (P).
 
-### S7. Refusal conditions are lifted only up to the first ledger write
-- **Kind:** code gap. **Weakens:** F1 (a caller can see when a call refuses).
-- **Evidence:** a body `need` placed after the first write is missing from the definition's own spec
-  view; only its failure name shows in `fails`. Placed before the write, it shows as `body need`
-  ([AUDIT.md](AUDIT.md), F1, "what remains").
-- **Fixed when:** `s7_a_refusal_after_a_write_shows_in_the_spec_view`.
-- **Not this gap:** callers never show a callee's body needs, even before the first write. That was
-  a decision (inherited ones measured about 2× the spec-view tokens), not a lifting failure.
-
 ### S8. Mutants are body-only
 - **Kind:** code gap. **Weakens:** spec strength as a measure.
 - **Evidence:** moving a `need` from the body into the spec removes its mutants. In the ledger tour,
@@ -195,8 +186,18 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Evidence:** payout's spec view grows from 97 to 163 tokens. Nothing is inherited, every refusing
   callee must opt in too, and only 1 of 9 existing definitions passed with it on by default
   ([FIXES.md](FIXES.md)).
-- **Next:** measure whether `need as C args` covers the common case, or whether inherited
-  refusals need their own form.
+- **Measured, 2026-11-05: `need as` doesn't cover it.** On ledger_v7's payout (spec view 160 tokens
+  as written):
+  - `need as transfer from to amount` plus `need as transfer from house fee` is **refuted** (✗
+    `ok otherwise`; `payout A B B 1 1 -> Insufficient 1`). The second call runs after the first
+    one wrote, and `need as` is only right for a callee that runs first.
+  - `need as` for the first call, plus restating what the second adds, proves, but its view is
+    191 tokens. `need as` expands at parse time, so it saves the author typing, not the reader
+    tokens.
+- **Next:** any saving for readers needs a new form, one that shows an inherited refusal in a
+  callee's terms in the view, without expanding it, and that the prover can check after earlier
+  writes. That's a language proposal for Fredrik. S7's lifting past writes is the machinery it
+  would need.
 
 ### S15. Random tests: 150 runs per mutant
 - **Kind:** trade-off.
@@ -216,7 +217,47 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   2. run mutants in parallel;
   3. merge paths at `if` (one path with conditional values).
 
+### S17. Lifting still stops after a callee that writes
+- **Kind:** code gap.
+- **Evidence:** a caller that does `transfer a b x` and then `need …` still hides that need from its
+  own callers. The callee's after-state is havoc plus its ensures, not an exact write, so S7's write
+  log can't absorb it. This is probably the common case in real code. Loops with effects and `if`s
+  whose branches wrote also still stop it (`s7_lifting_still_stops_where_the_after_state_is_not_exact`
+  pins all three).
+- **Next:** a design: use a callee's ensures as equations where they pin a value (transfer's
+  `ensure ledger.balance' from = ledger.balance from - amount` does). That needs a proposal first.
+
+### S18. The page shows a body need's source text even when it reads post-write state
+- **Kind:** code gap (page wording; needs a decision).
+- **Evidence:** the proof page's own-refusal rows print a body need's *source* text. For a need after a
+  write, "refuses TooRich when balance of to ≥ 1000" means the balance *after* the debit, and the row
+  doesn't say so. The spec view, since S7, shows the pre-state form. Separately, with real aliasing
+  that form is a long case split (`to = from and ledger.balance to - amount < 1000 or …`), and it isn't
+  simplified (`ledger.balance a - 1 + 1`).
+- **Decision needed (Fredrik):** render those rows from the lifted pre-state form, or annotate
+  "(after the writes above)". A readable conditional form (`if C then A else B`) would be new syntax,
+  and so a proposal.
+
 ## Closed
+
+### S7. Refusal conditions were lifted only up to the first ledger write
+- **Kind:** code gap. **Closed** 2026-11-05 (the commit that adds `validation/tests/lifted.rs`; by kern-44).
+- **Was:** a body `need` after a write was missing from the definition's own spec view.
+- **Now:** direct writes (`ledger.debit`/`credit`, `x.set`) are logged, and a later need is rewritten
+  into pre-state terms. A read that may alias a written key splits into cases (`to = from and … or to
+  != from and …`), pruned by `!=` refusal points already passed. Past 8 cases, the need isn't lifted.
+- **Evidence:**
+  - `s7_a_refusal_after_a_write_shows_in_the_spec_view`, plus
+    `s7_a_condition_after_a_write_is_rewritten_into_the_pre_state` and
+    `s7_lifting_still_stops_where_the_after_state_is_not_exact`.
+  - **The fuzzer doesn't cover this:** its generators never put a body need after a direct write.
+    `lifted_conditions_past_writes_agree_with_the_interpreter` (validation/tests/lifted.rs) fills the
+    gap with 160 seeded programs whose callers rely on the lifted condition. It finds 0 contradictions
+    against the interpreter. 105 caller claims are proven, and all 105 come from the new lifting:
+    against the old infer.rs, 0 are proven.
+  - The fuzzer at seeds 1–3 has 0 contradictions, and both digests are unchanged. One golden moved:
+    tests/probes/runtime.k `late` gains its lifted need.
+- **What remains:** S17, S18.
 
 ### S2. A cold full `check` was too slow for deep call trees (C6)
 - **Kind:** missed target. **Closed** by the rerun in `d959c0f` (2026-11-05).

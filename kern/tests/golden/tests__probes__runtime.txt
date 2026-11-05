@@ -126,6 +126,7 @@ late a:Account b:Account amount:Int k:Int
   uses ledger.write mark.write slot.write
   writes a b mark.a slot.k
   fails Short(Int,Int,Int)
+  body need a = b and ledger.balance a - 1 + 1 >= amount or a != b and ledger.balance a - 1 >= amount else Short
   proof ok
 
 $ kern view tests/probes/runtime.k late --as editor   (exit 0)
@@ -167,6 +168,7 @@ late a:Account b:Account amount:Int k:Int
   uses ledger.write mark.write slot.write
   writes a b mark.a slot.k
   fails Short(Int,Int,Int)
+  body need a = b and ledger.balance a - 1 + 1 >= amount or a != b and ledger.balance a - 1 >= amount else Short
   proof ok
 
 $ kern view tests/probes/runtime.k snapshot --as iface   (exit 0)
