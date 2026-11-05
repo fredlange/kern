@@ -471,3 +471,10 @@ since the addendum above move its numbers:
   0.899 s at df332d5 (runs 0.90–0.99 s). It still passes, but the margin has shrunk from 9–15% to 1–10%.
   With the default 4 jobs, P1 is 0.42 s. A rerun of the frozen plan on the current toolchain should say which
   of these it measures.
+
+**C6 note, 2026-11-05, evening (party baseline, no rerun of the plan; thresholds unchanged):** under shared load
+(4 other agents, load average 5–6), single-threaded P1 measured **1.01–1.10 s per definition at 92190c6, over the
+1 s threshold**. It is the machine, not the code: alternated A/B runs give df332d5 1.095 / 1.015 / 1.103 s and
+92190c6 1.105 / 1.015 / 1.010 s. With the default 4 jobs, P1 is 0.46–0.49 s. Single-threaded P1 has no margin left
+on a loaded machine, so compare builds by alternated A/B runs, never against a recorded number. Numbers and the
+k-sweep: the tester's baseline (task 5VE2EAPSBG).
