@@ -77,7 +77,16 @@ pub fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
 /// A copy of examples/<app> under a scratch directory.
 pub fn copy_example(name: &str, app: &str) -> std::path::PathBuf {
     let dst = tmp(name).join(app);
-    copy_tree(&std::path::Path::new(ROOT).join("examples").join(app), &dst);
+    let src = std::path::Path::new(ROOT).join("examples").join(app);
+    copy_tree(&src, &dst);
+    // a package that uses another (`use ../money` in kern.pkg, b71848b) gets that one copied beside it
+    if let Ok(pkg) = std::fs::read_to_string(src.join("kern.pkg")) {
+        for line in pkg.lines() {
+            if let Some(rel) = line.trim().strip_prefix("use ../") {
+                copy_tree(&src.parent().unwrap().join(rel), &dst.parent().unwrap().join(rel));
+            }
+        }
+    }
     dst
 }
 

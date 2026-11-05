@@ -44,7 +44,7 @@ pub const PLANTS: [(&str, &str, &str, &str); 18] = [
     // compiled module-invariant checks (f53e1a0): written keys of each kind, and the check itself
     ("Account-map writes not checked", LIB, "Undo::Bal(i, _) | Undo::A(_, i, _) => *i,",
      "Undo::Bal(i, _) => *i,\n                Undo::A(..) => continue,"),
-    ("Int-key writes not checked", LIB, "if !out.contains(k) {\n                    out.push(*k);", "if !out.contains(k) && false {\n                    out.push(*k);"),
+    ("Int-key writes not checked", LIB, "if seen.insert(*k) {\n                    out.push(*k);", "if seen.insert(*k) && false {\n                    out.push(*k);"),
     ("broken invariant not a fault", GEN, "\"        if !({}) {{ return Err(Fault::Error(", "\"        if false && !({}) {{ return Err(Fault::Error("),
     ("sum includes its upper bound", GEN, "while __j < __hi {{", "while __j <= __hi {{"),
     ("Text length counts bytes", LIB, "t.chars().count() as i64", "t.len() as i64"),

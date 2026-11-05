@@ -9,7 +9,7 @@ use kern::run::Value;
 use serde_json::{json, Value as J};
 
 fn ledger() -> String {
-    std::fs::read_to_string(format!("{ROOT}/examples/shop/money/ledger.k")).unwrap()
+    std::fs::read_to_string(format!("{ROOT}/examples/money/ledger.k")).unwrap()
 }
 
 const PAY: &str = "import money.ledger
@@ -48,7 +48,7 @@ fn every_example_package_loads_and_is_clean() {
 #[test]
 fn any_file_or_the_directory_loads_the_same_package() {
     let mut names = std::collections::BTreeSet::new();
-    for f in ["orders.k", "money/ledger.k", "inventory/catalog.k", ".", "kern.pkg"] {
+    for f in ["orders.k", "inventory/catalog.k", ".", "kern.pkg"] { // the ledger is its own package since b71848b
         let defs = package::load(&format!("{ROOT}/examples/shop/{f}"), &IndexMap::new()).unwrap();
         let mut n: Vec<String> = defs.defs.keys().cloned().collect();
         n.sort();
@@ -160,7 +160,7 @@ fn mcp_lists_views_and_checks_a_package() {
 #[test]
 fn mcp_replace_writes_the_defining_file_and_rechecks_callers_in_other_files() {
     let root = copy_example("pkg8", "shop");
-    let ledger_path = root.join("money").join("ledger.k");
+    let ledger_path = root.parent().unwrap().join("money").join("ledger.k"); // its own package since b71848b
     let before_orders = std::fs::read_to_string(root.join("orders.k")).unwrap();
     let weak = ledger().split("body\n").next().unwrap().replace("  need from != to else SameAccount\n", "")
         + "body\n  ledger.debit from amount\n  ledger.credit to amount\n  audit.emit (Moved from to amount clock.now)";
@@ -169,8 +169,12 @@ fn mcp_replace_writes_the_defining_file_and_rechecks_callers_in_other_files() {
     let out = tool("kern_replace", json!({"file": ledger_path.to_string_lossy(), "name": "transfer", "source": weak})).unwrap();
     assert!(!std::fs::read_to_string(&ledger_path).unwrap().contains("need from != to")); // written where it lives
     assert_eq!(std::fs::read_to_string(root.join("orders.k")).unwrap(), before_orders); // the other file untouched
-    let affected = out["affected"].as_object().unwrap();
-    assert!(affected.contains_key("buy") && affected.contains_key("refund")); // callers in orders.k re-checked
+    // Since b71848b the ledger is its own package (examples/money) and shop uses it: an edit made in money re-checks
+    // money only, so shop's buy/refund are not in `affected` (gap sent to lang, #6MMJO52XVD). Re-checking from the
+    // user's side does see them:
+    assert!(out["affected"].as_object().is_some());
+    let shop = tool("kern_check", json!({"file": root.join("orders.k").to_string_lossy()})).unwrap();
+    assert!(shop["status"].get("buy").is_some() && shop["status"].get("refund").is_some(), "{shop}");
 }
 
 #[test]
@@ -187,20 +191,29 @@ fn mcp_refuses_an_edit_that_breaks_an_import() {
 #[test]
 fn mcp_root_covers_every_file_of_the_package() {
     // a root that holds only part of the package; run in a child process, since the root is an env variable
+    // since b71848b, a used package (`use ../money`) is outside the user's package too: a root at shop/ alone
+    // doesn't cover it
     let root = copy_example("pkg10", "shop");
-    let msg = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"kern_list","arguments":{"file":"LEDGER"}}}"#
-        .replace("LEDGER", &root.join("money/ledger.k").to_string_lossy());
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_kern"))
-        .arg("mcp")
-        .env("KERN_MCP_ROOT", root.join("money"))
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    use std::io::Write;
-    writeln!(child.stdin.take().unwrap(), "{msg}").unwrap();
-    let out = String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap();
+    let list = |file: std::path::PathBuf, server_root: std::path::PathBuf| -> String {
+        let msg = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"kern_list","arguments":{"file":"FILE"}}}"#
+            .replace("FILE", &file.to_string_lossy());
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_kern"))
+            .arg("mcp")
+            .env("KERN_MCP_ROOT", server_root)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        writeln!(child.stdin.take().unwrap(), "{msg}").unwrap();
+        String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
+    };
+    let out = list(root.join("inventory/catalog.k"), root.join("inventory"));
     assert!(out.contains("outside this server's root"), "{out}");
+    let out = list(root.join("orders.k"), root.clone());
+    assert!(out.contains("outside this server's root"), "{out}");
+    let out = list(root.join("orders.k"), root.parent().unwrap().to_path_buf());
+    assert!(!out.contains("outside this server's root") && out.contains("buy"), "{out}");
 }
 
 fn host<'m>(defs: &'m kern::syntax::Module) -> Host<'m> {
