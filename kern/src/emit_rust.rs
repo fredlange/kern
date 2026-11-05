@@ -256,6 +256,9 @@ impl<'a> Gen<'a> {
                 self.apply(name, args, sc)
             }
             Expr::All(..) => unsupported(format!("expression {}", code(e))),
+            // new expression forms (e.g. a sum) are refused until the emitter compiles them: never mistranslated
+            #[allow(unreachable_patterns)]
+            _ => unsupported(format!("expression {}", code(e))),
         }
     }
 
