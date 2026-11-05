@@ -2,8 +2,8 @@
 //!
 //! It rejects: unknown names, wrong arity, a variable applied to arguments; a `let` that shadows a parameter, an
 //! earlier `let`, a handler or a definition; specs that read body `let`s, call write/audit handlers or definitions,
-//! or use primes outside `ensure`; `_` outside the top level of an `emit` argument; recursion (no termination
-//! measures yet); type errors: Int, Account, Owner, Bool, Event, Unit (e.g. `from + to`).
+//! or use primes outside `ensure`; `_` outside the top level of an `emit` argument; recursion without a termination
+//! measure (`decreases E`); type errors: Int, Account, Text, Owner, Bool, Event, Unit (e.g. `from + to`).
 //!
 //! Problems come out in exactly Python's order and wording: they are joined into the error text.
 
@@ -324,6 +324,19 @@ impl<'a> Checker<'a> {
             }
             params.insert("result".into(), "Int".into()); // specs (ensure) may name the result
         }
+        if let Some(m) = &d.decreases {
+            let place = format!("decreases {}", code(m));
+            let t = self.ty(m, &params, &place, true, false, false);
+            self.expect(&place, &t, "Int");
+            // over the parameters only: a measure that read state could change under the call it bounds
+            for n in crate::infer::names(m) {
+                let reads_state = is_handler(self.defs, &n)
+                    || self.defs.defs.get(&n).is_some_and(|f| !uses(self.defs, f).is_empty());
+                if reads_state {
+                    self.err(&place, &format!("a measure may read only parameters, constants and pure functions, not `{}`", n));
+                }
+            }
+        }
         for n in &d.needs {
             let Need::Need(c, _, args) = n else { continue };
             let place = format!("need {}", code(c));
@@ -504,7 +517,15 @@ pub fn cycles(defs: &Module) -> Vec<String> {
                     let i = path.iter().position(|x| *x == c).unwrap();
                     let mut lp: Vec<String> = path[i..].to_vec();
                     lp.push(c.clone());
-                    out.push(format!("{}: recursive ({}); no termination measure yet", lp[0], lp.join(" -> ")));
+                    // accepted when every definition on the cycle states a measure (the prover checks it)
+                    if let Some(m) = lp.iter().find(|x| defs.defs[x.as_str()].decreases.is_none()) {
+                        out.push(format!(
+                            "{}: recursive ({}); {} needs `decreases E`, an Int that stays >= 0 and is smaller at every recursive call",
+                            lp[0],
+                            lp.join(" -> "),
+                            m
+                        ));
+                    }
                 }
                 None => {
                     let mut p = path.clone();

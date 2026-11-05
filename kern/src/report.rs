@@ -745,7 +745,8 @@ pub fn analyse(
     for r in reports.values_mut() {
         let (succeeded, clean_props) = (r.props.succeeded, r.props.violations.is_empty());
         for g in &mut r.guarantees {
-            if g.status == Status::Unknown && g.kind != "ok" && succeeded >= TESTED_MIN && clean_props {
+            // random tests don't check `ok otherwise` refusals or a termination measure
+            if g.status == Status::Unknown && g.kind != "ok" && g.kind != "measure" && succeeded >= TESTED_MIN && clean_props {
                 g.status = Status::Tested;
                 g.tested = Some(succeeded);
             }

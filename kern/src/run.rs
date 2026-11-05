@@ -362,6 +362,11 @@ impl World {
 // ---------------------------------------------------------------- handlers
 
 /// op -> (arity, effect label)
+/// How deeply calls may nest in the interpreter (one level costs about 5–7 KB of stack: 200 leaves room on a 2 MB
+/// thread). Past it a call is a Kern error starting with TOO_DEEP.
+pub const MAX_CALL_DEPTH: usize = 200;
+pub const TOO_DEEP: &str = "calls nest deeper than";
+
 pub const HANDLERS: [(&str, usize, &str); 8] = [
     ("ledger.balance", 1, "ledger.read"),
     ("ledger.owner", 1, "ledger.read"),
@@ -776,6 +781,11 @@ impl<'m, 'p> Interp<'m, 'p> {
 
     /// Run a definition's needs and body; functions (-> Int) return `result`.
     pub fn call_def(&mut self, d: &Def, args: Vec<Value>, world: &mut World) -> SResult<Option<Value>> {
+        if self.depth >= MAX_CALL_DEPTH {
+            // a resource limit (recursion is licensed by the prover's measure, not by running it), so a 2 MB thread
+            // never overflows its stack
+            return Err(RunError::Kern(format!("{TOO_DEEP} {MAX_CALL_DEPTH}")).into());
+        }
         self.depth += 1;
         let r = self.call_def_body(d, args, world);
         self.depth -= 1;

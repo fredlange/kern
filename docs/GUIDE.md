@@ -100,6 +100,11 @@ body
 | `spec` | + need, keep, ensure, emit, own `body need` lines, proof status | 77 tokens |
 | `editor` | own full definition + the `spec` view of each callee (never callee bodies) | 251 tokens |
 
+Recursion needs a measure: `decreases n` on each definition of the cycle. The prover checks, at every recursive
+call, that the callee's measure at the arguments is ≥ 0 and smaller than the caller's (a `measure` goal); the call
+itself is proven from the callee's spec, as any call is. The interpreter refuses calls nested deeper than 200 (a
+Kern error; random-test runs that reach it are skipped).
+
 An `eg` line may end with a fourth section, the events: `| A:400 B:100 | Moved A B 100 0` (exact on `audit`, and on
 any channel it names, `console Line "hi"`; an empty section means nothing on `audit`). A failing one prints what
 was appended: `failing: eg …   (got ok, appending Moved A B 100 7)`. `clock.tick` is a statement: one call can then

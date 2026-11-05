@@ -196,7 +196,8 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   `=`/`!=`, `length`, `+` (join), `state NAME KEY -> Text` maps; Z3 strings in the prover; no substring, search,
   ordering or conversion yet, and no Text in refusal payloads. Return values only for
   total functions (`-> Int`, set `result`) that may read state and the clock but write nothing; specs may call
-  them (modularly: uninterpreted over their arguments and the state they read, + their ensures). Recursion is rejected (no termination measures yet).
+  them (modularly: uninterpreted over their arguments and the state they read, + their ensures). Recursion needs `decreases E` on every definition of the cycle
+  (proven: `0 <= E(args) < E(params)` at each recursive call); the interpreter stops calls nested deeper than 200.
 - Bodies are guards plus `if`/`else` blocks (the prover forks a path per branch; paths grow as
   2^ifs per body) and bounded loops `for k from LO to HI` with `invariant` lines (a proposal, roadmap
   run S4). The loop frame is inferred (a spec may state one: `keep X except lo to hi`); there's no per-iteration emit form. Loops nest; the outer

@@ -101,6 +101,8 @@ pub struct Def {
     pub ensures: Vec<Expr>,
     pub emits: Vec<Emit>,
     pub complete: bool,
+    /// `decreases E`: the termination measure a recursive definition states
+    pub decreases: Option<Expr>,
     /// (kind, index) -> callee, for `need as` / `emit as`
     pub ref_origin: IndexMap<(String, usize), String>,
     /// emit index -> channel; missing = `audit`
@@ -302,6 +304,10 @@ impl Def {
         }
         if self.complete {
             parts.push(Py::s("ok otherwise"));
+        }
+        if let Some(m) = &self.decreases {
+            // only when stated, so every hash without one is as before
+            parts.push(Py::Tuple(vec![Py::s("decreases"), m.to_py()]));
         }
         if !self.emit_channel.is_empty() {
             let mut items: Vec<_> = self.emit_channel.iter().collect();
@@ -1271,6 +1277,11 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
         } else if word == "need" {
             let (c, ctor, args) = parse_need(rest, no)?;
             d.needs.push(Need::Need(c, ctor, args));
+        } else if word == "decreases" {
+            if d.decreases.is_some() {
+                return Err(ParseError::at("`decreases` appears twice", no));
+            }
+            d.decreases = Some(parse_expr(rest, no)?);
         } else if word == "keep" {
             // `keep X` / `keep X except A to B` over a state: a frame (a Bool claim, with the ensures)
             if let Some(m) = frame_re().captures(rest.trim()) {
@@ -1312,7 +1323,7 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
             d.complete = true;
         } else {
             return Err(ParseError::at(
-                format!("unknown clause {} (need/keep/ensure/emit/ok/eg, then body)", repr_str(word)),
+                format!("unknown clause {} (need/keep/ensure/emit/ok/decreases/eg, then body)", repr_str(word)),
                 no,
             ));
         }
@@ -1483,6 +1494,7 @@ impl Consts<'_> {
         d.needs = needs;
         d.keeps = self.exprs(&d.keeps, &mut used)?;
         d.ensures = self.exprs(&d.ensures, &mut used)?;
+        d.decreases = d.decreases.as_ref().map(|m| self.expr(m, &mut used)).transpose()?;
         let mut emits = vec![];
         for ev in &d.emits {
             let cond = |c: &Option<Expr>, used: &mut Vec<(String, Int)>| -> PResult<Option<Expr>> {
@@ -1683,6 +1695,7 @@ impl Records<'_> {
         d.needs = needs;
         d.keeps = self.exprs(&d.keeps)?;
         d.ensures = self.exprs(&d.ensures)?;
+        d.decreases = d.decreases.as_ref().map(|m| self.expr(m)).transpose()?;
         let mut emits = vec![];
         for ev in &d.emits {
             emits.push(match ev {

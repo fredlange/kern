@@ -249,6 +249,8 @@ pub fn proptest(defs: &Module, d: &Def, n: u64, seed: i128) -> Result<Props, Cra
         let before = w.clone();
         let outcome = match interp.run(&d.name, &args, &mut w) {
             Ok(o) => o,
+            // a run past the interpreter's call depth is a resource limit, not a broken guarantee: not counted
+            Err(RunError::Kern(m)) if m.starts_with(crate::run::TOO_DEEP) => continue,
             Err(e) if caught(&e) => {
                 stats.violations.push(Violation::Error { error: e.to_string(), args: args.iter().map(value_py).collect() });
                 continue;

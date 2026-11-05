@@ -313,10 +313,8 @@ body
 }
 
 #[test]
-#[should_panic(expected = "gap S5 recursion:")]
 fn s5_recursion_is_accepted() {
-    // gap (S5): recursion is rejected (`recursive (down -> down); no termination measure yet`). Real syntax today;
-    // a termination measure, when it exists, may need a line of its own
+    // closed (S5): recursion with a termination measure, `decreases n` (DECISIONS.md, 2026-11-05, recursion)
     must_check(
         "gap S5 recursion",
         "state cnt Int
@@ -324,6 +322,7 @@ fn s5_recursion_is_accepted() {
 down n:Int
   need n >= 0 else Negative
   ok otherwise
+  decreases n
   ensure cnt.get' 0 = cnt.get 0 + n
 body
   if n > 0
@@ -331,6 +330,64 @@ body
     down (n - 1)
 ",
     );
+}
+
+#[test]
+fn s5_a_measure_is_checked_at_every_recursive_call() {
+    use kern::report::Status;
+    let src = "tri n:Int -> Int
+  decreases n
+  ensure result = n * (n + 1) / 2 when n >= 0
+body
+  if n <= 0
+    result = 0
+  else
+    result = n + tri (n - 1)
+
+state seen Int
+
+ping n:Int
+  need n >= 0 else Negative
+  ok otherwise
+  decreases 2 * n
+  ensure seen.get' 0 = seen.get 0 + n
+body
+  if n > 0
+    seen.set 0 (seen.get 0 + 1)
+    pong (n - 1)
+
+pong n:Int
+  need n >= 0 else Negative
+  ok otherwise
+  decreases 2 * n + 1
+  ensure seen.get' 0 = seen.get 0 + n
+body
+  ping n
+
+spin n:Int
+  need n >= 0 else Negative
+  ok otherwise
+  decreases n
+body
+  if n > 0
+    spin n
+";
+    let defs = parse(src);
+    let reps = reports(&defs);
+    for n in ["tri", "ping", "pong"] {
+        assert!(reps[n].clean, "{n}: {:?}", reps[n].guarantees);
+        assert!(reps[n].guarantees.iter().any(|g| g.kind == "measure" && g.status == Status::Proven), "{n}");
+    }
+    // a measure that doesn't decrease is ✗, its counterexample recursing past the depth limit in the replay
+    let g = reps["spin"].guarantees.iter().find(|g| g.kind == "measure").unwrap();
+    assert_eq!(g.status, Status::Refuted, "{:?}", g);
+    // without a measure recursion is still rejected, saying what to add; a measure may not read state
+    let e = analyse(&parse("f n:Int\n  ensure 1 = 1\nbody\n  f n\n"), false, None, None).unwrap_err().message();
+    assert!(e.contains("recursive (f -> f); f needs `decreases E`"), "{e}");
+    let e = analyse(&parse("state s Int\n\nf n:Int\n  decreases s.get n\n  ensure 1 = 1\nbody\n  f n\n"), false, None, None)
+        .unwrap_err()
+        .message();
+    assert!(e.contains("a measure may read only parameters"), "{e}");
 }
 
 #[test]

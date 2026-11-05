@@ -84,6 +84,7 @@ line in `kern.pkg` makes a sibling package's modules importable as `money.ledger
 | clause | meaning |
 |---|---|
 | `need COND else Ctor ARGS` | runs before the body; the call refuses unless COND holds |
+| `decreases E` | the termination measure a recursive definition needs: an Int over the parameters, ≥ 0 and smaller at every recursive call (proven per call) |
 | `ok otherwise` | claim: if every `need` holds, the call succeeds. Body and callee refusals must follow from the needs, and refusing callees must say `ok otherwise` too |
 | `keep EXPR` | same value before and after a successful call |
 | `keep X [except A to B]` | state X is unchanged, or unchanged at every key outside [A, B) (Int keys; bounds atoms): a stated frame |

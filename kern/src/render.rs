@@ -118,6 +118,11 @@ fn guarantee_text(g: &Guarantee) -> String {
             format!("keeps the module invariant for every <code>{}</code> ({}): {}", var, t, en(cond, &none, false))
         }
         ("keep", GoalExpr::Expr(e @ crate::syntax::Expr::Frame(..))) => en(e, &none, false),
+        ("measure", GoalExpr::Expr(m)) => format!(
+            "terminates: {} stays ≥ 0 and is smaller at {}",
+            en(m, &none, false),
+            escape(g.clause.split(" at ").nth(1).unwrap_or("each recursive call"))
+        ),
         ("keep", GoalExpr::Expr(e)) => format!("{} is unchanged", en(e, &none, false)),
         (_, GoalExpr::Expr(e)) => en_ensure(e),
         // Python renders the (handler, need) pair of a call-site goal through en_ensure, which gives None

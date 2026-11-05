@@ -305,6 +305,8 @@ pub struct Prover<'m> {
     sums: IndexMap<String, (z3::RecFuncDecl, Option<Int>, Option<Int>)>,
     /// the definition's Text parameters, as String constants (counterexamples read them from the model)
     text_params: IndexMap<String, ZStr>,
+    /// while its body runs: the definition being proved and its measure at its own parameters (`decreases`)
+    measuring: Option<(String, Option<ZInt>)>,
 }
 
 /// Bounds [lo, hi] (None = unbounded) of an Int term over every environment and state: interval arithmetic on its
@@ -343,6 +345,27 @@ fn term_bounds(e: &Expr) -> (Option<Int>, Option<Int>) {
         },
         _ => (None, None),
     }
+}
+
+/// Whether `from` can call `to` (itself included): a call from `to`'s body to `from` is then recursive.
+fn reaches(defs: &Module, from: &str, to: &str) -> bool {
+    let (mut seen, mut todo) = (BTreeSet::new(), vec![from.to_string()]);
+    while let Some(n) = todo.pop() {
+        let Some(d) = defs.defs.get(&n) else { continue };
+        let mut next: Vec<String> = callees(defs, d);
+        if crate::infer::called_names(d).iter().any(|x| *x == n) {
+            next.push(n.clone());
+        }
+        for c in next {
+            if c == to {
+                return true;
+            }
+            if seen.insert(c.clone()) {
+                todo.push(c);
+            }
+        }
+    }
+    false
 }
 
 /// A state's parts as function arguments: balances, owners, total, now, then each state map in declaration order.
@@ -396,6 +419,7 @@ impl<'m> Prover<'m> {
             witness_draws: IndexMap::new(),
             sums: IndexMap::new(),
             text_params: IndexMap::new(),
+            measuring: None,
         }
     }
 
@@ -709,7 +733,8 @@ impl<'m> Prover<'m> {
     }
 
     fn modular_call(&mut self, callee: &Def, args: &[SV], s: &mut Sym) {
-        self.relied_on.insert(callee.name.clone());
+        self.measure_goal(callee, args);
+        self.rely_on(&callee.name);
         let env: Env = callee.params.iter().zip(args).map(|((p, _), v)| (p.clone(), v.clone())).collect();
         for n in &callee.needs {
             let c = self.sev(need_cond(n), &env, s, None).b().clone();
@@ -834,8 +859,47 @@ impl<'m> Prover<'m> {
     }
 
     /// A pure function, modularly: an uninterpreted function whose result satisfies its ensures.
+    /// At a call to `callee` from the body being proved: if the callee can call back into it (recursion), a
+    /// `measure` goal: under this path, `0 <= M_callee(args) < M_self(params)`.
+    fn measure_goal(&mut self, callee: &Def, args: &[SV]) {
+        let Some((me, mine)) = self.measuring.clone() else { return };
+        if !reaches(self.defs, &callee.name, &me) {
+            return;
+        }
+        let (Some(m), Some(mine)) = (&callee.decreases, mine) else { return }; // wf rejects a cycle without one
+        let env: Env = callee.params.iter().zip(args).map(|((p, _), v)| (p.clone(), v.clone())).collect();
+        let none = Sym {
+            bal: zz::array("bal"),
+            own: zz::array("own"),
+            total: zz::int("total"),
+            audit: vec![],
+            now: zz::int("now"),
+            maps: IndexMap::new(),
+            out: IndexMap::new(),
+        };
+        let theirs = self.sev(m, &env, &none, None).i().clone();
+        let goal = zz::and(&[zz::ge(&theirs, &zz::val(0)), zz::lt(&theirs, &mine)]);
+        let text = format!("decreases {} at the call to {}", code(m), callee.name);
+        self.loop_goals.push(Goal {
+            kind: "measure".into(),
+            expr: GoalExpr::Expr(m.clone()),
+            text,
+            cases: vec![Case { goal, pc: snapshot(&self.pc), draws: None }],
+        });
+    }
+
+    /// A call's spec is relied on, except a definition's own (a recursive self-call): its measure goal is what
+    /// licenses that, and its own status already says whether it holds.
+    fn rely_on(&mut self, name: &str) {
+        if self.measuring.as_ref().is_some_and(|(me, _)| me == name) {
+            return;
+        }
+        self.relied_on.insert(name.to_string());
+    }
+
     fn function_call(&mut self, f: &Def, args: &[SV], s: &Sym) -> ZInt {
-        self.relied_on.insert(f.name.clone());
+        self.measure_goal(f, args);
+        self.rely_on(&f.name);
         // a function that reads state is a function of that state too, so a write in between gives another value;
         // one that reads nothing and takes only Ints keeps its Int-only symbol
         let all_int = args.iter().all(|a| matches!(a, SV::I(_)));
@@ -1384,7 +1448,11 @@ impl<'m> Prover<'m> {
             start.own.push(v.clone());
             self.pc.borrow_mut().push(v);
         }
+        // recursive calls in the body must make the measure smaller (DECISIONS.md, recursion)
+        let own_measure = d.decreases.as_ref().map(|m| self.sev(m, &env, &pre, None).i().clone());
+        self.measuring = Some((d.name.clone(), own_measure));
         let paths = self.exec(&d.body, start);
+        self.measuring = None;
 
         let mut goals: Vec<Goal> = vec![];
         for c in &d.keeps {
@@ -1790,7 +1858,9 @@ impl<'m> Prover<'m> {
                 return Counterexample {
                     eg,
                     emitted: "nothing".into(),
-                    confirmed_by_interpreter: kind == "pre" && e.contains("need of"),
+                    // a measure that doesn't decrease: the replay recursing past the depth limit is the evidence
+                    confirmed_by_interpreter: (kind == "pre" && e.contains("need of"))
+                        || (kind == "measure" && e.starts_with(crate::run::TOO_DEEP)),
                 };
             }
             Err(e) => panic!("counterexample replay of {}: {e:?}", d.name),
