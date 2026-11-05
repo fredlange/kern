@@ -34,9 +34,10 @@ thread_local! {
     static DRAWS: RefCell<IndexMap<String, Vec<Int>>> = RefCell::new(IndexMap::new());
 }
 
-/// Whether each proof gets a fresh Z3 context (KERN_Z3_FRESH): `off` (one context per thread, Python's
-/// behaviour), `ctx` (a fresh context per prove call) or `all` (that, and the fresh-name counter restarts too, so
-/// a proof's result can't depend on anything proved before it).
+/// Whether each proof gets a fresh Z3 context (KERN_Z3_FRESH). The default, `all`: a fresh context per prove call
+/// and the fresh-name counter restarts, so a proof's result can't depend on anything proved before it (Fredrik,
+/// 2026-11-05: "Python behaviour is not something we inherit"). `ctx`: a fresh context only. `off`: one context
+/// per thread, as kern/prove.py runs (for comparing against Python's history-dependent results).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fresh {
     Off,
@@ -47,8 +48,8 @@ pub enum Fresh {
 pub fn fresh_mode() -> Fresh {
     match std::env::var("KERN_Z3_FRESH").as_deref() {
         Ok("ctx") => Fresh::Ctx,
-        Ok("all") => Fresh::All,
-        _ => Fresh::Off,
+        Ok("off") => Fresh::Off,
+        _ => Fresh::All,
     }
 }
 
@@ -1544,6 +1545,14 @@ fn guarantee(kind: &str, expr: GoalExpr, clause: &str, status: Status) -> Guaran
 /// report.py's handler_sat: can an assumed handler's spec be met? ∀ args. needs → ∃ result. ensures.
 /// "satisfiable", "unsatisfiable for P = V, …", "unsatisfiable" (by sampling) or "not checked".
 pub fn handler_sat(defs: &Module, h: &Def) -> String {
+    if fresh_mode() == Fresh::Off {
+        handler_sat_here(defs, h)
+    } else {
+        in_fresh_context(|| handler_sat_here(defs, h))
+    }
+}
+
+fn handler_sat_here(defs: &Module, h: &Def) -> String {
     let mut pv = Prover::new(defs);
     // Python passes no state (None): a handler's spec can only read its parameters and `result`
     let none = Sym {
