@@ -166,6 +166,8 @@ def _walk(a, b, at):
         return [d for i, (x, y) in enumerate(zip(a, b)) for d in _walk(x, y, f"{at}{i}.")]
     if isinstance(a, str) and isinstance(b, str) and _mask(a) == _mask(b) and a != b and "eg " in a:
         return []                                                    # a view or line that prints a witness
+    if isinstance(a, str) and isinstance(b, str) and a.startswith("unsatisfiable for ") and b.startswith("unsatisfiable for "):
+        return []                                  # handler_sat names a model's values: a witness, like an eg line
     return [] if a == b else [f"{at[:-1]}: python {a!r} vs rust {b!r}"]
 
 

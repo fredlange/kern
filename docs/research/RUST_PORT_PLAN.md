@@ -205,3 +205,11 @@ Two findings on the way:
 **Docker (kern-8b, 34f0838): not verified.** The Dockerfile builds Z3 5.3.3 statically and runs the
 oracle inside a `check` stage. The first build failed fetching base-image metadata from Docker Hub
 (DeadlineExceeded) before any step ran.
+
+**Docker, 2026-11-05: R6's container half passes.** `docker build --target check .` builds the toolchain
+with Z3 5.3.3 compiled from source and linked statically. It then runs `oracle_analyse.py diff` inside the
+container: **94/94 modules agree**. Two base-image problems were fixed on the way: Z3 5.3.3 needs CMake ≥ 3.26
+and C++20 `<format>` (GCC ≥ 13), and Debian bookworm has CMake 3.25 and GCC 12. All three images are now trixie
+(rust:1.99-trixie, debian:trixie-slim, python:3.9-slim-trixie). The `kern` image runs `kern check` on a mounted
+checkout. HTTPS needs no system CA bundle: ureq uses rustls with webpki-roots compiled in. The binary links
+only libc, libm, libstdc++ and libgcc. The `cargo install` half of R6 was verified by kern-9b.

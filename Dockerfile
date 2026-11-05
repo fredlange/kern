@@ -13,8 +13,10 @@
 # Token counts in `view` need the Claude tokenizer: mount it and set KERN_TOKENIZER=/path/tokenizer.json.
 # `kern build` (compiling to a native binary) needs cargo, which the slim image doesn't have.
 
-FROM rust:1.99-bookworm AS build
-RUN apt-get update && apt-get install -y --no-install-recommends cmake clang && rm -rf /var/lib/apt/lists/*
+# trixie: Z3 5.3.3 needs C++20 <format> (GCC >= 13) and CMake >= 3.26; bookworm has GCC 12 and CMake 3.25.
+# All three images are trixie, so the binary's glibc matches where it runs.
+FROM rust:1.99-trixie AS build
+RUN apt-get update && apt-get install -y --no-install-recommends cmake && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY toolchain toolchain
@@ -22,12 +24,12 @@ COPY runtime runtime
 COPY validation validation
 RUN cargo build --release --locked -p kern --features static-z3
 
-FROM debian:bookworm-slim AS kern
+FROM debian:trixie-slim AS kern
 COPY --from=build /src/target/release/kern /usr/local/bin/kern
 WORKDIR /work
 ENTRYPOINT ["kern"]
 
-FROM python:3.9-slim AS check
+FROM python:3.9-slim-trixie AS check
 RUN pip install --no-cache-dir z3-solver==5.3.3.0
 COPY --from=build /src/target/release/kern /usr/local/bin/kern
 WORKDIR /repo
