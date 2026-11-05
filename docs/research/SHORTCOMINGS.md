@@ -119,7 +119,8 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Evidence:** CLAUDE.md, "Known limitations"; ROADMAP_RUN.md, P (the gap table for ordinary
   programs). The ledger, clock and audit handlers are built into the interpreter.
   examples/random-portal shows joke ids, not jokes, because there is no text.
-- **Fixed when**, per feature (P = placeholder syntax):
+- **Fixed when**, per feature (P = placeholder syntax). The last four rows joined the milestone on 2026-11-05
+  (.party/DECISIONS.md, planner 22:45, on Fredrik's go-ahead); each needs its gap test written first:
 
   | Missing | Gap test |
   |---|---|
@@ -131,7 +132,11 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   | ~~variable × variable~~ closed `59c9e66` (same entry) | `s5_variable_times_variable_checks` |
   | ~~named constants~~ closed `0acdb54` (Closed: "S5, named constants") | `s5_named_constants_check` |
   | ~~imports across packages~~ closed `b71848b` (Closed: "S5, imports across packages") | `s5_import_across_packages_loads` |
-  | effects that return values, Accounts as state values, iteration over accounts | not written yet |
+  | effects that return values | not written yet |
+  | records as state values, `-> Record`, nested records, record equality (added 2026-11-05) | not written yet |
+  | Accounts as state values, iteration over accounts | not written yet |
+  | decimals: exact fixed-point, not binary floats (added 2026-11-05) | not written yet |
+  | lists: a sequence type (added 2026-11-05) | not written yet |
 - **Next:** records, then `match`, then text (roadmap step 1), ranked by C5's gap list once it
   exists.
 
