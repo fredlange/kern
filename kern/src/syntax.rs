@@ -592,8 +592,20 @@ fn for_loop() -> &'static Regex {
     re(&R, &format!(r"^for ([a-z]\w*) from {ATOM} to {ATOM}$"))
 }
 
+fn loose_for() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    re(&R, r"(?:^|\s)for\s+[a-z]\w*\s+from\s+\S.*\s+to\s+\S")
+}
+
+fn compound_bound(line: Option<usize>) -> ParseError {
+    ParseError::at("`for j from A to B`: each bound is one atom, so parenthesise a compound one: `to (lo + n)`", line)
+}
+
 /// An ensure / loop-invariant clause: `E [when C] [for j from A to B]`.
 pub fn parse_clause(src: &str, line: Option<usize>) -> PResult<Expr> {
+    if for_suffix().captures(src.trim()).is_none() && loose_for().is_match(src.trim()) {
+        return Err(compound_bound(line));
+    }
     if let Some(m) = for_suffix().captures(src.trim()) {
         return Ok(Expr::All(
             m[2].to_string(),
@@ -929,7 +941,7 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
                     return Err(ParseError::at("want `const NAME N` (a lower-case name, a non-negative integer)", no));
                 };
                 if RESERVED.contains(&&m[1]) {
-                    return Err(ParseError::at(format!("`{}` is a keyword and can't name a constant", &m[1]), no));
+                    return Err(ParseError::at(format!("`{}` is reserved and can't name a constant", &m[1]), no));
                 }
                 if defs.consts.contains_key(&m[1]) {
                     return Err(ParseError::at(format!("constant {} is declared twice", &m[1]), no));
@@ -1081,9 +1093,10 @@ pub fn subst(e: &Expr, m: &IndexMap<String, Expr>) -> Expr {
 }
 
 /// Words that can't name a constant: they are keywords, or a constant would hide them.
-const RESERVED: [&str; 21] = [
+const RESERVED: [&str; 31] = [
     "and", "or", "else", "when", "as", "result", "body", "need", "keep", "ensure", "emit", "eg", "ok", "if", "for",
-    "from", "to", "distinct", "sum", "of", "where",
+    "from", "to", "distinct", "sum", "of", "where", "const", "import", "state", "record", "channel", "invariant",
+    "handler", "ledger", "clock", "audit",
 ];
 
 /// Substitutes named constants into a definition, collecting what it used.
@@ -1118,7 +1131,12 @@ impl Consts<'_> {
                     return Err(self.err(format!("`{}'`: a constant has no after-state", n)));
                 }
                 if let Expr::App(..) = e {
-                    return Err(self.err(format!("`{}`: constant {} takes no arguments", code(e), n)));
+                    return Err(self.err(format!(
+                        "`{}`: constant {} takes no arguments (if this is a range bound, parenthesise it: `to (lo + {})`)",
+                        code(e),
+                        n,
+                        n
+                    )));
                 }
                 let v = self.visible[n];
                 if !used.iter().any(|(u, _)| u == n) {
@@ -1239,6 +1257,8 @@ pub fn resolve_consts(
             "a state"
         } else if defs.channels.contains(n) {
             "a channel"
+        } else if defs.handlers.keys().any(|h| h.split('.').next() == Some(n.as_str())) {
+            "a handler's root (as in `rand.below`)"
         } else {
             continue;
         };
@@ -1635,6 +1655,9 @@ fn block(raw: &[(usize, String, usize)], mut i: usize, indent: usize) -> PResult
             let rest_: Vec<Stmt> = inner.into_iter().filter(|s| !matches!(s, Stmt::Inv(_))).collect();
             out.push(Stmt::For(m[1].to_string(), parse_expr(&m[2], no)?, parse_expr(&m[3], no)?, invs, rest_));
             continue;
+        }
+        if word == "for" && loose_for().is_match(line) {
+            return Err(compound_bound(no));
         }
         if word == "invariant" {
             out.push(Stmt::Inv(parse_clause(rest, no)?));

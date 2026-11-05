@@ -72,7 +72,7 @@ pub fn tools() -> Value {
         {"name": "kern_edit", "description": "Apply several edits together, then check once: ops = [{op: add, source} | {op: replace, name, source, expect_hash?} | {op: remove, name, expect_hash?}]. If the result is ill-formed, nothing is written.",
          "inputSchema": {"type": "object", "properties": {"file": file, "ops": {"type": "array", "items": {"type": "object"}}},
                          "required": ["file", "ops"]}},
-        {"name": "kern_add", "description": "Add one definition (its full source: header, spec, body).",
+        {"name": "kern_add", "description": "Add one definition (its full source: header, spec, body), or one declaration line (const, record, state, channel, invariant).",
          "inputSchema": {"type": "object", "properties": {"file": file, "source": {"type": "string"}}, "required": ["file", "source"]}},
         {"name": "kern_replace", "description": "Replace one definition with new source (same name). expect_hash: refuse if its build hash is no longer this.",
          "inputSchema": {"type": "object", "properties": {"file": file, "name": name, "source": {"type": "string"},
@@ -143,6 +143,18 @@ fn one_def(source: &str) -> T<String> {
         }
     }
     Ok(name)
+}
+
+/// One column-0 declaration line: `const`, `record`, `state`, `channel` or `invariant` (not a definition named like
+/// one: `const x:Int` and `record x:Int` are headers).
+fn is_declaration(source: &str) -> bool {
+    let src = strip_nl(source);
+    if src.contains('\n') || !is_col0(src) {
+        return false;
+    }
+    ["state ", "invariant ", "channel "].iter().any(|k| src.starts_with(k))
+        || (src.starts_with("const ") && !src.contains(':'))
+        || (src.starts_with("record ") && src["record ".len()..].starts_with(|c: char| c.is_uppercase()))
 }
 
 fn realpath(p: &str) -> String {
@@ -242,6 +254,10 @@ fn apply(text: &str, defs: &Module, op: &Map<String, Value>, file: &str) -> T<(S
     }
     let source = op_str(op, "source").unwrap_or("");
     match kind {
+        Some("add") if is_declaration(source) => {
+            // a module declaration: one column-0 line, appended; the whole module is validated before writing
+            Ok((format!("{}\n\n{}\n", text.trim_end_matches('\n'), strip_nl(source)), None))
+        }
         Some("add") => {
             let new = one_def(source)?;
             if defs.defs.contains_key(&new) {

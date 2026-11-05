@@ -374,12 +374,28 @@ fn s5_a_name_that_would_hide_a_constant_is_an_error() {
         ("charge k:Int\n  ensure paid.get' k = fee'\nbody\n  paid.set k 5\n", "no after-state"),
         ("charge k:Int\n  ensure 1 = 1\nbody\n  x = fee k\n", "takes no arguments"),
         ("fee k:Int\n  ensure 1 = 1\nbody\n  x = k\n", "constant fee has the name of a definition"),
+        // a compound range bound reads `cap` as applied to the words before it: say to parenthesise
+        ("charge k:Int\n  ensure paid.get' j = 1 when k < fee for j from k to k + fee\nbody\n  paid.set k 1\n", "parenthesise a compound one"),
     ];
     for (def, want) in cases {
         let src = format!("const fee 5\n\nstate paid Int\n\n{def}");
         let e = parse_module(&src, true).expect_err(def);
         assert!(e.0.contains(want), "{def}: {}", e.0);
     }
+}
+
+#[test]
+fn s5_a_constant_name_reads_one_way() {
+    // review of UFOJU6XMZB: handler roots and declaration words are rejected, not only definitions and keywords
+    for name in ["ledger", "clock", "audit", "const", "import", "state", "record", "channel", "invariant", "handler"] {
+        let e = parse_module(&format!("const {name} 5\n"), true).expect_err(name);
+        assert!(e.0.contains("is reserved"), "{name}: {}", e.0);
+    }
+    let e = parse_module("handler rand.below n:Int -> Int\n  ensure result >= 0\n\nconst rand 5\n", true).unwrap_err();
+    assert!(e.0.contains("handler's root"), "{}", e.0);
+    // a loop with a compound bound says the same as the ensure form
+    let e = parse_module("state hold Int\n\nf lo:Int\nbody\n  for k from lo to lo + 3\n    hold.set k 1\n", true).unwrap_err();
+    assert!(e.0.contains("parenthesise a compound one"), "{}", e.0);
 }
 
 #[test]

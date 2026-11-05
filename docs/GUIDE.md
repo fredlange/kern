@@ -256,7 +256,7 @@ same command with `--mcp-config`.
 | `kern_check` | a summary (status per definition plus what's broken); `name` gives full detail; `quick` (default) skips mutation testing |
 | `kern_run` | one call in the interpreter |
 | `kern_edit` | several `add` / `replace` / `remove` operations, checked once; if the result is ill-formed, nothing is written |
-| `kern_add`, `kern_replace`, `kern_remove` | one structural edit. `expect_hash` refuses if the definition changed underneath |
+| `kern_add`, `kern_replace`, `kern_remove` | one structural edit. `expect_hash` refuses if the definition changed underneath. `kern_add` also takes one declaration line (`const`, `record`, `state`, `channel`, `invariant`) |
 
 What an edit does and reports:
 - **It's checked before anything is written.** If the result is ill-formed, the file stays
