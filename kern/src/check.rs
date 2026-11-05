@@ -390,6 +390,13 @@ fn shift_var(stmts: &[Stmt], var: &str) -> Vec<Stmt> {
             Expr::Name(n, false) if n == var => Expr::Bin("+", Box::new(e.clone()), Box::new(Expr::Int(1))),
             Expr::Bin(op, l, r) => Expr::Bin(op, Box::new(sub(l, var)), Box::new(sub(r, var))),
             Expr::App(h, p, a) => Expr::App(h.clone(), *p, a.iter().map(|x| sub(x, var)).collect()),
+            Expr::Sum(j, lo, hi, x, c) if j != var => Expr::Sum(
+                j.clone(),
+                Box::new(sub(lo, var)),
+                Box::new(sub(hi, var)),
+                Box::new(sub(x, var)),
+                c.as_ref().map(|c| Box::new(sub(c, var))),
+            ),
             other => other.clone(),
         }
     }

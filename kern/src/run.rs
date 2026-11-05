@@ -513,6 +513,27 @@ impl<'m, 'p> Interp<'m, 'p> {
                 }
                 Ok(Value::Bool(true))
             }
+            Expr::Sum(j, a, b, body, cond) => {
+                let lo = self.ev(a, env, pre, post.as_deref_mut())?;
+                let hi = self.ev(b, env, pre, post.as_deref_mut())?;
+                let (lo, hi) = (int_of(&lo, "")?, int_of(&hi, "")?);
+                self.spend(hi - lo)?;
+                let (mut v, mut total) = (lo, Value::Int(0));
+                while v < hi {
+                    let mut e2 = env.clone();
+                    e2.insert(j.clone(), Value::Int(v));
+                    let keep = match cond {
+                        Some(c) => self.ev(c, &e2, pre, post.as_deref_mut())?.truthy(),
+                        None => true,
+                    };
+                    if keep {
+                        let x = self.ev(body, &e2, pre, post.as_deref_mut())?;
+                        total = binop("+", &total, &x)?;
+                    }
+                    v += 1;
+                }
+                Ok(total)
+            }
             Expr::Bin(op, l, r) => {
                 match *op {
                     "and" => {

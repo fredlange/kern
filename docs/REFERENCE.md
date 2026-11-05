@@ -15,8 +15,8 @@ body
 - **Parameter types:** `Int`, `Account` and declared records. A record parameter `p:Point` is read by field,
   `p.x`, or passed whole to a definition taking a Point (`move p`); build one only as a call argument,
   `move (Point a b)`. In `eg` lines its fields are separate arguments, in order.
-- **`-> Int`** makes a function: pure (no state, no effects), total (no `need`), and every
-  path sets `result`. Specs may call functions; nothing else.
+- **`-> Int`** makes a function: it may read state and the clock but change nothing, it is
+  total (no `need`), and every path sets `result`. Specs may call functions; nothing else.
 
 ### Statements
 
@@ -37,6 +37,9 @@ body
   on the right (floor division).
 - **Comparisons:** `= != < <= > >=`.
 - **Logic:** `and` binds tighter than `or`; `distinct a b c`.
+- **Sums:** `sum j from A to B of E [where C]` adds E for each j in [A, B) where C holds (bounds are
+  atoms; E can't call definitions; no sum inside a sum). E runs to the next comparison; `where C` runs to the
+  end, so parenthesise a filtered sum that isn't last.
 - **Events and failures:** Capitalised constructors, such as `Moved a b n`.
 
 ## Handlers: the only effects

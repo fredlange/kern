@@ -402,10 +402,9 @@ fn s6_a_guarantee_kills_the_sweep_one_too_many_mutant() {
 }
 
 #[test]
-#[should_panic(expected = "gap S6 sum:")]
 fn s6_a_sum_invariant_proves() {
-    // gap (S6): no sum; conservation is pairwise only, so "the pool gains the sum of the swept holds" can't be
-    // said. placeholder: `sum j from A to B of E`
+    // closed (S6's sum): `sum j from A to B of E [where C]` (DECISIONS.md, 2026-11-05, aggregation). The
+    // placeholder was the chosen syntax.
     must_check(
         "gap S6 sum",
         "state hold Int
@@ -424,6 +423,136 @@ body
     hold.set k 0
 ",
     );
+}
+
+const COUNT_SRC: &str = "state status Int
+state due Int
+
+count_overdue lo:Int hi:Int -> Int
+  ensure result = sum k from lo to hi of 1 where status.get k = 1 and due.get k < clock.now
+body
+  result = sum k from lo to hi of 1 where status.get k = 1 and due.get k < clock.now
+";
+
+#[test]
+fn s6_apps_count_overdue_is_a_function_over_state_and_proves() {
+    // .party/requests.md #1: a query over a state range, with no accumulator
+    must_check("count_overdue", COUNT_SRC);
+    let defs = parse(COUNT_SRC);
+    // what `kern host` serves as a query: the interpreter's value for a function call
+    let mut w = kern::run::World::from_example(&IndexMap::new(), 10, &IndexMap::new());
+    for (k, (st, due)) in [(1, (1, 5)), (2, (1, 50)), (3, (2, 5)), (4, (1, 9))] {
+        w.maps.entry("status".into()).or_default().insert(Key::Int(k), st);
+        w.maps.entry("due".into()).or_default().insert(Key::Int(k), due);
+    }
+    let mut interp = kern::run::Interp::new(&defs);
+    let r = interp.run("count_overdue", &[Value::Int(0), Value::Int(9)], &mut w).unwrap();
+    assert_eq!(r, kern::run::Outcome::Ok, "the call succeeds");
+    assert_eq!(interp.last_result, Some(Value::Int(2)), "tasks 1 and 4 are open and overdue at now = 10");
+}
+
+#[test]
+fn s6_where_filters_a_sum_and_when_still_conditions_the_ensure() {
+    use kern::syntax::{parse_clause, Expr};
+    let filtered = parse_clause("r = sum j from 0 to n of x.get j where x.get j > 0", None).unwrap();
+    let Expr::Bin("=", _, sum) = filtered else { panic!("{filtered:?}") };
+    assert!(matches!(*sum, Expr::Sum(_, _, _, _, Some(_))));
+    let conditional = parse_clause("r = sum j from 0 to n of x.get j when n > 0", None).unwrap();
+    let Expr::Bin("when", eq, _) = conditional else { panic!("`when` must condition the ensure: {conditional:?}") };
+    assert!(matches!(*eq, Expr::Bin("=", _, ref s) if matches!(**s, Expr::Sum(_, _, _, _, None))));
+    // printed back, a sum operand is parenthesised, so the text reparses to the same tree
+    let e = parse_clause("(sum j from 0 to n of x.get j) + 1 = r", None).unwrap();
+    assert_eq!(parse_clause(&kern::syntax::code(&e), None).unwrap(), e);
+}
+
+const PEEK_SRC: &str = "state hold Int
+
+peek k:Int -> Int
+  ensure result = hold.get k
+body
+  result = hold.get k
+
+twice k:Int
+  ok otherwise
+  ensure hold.get' k = hold.get k + 1
+body
+  a = peek k
+  hold.set k (a + 1)
+  b = peek k
+  hold.set k b
+";
+
+#[test]
+fn s6_a_function_that_reads_state_is_a_function_of_that_state() {
+    // one Int-only symbol for `peek k` would make `a` and `b` equal and the path contradictory (∅, or a vacuous ✔)
+    let reps = reports(&parse(PEEK_SRC));
+    assert!(reps["twice"].clean && reps["twice"].guarantees.iter().all(|g| g.status == kern::report::Status::Proven));
+    let wrong = reports(&parse(&PEEK_SRC.replace("hold.get k + 1\nbody\n  a", "hold.get k + 2\nbody\n  a")));
+    let g = wrong["twice"].guarantees.iter().find(|g| g.clause.contains("+ 2")).unwrap();
+    assert_eq!(g.status, kern::report::Status::Refuted);
+    // still no writes: a function that changes state is rejected
+    let e = analyse(&parse("state hold Int\n\nf k:Int -> Int\n  ensure result = 0\nbody\n  hold.set k 1\n  result = 0\n"), false, None, None);
+    assert!(e.unwrap_err().message().contains("may read state but not change it"));
+}
+
+#[test]
+fn s6_a_need_on_a_sum_after_a_write_is_not_stated_in_the_pre_state() {
+    // the sum's reads range over j, so they can't be rewritten through `hold.set k 5` key by key: no lifted row
+    let src = "state hold Int\n\ngrab k:Int\n  ensure 1 = 1\nbody\n  hold.set k 5\n  need (sum j from 0 to 3 of hold.get j) < 10 else Full\n";
+    let reps = reports(&parse(src));
+    assert!(!reps["grab"].lifted.iter().any(|l| l.ctor == "Full"), "{:?}", reps["grab"].lifted);
+    // before any write it is lifted unchanged
+    let before = src.replace("  hold.set k 5\n  need (sum j from 0 to 3 of hold.get j) < 10 else Full\n", "  need (sum j from 0 to 3 of hold.get j) < 10 else Full\n  hold.set k 5\n");
+    assert!(reports(&parse(&before))["grab"].lifted.iter().any(|l| l.ctor == "Full"));
+}
+
+#[test]
+fn s6_sum_verdicts_agree_with_the_interpreter() {
+    // the floor for sums (neither the fuzzer nor the digests generate them): seeded programs whose claims are right
+    // or slightly wrong; a ✔ with a random-test violation, or a ✗ that doesn't replay, is a contradiction
+    let bodies = ["hold.get j", "2 * hold.get j", "hold.get j + j", "1", "j"];
+    let filters = ["", " where hold.get j > 0", " where j < lo + 2", " where hold.get j = j"];
+    let tweaks = ["", " + 1", " - (sum j from lo to hi of 1)"];
+    let (mut proven, mut refuted, mut other) = (0, 0, 0);
+    for (n, ((b, f), t)) in bodies
+        .iter()
+        .flat_map(|b| filters.iter().map(move |f| (b, f)))
+        .flat_map(|bf| tweaks.iter().map(move |t| (bf, t)))
+        .enumerate()
+    {
+        let src = format!(
+            "state hold Int\n\nf lo:Int hi:Int -> Int\n  ensure result = (sum j from lo to hi of {b}{f}){t}\nbody\n  result = sum j from lo to hi of {b}{f}\n\nsweep pool:Account lo:Int hi:Int\n  ok otherwise\n  ensure ledger.balance' pool = ledger.balance pool + (sum j from lo to hi of {b}{f}){t}\nbody\n  for k from lo to hi\n    invariant ledger.balance' pool = ledger.balance pool + (sum j from lo to k of {b}{f})\n    ledger.credit pool (sum j from k to (k + 1) of {b}{f})\n"
+        );
+        let defs = parse_module(&src, true).unwrap_or_else(|e| panic!("{n}: {}\n{src}", e.0));
+        let reps = analyse(&defs, false, None, None).unwrap_or_else(|e| panic!("{n}: {}\n{src}", e.message()));
+        for r in reps.values() {
+            for g in &r.guarantees {
+                match g.status {
+                    kern::report::Status::Proven => {
+                        proven += 1;
+                        let broke = r.props.violations.iter().any(|v| match v {
+                            kern::report::Violation::Clause { clause, .. } => *clause == format!("{} {}", g.kind, g.clause),
+                            _ => true,
+                        });
+                        assert!(!broke, "{n}: proven, but random tests broke it:\n{src}\n{:?}", r.props.violations)
+                    }
+                    kern::report::Status::Refuted => {
+                        refuted += 1;
+                        assert!(g.counterexample.as_ref().unwrap().confirmed_by_interpreter, "{n}: unconfirmed ✗\n{src}")
+                    }
+                    _ => {
+                        other += 1;
+                        eprintln!("{n}: {:?} {} {}", g.status, g.kind, g.clause);
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("sum programs: {} goals proven, {} refuted, {} other", proven, refuted, other);
+    assert!(proven > 60 && refuted > 30, "proven {proven}, refuted {refuted}: the set must exercise both");
+    // every goal here is decidable: an undecided one found a bug once (a free `lo` and the lower bound shared a Z3
+    // name, so the sum read its bound as `lo`)
+    assert_eq!(other, 0, "undecided goals (listed above)");
 }
 
 // =====================================================================================

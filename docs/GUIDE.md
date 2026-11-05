@@ -100,6 +100,10 @@ body
 | `spec` | + need, keep, ensure, emit, own `body need` lines, proof status | 77 tokens |
 | `editor` | own full definition + the `spec` view of each callee (never callee bodies) | 251 tokens |
 
+A sum (`sum j from A to B of E`) is proven through a Z3 recursive function, so a loop invariant like
+`ledger.balance' pool = ledger.balance pool + sum j from lo to k of hold.get j` is kept by one unfolding per
+step. After a write, a body `need` that sums over state isn't lifted into the pre-state (no `body need` line).
+
 A record type in the header adds a line `  record Name f:Type …` to every view (a caller needs the fields to build
 one). The checker flattens a record parameter `p:Point` into `p.x`, `p.y` at load time, so `eg` lines,
 counterexamples, mutants and the host take its fields as separate arguments, in order.

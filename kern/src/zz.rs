@@ -10,7 +10,7 @@
 use std::ffi::CString;
 
 use z3::ast::{Array, Ast, Bool, Dynamic, Int as ZInt};
-use z3::{Context, FuncDecl, Model, Optimize, Params, SatResult, Solver, Sort};
+use z3::{Context, FuncDecl, Model, Optimize, Params, RecFuncDecl, SatResult, Solver, Sort};
 
 /// Python's `RLIMIT` (kern/prove.py): Z3 steps per check.
 pub const RLIMIT: u32 = 10_000_000;
@@ -226,6 +226,43 @@ pub fn apply_fn(name: &str, args: &[ZInt]) -> ZInt {
     let f = FuncDecl::new(name, &srefs, &Sort::int());
     let a: Vec<&dyn Ast> = args.iter().map(|x| x as &dyn Ast).collect();
     f.apply(&a).as_int().expect("an Int function")
+}
+
+/// An uninterpreted Int function of arguments of any sort (a function that reads state takes its arrays too).
+pub fn apply_fn_dyn(name: &str, args: &[Dynamic]) -> ZInt {
+    let sorts: Vec<Sort> = args.iter().map(|x| x.get_sort()).collect();
+    let srefs: Vec<&Sort> = sorts.iter().collect();
+    let f = FuncDecl::new(name, &srefs, &Sort::int());
+    let a: Vec<&dyn Ast> = args.iter().map(|x| x as &dyn Ast).collect();
+    f.apply(&a).as_int().expect("an Int function")
+}
+
+/// A sum as a recursive function, defined from the right so a loop step is one unfolding:
+/// `f(xs…, lo, hi) = if hi <= lo then 0 else f(xs…, lo, hi - 1) + step`, where `step` is a term over the formal
+/// constants `xs`, `lo` and `hi` (built with the summed variable = hi - 1). Z3 unfolds it on demand.
+pub fn rec_sum(name: &str, formals: &[Dynamic], lo: &ZInt, hi: &ZInt, step: &ZInt) -> RecFuncDecl {
+    let mut sorts: Vec<Sort> = formals.iter().map(|f| f.get_sort()).collect();
+    sorts.push(Sort::int());
+    sorts.push(Sort::int());
+    let srefs: Vec<&Sort> = sorts.iter().collect();
+    let f = RecFuncDecl::new(name, &srefs, &Sort::int());
+    let hi1 = sub(hi, &val(1));
+    let mut rec_args: Vec<&dyn Ast> = formals.iter().map(|x| x as &dyn Ast).collect();
+    rec_args.push(lo);
+    rec_args.push(&hi1);
+    let rec = f.apply(&rec_args).as_int().expect("an Int sum");
+    let body = ite(&le(hi, lo), &val(0), &add(&rec, step));
+    let mut args: Vec<&dyn Ast> = formals.iter().map(|x| x as &dyn Ast).collect();
+    args.push(lo);
+    args.push(hi);
+    f.add_def(&args, &body);
+    f
+}
+
+/// A sum function applied to actual arguments (the formals' actuals, then lo and hi).
+pub fn apply_rec(f: &RecFuncDecl, args: &[Dynamic]) -> ZInt {
+    let a: Vec<&dyn Ast> = args.iter().map(|x| x as &dyn Ast).collect();
+    f.apply(&a).as_int().expect("an Int sum")
 }
 
 fn limited() -> Params {

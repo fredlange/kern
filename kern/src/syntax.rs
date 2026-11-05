@@ -28,6 +28,8 @@ pub enum Expr {
     App(String, bool, Vec<Expr>),
     /// `E for j from A to B` (ensure and loop-invariant clauses only)
     All(String, Box<Expr>, Box<Expr>, Box<Expr>),
+    /// `sum j from A to B of E [where C]`: E summed over j in [A, B), only where C holds
+    Sum(String, Box<Expr>, Box<Expr>, Box<Expr>, Option<Box<Expr>>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -175,6 +177,14 @@ impl Expr {
                 Py::List(args.iter().map(Expr::to_py).collect()),
             ]),
             Expr::All(j, a, b, e) => Py::Tuple(vec![Py::s("all"), Py::s(j), a.to_py(), b.to_py(), e.to_py()]),
+            Expr::Sum(j, a, b, e, c) => Py::Tuple(vec![
+                Py::s("sum"),
+                Py::s(j),
+                a.to_py(),
+                b.to_py(),
+                e.to_py(),
+                c.as_ref().map(|c| c.to_py()).unwrap_or(Py::None),
+            ]),
         }
     }
 }
@@ -302,7 +312,7 @@ pub enum Tok {
 
 const OPS: [&str; 14] = ["!=", ">=", "<=", "->", "=", "<", ">", "+", "-", "*", "/", "(", ")", "when"];
 const CMP: [&str; 6] = ["=", "!=", ">=", "<=", ">", "<"];
-const KEYWORDS: [&str; 4] = ["and", "or", "else", "when"];
+const KEYWORDS: [&str; 5] = ["and", "or", "else", "when", "where"];
 
 /// The interned operator for `s` (binary operators are &'static str in the AST).
 pub fn op(s: &str) -> &'static str {
@@ -466,7 +476,43 @@ impl ExprParser {
         }
         Ok(left)
     }
+    /// `sum j from A to B of E [where C]`, at `sum` followed by a name and `from`.
+    fn is_sum(&self) -> bool {
+        self.peek_name("sum")
+            && matches!(self.t.get(self.i + 1), Some(Tok::Name(_)))
+            && matches!(self.t.get(self.i + 2), Some(Tok::Name(f)) if f == "from")
+    }
+    fn word(&mut self, w: &str) -> PResult<()> {
+        if !self.peek_name(w) {
+            return Err(self.err(format!("a sum is `sum j from A to B of E [where C]`: expected `{}`", w)));
+        }
+        self.take();
+        Ok(())
+    }
+    fn sum_expr(&mut self) -> PResult<Expr> {
+        self.take();
+        let Some(Tok::Name(j)) = self.take() else { unreachable!() };
+        if !j.chars().next().map_or(false, |c| c.is_ascii_lowercase()) || j.contains('.') || j.ends_with('\'') {
+            return Err(self.err(format!("the sum's variable must be a plain lower-case name, got {}", repr_str(&j))));
+        }
+        self.word("from")?;
+        let lo = self.atom()?;
+        self.word("to")?;
+        let hi = self.atom()?;
+        self.word("of")?;
+        let body = self.sum()?;
+        let cond = if self.peek_name("where") {
+            self.take();
+            Some(Box::new(self.or_()?))
+        } else {
+            None
+        };
+        Ok(Expr::Sum(j, Box::new(lo), Box::new(hi), Box::new(body), cond))
+    }
     fn app(&mut self) -> PResult<Expr> {
+        if self.is_sum() {
+            return self.sum_expr();
+        }
         if let Some(Tok::Name(val)) = self.peek() {
             if !KEYWORDS.contains(&val.as_str()) {
                 let val = val.clone();
@@ -493,6 +539,9 @@ impl ExprParser {
         }
     }
     fn atom(&mut self) -> PResult<Expr> {
+        if self.is_sum() {
+            return Err(self.err("a sum as an argument needs parentheses: f (sum j from A to B of E)".into()));
+        }
         let tok = self.take();
         match tok {
             Some(Tok::Int(n)) => Ok(Expr::Int(n)),
@@ -1016,14 +1065,25 @@ pub fn subst(e: &Expr, m: &IndexMap<String, Expr>) -> Expr {
         Expr::Name(n, false) => m.get(n).cloned().unwrap_or_else(|| e.clone()),
         Expr::Bin(op, l, r) => Expr::Bin(op, Box::new(subst(l, m)), Box::new(subst(r, m))),
         Expr::App(h, p, args) => Expr::App(h.clone(), *p, args.iter().map(|a| subst(a, m)).collect()),
+        Expr::Sum(j, a, b, x, c) => {
+            let mut inner = m.clone();
+            inner.shift_remove(j);
+            Expr::Sum(
+                j.clone(),
+                Box::new(subst(a, m)),
+                Box::new(subst(b, m)),
+                Box::new(subst(x, &inner)),
+                c.as_ref().map(|c| Box::new(subst(c, &inner))),
+            )
+        }
         _ => e.clone(),
     }
 }
 
 /// Words that can't name a constant: they are keywords, or a constant would hide them.
-const RESERVED: [&str; 18] = [
+const RESERVED: [&str; 21] = [
     "and", "or", "else", "when", "as", "result", "body", "need", "keep", "ensure", "emit", "eg", "ok", "if", "for",
-    "from", "to", "distinct",
+    "from", "to", "distinct", "sum", "of", "where",
 ];
 
 /// Substitutes named constants into a definition, collecting what it used.
@@ -1078,6 +1138,16 @@ impl Consts<'_> {
                     Box::new(self.expr(a, used)?),
                     Box::new(self.expr(b, used)?),
                     Box::new(self.expr(x, used)?),
+                )
+            }
+            Expr::Sum(j, a, b, x, c) => {
+                self.binder(j, "the sum's variable")?;
+                Expr::Sum(
+                    j.clone(),
+                    Box::new(self.expr(a, used)?),
+                    Box::new(self.expr(b, used)?),
+                    Box::new(self.expr(x, used)?),
+                    c.as_ref().map(|c| self.expr(c, used).map(Box::new)).transpose()?,
                 )
             }
         })
@@ -1281,6 +1351,13 @@ impl Records<'_> {
             Expr::All(j, a, b, x) => {
                 Expr::All(j.clone(), Box::new(self.expr(a)?), Box::new(self.expr(b)?), Box::new(self.expr(x)?))
             }
+            Expr::Sum(j, a, b, x, c) => Expr::Sum(
+                j.clone(),
+                Box::new(self.expr(a)?),
+                Box::new(self.expr(b)?),
+                Box::new(self.expr(x)?),
+                c.as_ref().map(|c| self.expr(c).map(Box::new)).transpose()?,
+            ),
         })
     }
     fn exprs(&mut self, es: &[Expr]) -> PResult<Vec<Expr>> {
@@ -1625,6 +1702,13 @@ pub fn code(e: &Expr) -> String {
         }
         Expr::Bin(op, l, r) => format!("{} {} {}", side(l, op, false, code), op, side(r, op, true, code)),
         Expr::All(j, a, b, e) => format!("{} for {} from {} to {}", code(e), j, atom_code(a), atom_code(b)),
+        Expr::Sum(j, a, b, x, c) => {
+            let s = format!("sum {} from {} to {} of {}", j, atom_code(a), atom_code(b), code(x));
+            match c {
+                Some(c) => format!("{} where {}", s, code(c)),
+                None => s,
+            }
+        }
     }
 }
 
@@ -1633,6 +1717,8 @@ pub fn side(child: &Expr, op: &str, right: bool, show: impl Fn(&Expr) -> String)
     let text = show(child);
     let (c, p) = match child {
         Expr::Bin(cop, _, _) => (prec(cop), prec(op)),
+        // a sum's body (and filter) run to the right, so as an operand it is always parenthesised
+        Expr::Sum(..) => return format!("({})", text),
         _ => (99, 0),
     };
     // + - * / and or are left-associative; comparisons and `when` need parentheses on either side

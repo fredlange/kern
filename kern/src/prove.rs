@@ -14,7 +14,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::rc::Rc;
 
 use indexmap::IndexMap;
-use z3::ast::{Array, Bool, Int as ZInt};
+use z3::ast::{Array, Bool, Dynamic, Int as ZInt};
 use z3::Model;
 
 use crate::infer::{callees, fails, ledger_writes, lifted, names, relevant_states, state_writes, uses, writes, ANY_ACCOUNT};
@@ -283,6 +283,29 @@ pub struct Prover<'m> {
     /// eg line -> the assumed-handler values the model drew for it, in call order. Python's eg line doesn't
     /// record them; the oracle needs them to replay a witness in a module with handlers (not in the report).
     pub witness_draws: IndexMap<String, Vec<Int>>,
+    /// one recursive function per distinct sum (its text, the names it reads, whether it sees an after-state)
+    sums: IndexMap<String, z3::RecFuncDecl>,
+}
+
+/// A state's parts as function arguments: balances, owners, total, now, then each state map in declaration order.
+fn state_args(s: &Sym) -> Vec<Dynamic> {
+    let mut out: Vec<Dynamic> =
+        vec![Dynamic::from(s.bal.clone()), Dynamic::from(s.own.clone()), Dynamic::from(s.total.clone()), Dynamic::from(s.now.clone())];
+    out.extend(s.maps.values().map(|m| Dynamic::from(m.clone())));
+    out
+}
+
+/// A state of fresh constants named after `p`, with `s`'s maps.
+fn formal_state(s: &Sym, p: &str) -> Sym {
+    Sym {
+        bal: zz::array(&format!("{p}_bal")),
+        own: zz::array(&format!("{p}_own")),
+        total: zz::int(&format!("{p}_total")),
+        audit: vec![],
+        now: zz::int(&format!("{p}_now")),
+        maps: s.maps.keys().map(|x| (x.clone(), zz::array(&format!("{p}_map_{x}")))).collect(),
+        out: IndexMap::new(),
+    }
 }
 
 type Env = IndexMap<String, SV>;
@@ -307,6 +330,7 @@ impl<'m> Prover<'m> {
             loop_var: String::new(),
             replay_draws: vec![],
             witness_draws: IndexMap::new(),
+            sums: IndexMap::new(),
         }
     }
 
@@ -327,6 +351,11 @@ impl<'m> Prover<'m> {
                 let inner = self.sev(body, &env_with(env, v, SV::I(j.clone())), cur, post);
                 let range = zz::and(&[zz::le(lo.i(), &j), zz::lt(&j, hi.i())]);
                 SV::B(zz::forall(&[&j], &zz::implies(&range, inner.b())))
+            }
+            Expr::Sum(j, a, b, body, cond) => {
+                let lo = self.sev(a, env, cur, post).i().clone();
+                let hi = self.sev(b, env, cur, post).i().clone();
+                SV::I(self.sum_term(j, body, cond.as_deref(), env, cur, post, &lo, &hi))
             }
             Expr::Bin(op, l, r) => {
                 let l = self.sev(l, env, cur, post);
@@ -367,6 +396,81 @@ impl<'m> Prover<'m> {
                 self.scall_read(name, vals, s)
             }
         }
+    }
+
+    /// `sum j from lo to hi of body [where cond]`: a recursive function of the environment values and the state(s)
+    /// the body may read, applied to the actual ones. The same sum (text, names read, after-state or not) is the
+    /// same function within a proof, so a loop invariant at entry and after a step talk about one function.
+    #[allow(clippy::too_many_arguments)]
+    fn sum_term(&mut self, j: &str, body: &Expr, cond: Option<&Expr>, env: &Env, cur: &Sym, post: Option<&Sym>,
+                lo: &ZInt, hi: &ZInt) -> ZInt {
+        let mut free: Vec<String> = vec![];
+        for x in std::iter::once(body).chain(cond) {
+            for n in crate::infer::walk(x) {
+                if let Expr::Name(v, false) = n {
+                    if v != j && env.contains_key(v) && !free.contains(v) {
+                        free.push(v.clone());
+                    }
+                }
+            }
+        }
+        // the after-state is an argument only if the sum reads it, so the same sum in a body, a loop invariant and an
+        // ensure is one function
+        let primed = std::iter::once(body).chain(cond).any(|x| {
+            crate::infer::walk(x).iter().any(|n| matches!(n, Expr::Name(_, true) | Expr::App(_, true, _)))
+        });
+        let post = if primed { post } else { None };
+        // the bounds are arguments, not part of the function: `sum j from lo to k` and `… to hi` must be one function
+        let key = format!("{}|{}|{}|{}|{}", j, code(body), cond.map(code).unwrap_or_default(), free.join(","), post.is_some());
+        let value = |v: &SV| -> Dynamic {
+            match v {
+                SV::I(x) => Dynamic::from(x.clone()),
+                SV::B(b) => Dynamic::from(b.clone()),
+                other => panic!("prover: a sum reads a non-numeric value {other:?}"),
+            }
+        };
+        if !self.sums.contains_key(&key) {
+            let n = fresh();
+            let p = format!("sum{n}");
+            let fenv: Env = free
+                .iter()
+                .map(|v| {
+                    let name = format!("{p}_v_{v}"); // apart from the bounds' formals below
+                    let f = match &env[v] {
+                        SV::B(_) => SV::B(Bool::new_const(name)),
+                        _ => SV::I(zz::int(&name)),
+                    };
+                    (v.clone(), f)
+                })
+                .collect();
+            let fcur = formal_state(cur, &format!("{p}_pre"));
+            let fpost = post.map(|s| formal_state(s, &format!("{p}_post")));
+            let (flo, fhi) = (zz::int(&format!("{p}_from")), zz::int(&format!("{p}_to")));
+            let env2 = env_with(&fenv, j, SV::I(zz::sub(&fhi, &zz::val(1))));
+            let x = self.sev(body, &env2, &fcur, fpost.as_ref()).i().clone();
+            let step = match cond {
+                Some(c) => {
+                    let keep = self.sev(c, &env2, &fcur, fpost.as_ref()).b().clone();
+                    zz::ite(&keep, &x, &zz::val(0))
+                }
+                None => x,
+            };
+            let mut formals: Vec<Dynamic> = free.iter().map(|v| value(&fenv[v])).collect();
+            formals.extend(state_args(&fcur));
+            if let Some(fp) = &fpost {
+                formals.extend(state_args(fp));
+            }
+            let f = zz::rec_sum(&p, &formals, &flo, &fhi, &step);
+            self.sums.insert(key.clone(), f);
+        }
+        let mut args: Vec<Dynamic> = free.iter().map(|v| value(&env[v])).collect();
+        args.extend(state_args(cur));
+        if let Some(p) = post {
+            args.extend(state_args(p));
+        }
+        args.push(Dynamic::from(lo.clone()));
+        args.push(Dynamic::from(hi.clone()));
+        zz::apply_rec(&self.sums[&key], &args)
     }
 
     /// Python `sev` at statement level, where the call may change the state (a write, an emit, a callee).
@@ -597,7 +701,15 @@ impl<'m> Prover<'m> {
     fn function_call(&mut self, f: &Def, args: &[SV], s: &Sym) -> ZInt {
         self.relied_on.insert(f.name.clone());
         let xs: Vec<ZInt> = args.iter().map(|a| a.i().clone()).collect();
-        let r = zz::apply_fn(&format!("fn_{}", f.name), &xs);
+        // a function that reads state is a function of that state too, so a write in between gives another value;
+        // one that reads nothing keeps its Int-only symbol
+        let r = if uses(self.defs, f).is_empty() {
+            zz::apply_fn(&format!("fn_{}", f.name), &xs)
+        } else {
+            let mut ds: Vec<Dynamic> = xs.iter().map(|x| Dynamic::from(x.clone())).collect();
+            ds.extend(state_args(s));
+            zz::apply_fn_dyn(&format!("fn_{}", f.name), &ds)
+        };
         let mut env: Env = f.params.iter().zip(args).map(|((p, _), v)| (p.clone(), v.clone())).collect();
         env.insert("result".into(), SV::I(r.clone()));
         for c in &f.ensures {
@@ -1054,6 +1166,7 @@ impl<'m> Prover<'m> {
 
     fn prove_here(&mut self, d: &Def, first_kill: bool) -> (Vec<Guarantee>, Vec<String>) {
         self.relied_on = BTreeSet::new();
+        self.sums = IndexMap::new();
         let (bal, own, total) = (zz::array("bal"), zz::array("own"), zz::int("total"));
         let maps: IndexMap<String, Array> = self.defs.states.keys().map(|x| (x.clone(), zz::array(&format!("map_{x}")))).collect();
         let pre = Sym { bal, own, total, audit: vec![], now: zz::int("now"), maps, out: IndexMap::new() };

@@ -189,12 +189,14 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
 - `need as C args` / `emit as C args` expand a callee's spec at parse time; only right when
   the callee runs first (otherwise the prover refutes it and the caller restates).
 - Arithmetic is linear: `*` needs a literal on one side, `/` a positive literal on the right.
-- Types: `Int`, `Account` and record parameters (plus internal Owner/Bool/Event/Unit). Return values only for pure, total functions (`-> Int`, set `result`), which specs
-  may call (modularly: uninterpreted + their ensures). Recursion is rejected (no termination measures yet).
+- Types: `Int`, `Account` and record parameters (plus internal Owner/Bool/Event/Unit). Return values only for
+  total functions (`-> Int`, set `result`) that may read state and the clock but write nothing; specs may call
+  them (modularly: uninterpreted over their arguments and the state they read, + their ensures). Recursion is rejected (no termination measures yet).
 - Bodies are guards plus `if`/`else` blocks (the prover forks a path per branch; paths grow as
   2^ifs per body) and bounded loops `for k from LO to HI` with `invariant` lines (a proposal, roadmap
-  run S4). The loop frame is inferred, never stated; there's no sum and no per-iteration emit form, and
-  loops can't be nested. No `match`. Specs have `ensure E when C` and `emit … when C`.
+  run S4). The loop frame is inferred, never stated; there's no per-iteration emit form, and loops can't be
+  nested. Locals can't be updated in a loop (no accumulators); `sum j from A to B of E [where C]` (a Z3
+  recursive function per sum) covers totals and counts, in specs and bodies. No `match`. Specs have `ensure E when C` and `emit … when C`.
 - Frames are *inferred* (`writes`), not written.
 - `ok otherwise` (opt-in) says a call succeeds whenever its spec needs hold. A caller that
   opts in must restate every refusal (payout's spec view: 97 → 163 tokens); nothing is

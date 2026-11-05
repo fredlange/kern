@@ -365,6 +365,13 @@ fn expr_from(j: &J) -> Option<Expr> {
             Expr::App(h[0].as_str()?.to_string(), h[1].as_bool()?, a[2].as_array()?.iter().map(expr_from).collect::<Option<_>>()?)
         }
         "all" => Expr::All(a[1].as_str()?.to_string(), Box::new(expr_from(&a[2])?), Box::new(expr_from(&a[3])?), Box::new(expr_from(&a[4])?)),
+        "sum" => Expr::Sum(
+            a[1].as_str()?.to_string(),
+            Box::new(expr_from(&a[2])?),
+            Box::new(expr_from(&a[3])?),
+            Box::new(expr_from(&a[4])?),
+            if a[5].is_null() { None } else { Some(Box::new(expr_from(&a[5])?)) },
+        ),
         _ => return None,
     })
 }

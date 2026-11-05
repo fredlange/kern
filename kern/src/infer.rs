@@ -26,6 +26,14 @@ pub fn walk(e: &Expr) -> Vec<&Expr> {
                 go(b, out);
                 go(body, out);
             }
+            Expr::Sum(_, a, b, body, cond) => {
+                go(a, out);
+                go(b, out);
+                go(body, out);
+                if let Some(c) = cond {
+                    go(c, out);
+                }
+            }
             Expr::Bin(_, l, r) => {
                 go(l, out);
                 go(r, out);
@@ -401,6 +409,14 @@ fn replace_terms(e: &Expr, m: &[(Expr, Expr)]) -> Expr {
         Expr::All(j, a, b, body) => {
             Expr::All(j.clone(), Box::new(replace_terms(a, m)), Box::new(replace_terms(b, m)), Box::new(replace_terms(body, m)))
         }
+        // read_cases gives up on a sum once anything was written, so only its bounds can hold replaced terms
+        Expr::Sum(j, a, b, body, cond) => Expr::Sum(
+            j.clone(),
+            Box::new(replace_terms(a, m)),
+            Box::new(replace_terms(b, m)),
+            body.clone(),
+            cond.clone(),
+        ),
         _ => e.clone(),
     }
 }
@@ -431,6 +447,10 @@ impl<'a> Lifter<'a> {
     /// None if a read can't be resolved (its key reads written state, or the after-state is unknown).
     fn read_cases(&self, e: &Expr) -> Option<Vec<(Expr, Vec<(Vec<Expr>, Expr)>)>> {
         let log = self.log.as_ref()?;
+        // a sum's reads range over a bound variable, so they can't be rewritten through a write key by key
+        if !log.is_empty() && walk(e).iter().any(|t| matches!(t, Expr::Sum(..)) && reads_state(t)) {
+            return None;
+        }
         let mut terms: Vec<Expr> = vec![];
         for t in walk(e) {
             let is_read = is_total(t)

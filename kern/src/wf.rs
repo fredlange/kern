@@ -120,6 +120,38 @@ impl<'a> Checker<'a> {
                 self.err(place, "`for j from A to B` is only allowed at the end of an `ensure` or a loop `invariant`");
                 "Bool".into()
             }
+            Expr::Sum(j, a, b, body, cond) => {
+                for bnd in [a, b] {
+                    let t = self.ty(bnd, scope, place, spec, primed_ok, false);
+                    self.expect(place, &t, "Int");
+                }
+                if scope.contains_key(j) || self.defs.defs.contains_key(j) {
+                    self.err(place, &format!("`{}` shadows an existing name", j));
+                }
+                let inner: Vec<&Expr> = std::iter::once(&**body).chain(cond.as_deref()).collect();
+                for x in &inner {
+                    for n in crate::infer::walk(x) {
+                        match n {
+                            Expr::Sum(..) => self.err(place, "a sum inside a sum is not supported yet"),
+                            Expr::App(h, _, _) | Expr::Name(h, _)
+                                if self.defs.defs.contains_key(h) || assumed_op(self.defs, h).is_some() =>
+                            {
+                                self.err(place, &format!("a sum's body may not call `{}`", h))
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                let mut scope = scope.clone();
+                scope.insert(j.clone(), "Int".into());
+                let t = self.ty(body, &scope, place, spec, primed_ok, false);
+                self.expect(place, &t, "Int");
+                if let Some(c) = cond {
+                    let t = self.ty(c, &scope, place, spec, primed_ok, false);
+                    self.expect(place, &t, "Bool");
+                }
+                "Int".into()
+            }
         }
     }
 
@@ -249,8 +281,9 @@ impl<'a> Checker<'a> {
             if has_need {
                 self.err("header", "a function (-> Int) is total: no `need`");
             }
-            if !uses(self.defs, d).is_empty() {
-                self.err("header", "a function (-> Int) is pure: it may not read or change state");
+            // a function may read state and the clock, nothing else (DECISIONS.md, aggregation)
+            if uses(self.defs, d).iter().any(|u| !(u.ends_with(".read") || u == "clock")) {
+                self.err("header", "a function (-> Int) may read state but not change it or have other effects");
             }
             if !assigns(&d.body) {
                 self.err("body", "every path must set `result`");

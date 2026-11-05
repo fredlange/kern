@@ -266,6 +266,7 @@ fn has_prime(e: &Expr) -> bool {
         Expr::Name(_, p) => *p,
         Expr::App(_, p, args) => *p || args.iter().any(has_prime),
         Expr::Bin(_, l, r) => has_prime(l) || has_prime(r),
+        Expr::Sum(_, a, b, x, c) => has_prime(a) || has_prime(b) || has_prime(x) || c.as_deref().is_some_and(has_prime),
         _ => false,
     }
 }
@@ -282,6 +283,17 @@ pub fn en(e: &Expr, lets: &Lets, tense: bool) -> String {
             en(a, lets, false),
             en(b, lets, false),
             if tense { en_ensure(body) } else { en(body, lets, false) }
+        ),
+        Expr::Sum(j, a, b, x, c) => format!(
+            "the sum of {} for every <code>{}</code> from {} to {} (not included){}",
+            en(x, lets, tense),
+            j,
+            en(a, lets, false),
+            en(b, lets, false),
+            match c {
+                Some(c) => format!(" where {}", en(c, lets, tense)),
+                None => String::new(),
+            }
         ),
         Expr::Name(n, primed) => {
             if let Some(v) = lets.get(n) {
