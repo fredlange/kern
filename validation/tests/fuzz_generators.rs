@@ -1,5 +1,5 @@
-//! The Rust generators make exactly the programs validation/fuzz.py made (fuzz_generators.json, written from the
-//! venv's CPython 3.9.6 before the Python toolchain was deleted): 300 loop and 200 handler programs per seed, each
+//! The Rust generators make exactly the programs validation/fuzz.py makes (fuzz_generators.json, written from the
+//! venv's CPython 3.9.6, so this test needs no Python): 300 loop and 200 handler programs per seed, each
 //! followed by its job seed, as fuzz.jobs() draws them.
 use kern::pyrandom::Random;
 use kern_validation::fuzz::{gen_handler, gen_loop};
