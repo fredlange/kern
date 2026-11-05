@@ -43,13 +43,17 @@ s=$(curl -s "$B/api/state")
   && ok "replies ran: nothing pending" || bad "still pending: $s"
 n=$(echo "$s" | jget '[(.state.ref // {})[] | select(. > 0)] | length')
 [ "$n" -ge 1 ] && ok "$n item(s) stored from the real APIs" || bad "no items stored (APIs down?): $s"
+t=$(echo "$s" | jget '[(.state.body // {})[] | select(length > 0)] | length')
+[ "$t" = "$n" ] && ok "every stored item has its text (state body)" || bad "items without text: $s"
 
 r=$(post upvote '{"item": 1}')
 [ "$(echo "$r" | jget .status)" = ok ] && ok "upvote item 1" || bad "upvote: $r"
 r=$(post upvote '{"item": 999}')
 [ "$(echo "$r" | jget .refused)" = NoSuchItem ] && ok "upvote missing item refused NoSuchItem" || bad "upvote 999: $r"
 
-[ "$(code -X POST "$B/api/store" -d '{"src": 1, "slot": 1, "id": 7}')" = 403 ] && ok "forged store blocked (403)" || bad "store reachable"
+for d in store store_joke store_pun; do
+  [ "$(code -X POST "$B/api/$d" -d '{"src": 1, "slot": 1, "id": 7, "text": "x"}')" = 403 ] && ok "forged $d blocked (403)" || bad "$d reachable"
+done
 [ "$(code -X POST "$B/api/fetch_failed" -d '{"src": 1, "slot": 1}')" = 403 ] && ok "forged fetch_failed blocked (403)" || bad "fetch_failed reachable"
 
 before=$(curl -s "$B/api/state")

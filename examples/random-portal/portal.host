@@ -1,2 +1,2 @@
-FetchJoke -> GET https://official-joke-api.appspot.com/random_joke; reply store {1} {2} $.id; fail fetch_failed {1} {2}
-FetchPun -> GET https://v2.jokeapi.dev/joke/Pun?safe-mode&type=single; reply store {1} {2} $.id; fail fetch_failed {1} {2}
+FetchJoke -> GET https://official-joke-api.appspot.com/random_joke; reply store_joke {1} {2} $.id $.setup $.punchline; fail fetch_failed {1} {2}
+FetchPun -> GET https://v2.jokeapi.dev/joke/Pun?safe-mode&type=single; reply store_pun {1} {2} $.id $.joke; fail fetch_failed {1} {2}

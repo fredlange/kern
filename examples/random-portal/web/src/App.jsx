@@ -80,7 +80,7 @@ export default function App() {
               <span className="slot">#{it.slot}</span>
             </div>
             <p className="text">
-              {it.text ?? <span className="missing">{it.source} #{it.ref} at the source. The text is not in Kern yet (no Text type).</span>}
+              {it.text ?? <span className="missing">{it.source} #{it.ref}: no text was stored.</span>}
             </p>
             <button className="vote" onClick={() => act(upvote(it.slot))} aria-label={`Upvote item ${it.slot}`}>
               ▲ {it.votes}

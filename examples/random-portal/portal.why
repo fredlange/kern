@@ -1,9 +1,10 @@
 request@5dc35465
-  the slot is reserved at request time and travels in the event, so the reply writes a parameter key; a computed key would leave the invariants unproven
+  the slot is reserved at request time and travels in the event, so the reply writes a parameter key and each invariant is checked key by key (a computed key is proven too since 2026-11-05, quantified, but needs nothing here)
   one request per source at a time keeps the public APIs from being hammered by a button-masher
   the 5-second cooldown is politeness toward free APIs with no key; 5 is a guess, not a published limit
-store@9ba1bdfe
-  the reply carries src and slot back from the event, so one definition serves every source
+store@141bc5af
+  the reply carries src and slot back from the event, so one definition serves every source; store_joke and
+  store_pun only shape each API's JSON (setup + punchline, or joke) into the one text store keeps
 give_up@dd413476
   frees a source whose reply didn't arrive; written before S12, when nothing else did that. Now the host also calls fetch_failed once no reply has come by the deadline (portal.host, default 300 s), so give_up is the earlier, manual way
 upvote@057c3699

@@ -8,11 +8,11 @@ through Kern.
 
 ```
 random-portal/
-├── portal.k               request, store, fetch_failed, give_up, upvote
+├── portal.k               request, store (+ store_joke, store_pun), fetch_failed, give_up, upvote
 ├── portal.host            where each request goes, and which call carries the reply
 ├── portal.why             rationale, anchored to each definition's hash
 ├── portal.strength        the ratchet baseline (`kern baseline`): check flags any weakening
-├── smoke.sh               the acceptance test: build, run, 17 checks, restart, replay
+├── smoke.sh               the acceptance test: build, run, 20 checks, restart, replay
 ├── proof-pages/portal.html
 ├── web/                   the React app (Vite); talks to the host only through /api
 ├── Dockerfile             builds web/, takes the `kern` binary from the repository's image, renders the proof pages
@@ -21,13 +21,18 @@ random-portal/
 
 ## Status
 
-`kern check portal.k`: **5 of 5 definitions clean, every guarantee proven, spec strength
-58/58** (request 20/20, store 22/22, fetch_failed 7/7, give_up 4/4, upvote 5/5).
-`./smoke.sh`: **17/17 checks pass** (2026-11-05, Rust toolchain). The build itself is one of the checks: the
+`kern check portal.k`: **7 of 7 definitions clean, every guarantee proven, spec strength
+77/77** (request 20/20, store 25/25, store_joke 9/9, store_pun 7/7, fetch_failed 7/7, give_up 4/4, upvote 5/5).
+`./smoke.sh`: **17/17 checks passed** (2026-11-05, Rust toolchain, before Text). After the Text change it has 20
+checks (each stored item has its text; forged `store_joke` / `store_pun` get 403) and was **not re-run**: Docker Hub
+timed out pulling `node:22-alpine`. The backend was checked without Docker instead: `kern host serve portal.k` with the
+real APIs stored a joke and a pun with their text (`GET /state`: `body.1`, `body.2`), nothing left pending. The build itself is one of the checks: the
 Dockerfile runs `kern check`, which exits 1 if any definition isn't clean. Tested by mutating
 `upvote` to add 2: check exits 1, so the build fails.
 
-**The loop works in Docker. The jokes don't show yet.** Container smoke test, 2026-11-04:
+**The jokes show (2026-11-05).** Text landed in the Rust toolchain: `store` keeps each joke's text in
+`state body Int -> Text`, from `$.setup` + `$.punchline` (store_joke) or `$.joke` (store_pun), and the page shows it.
+Earlier container smoke test, 2026-11-04 (ids only):
 - three real fetches stored joke 162, pun 73 and joke 417, and `pending` went back to 0;
 - the vote landed, and a forged `POST /api/store` got 403;
 - the state survived `docker restart`;
@@ -35,7 +40,7 @@ Dockerfile runs `kern check`, which exits 1 if any definition isn't clean. Teste
 
 | # | Requested from the Kern developers | Status |
 |---|---|---|
-| R1 | **Text.** `$.field` in `.host` must be an Int and state maps hold Ints | **Open.** Decided 2026-11-04: Text will be built in the Rust toolchain after the port. Until then Kern stores only each joke's id at its source, and the page shows "joke #162 at the source", not the joke |
+| R1 | **Text.** `$.field` in `.host` must be an Int and state maps hold Ints | **Done 2026-11-05.** Text in checker, host and `kern build`; the portal stores and shows each joke's text |
 | R2 | `serve` never ran network replies | Fixed in 6b166c5 |
 | R3 | invariants aren't proven at literal keys | Known prover gap, planned for the Rust prover; this module uses parameter keys |
 | R5 | `serve --bind` | Fixed in 6b166c5 (unused here: nginx proxies to 127.0.0.1) |

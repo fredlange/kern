@@ -14,21 +14,49 @@ request [1337b802]  All guarantees proven
   spec refusals: 5/5 changes caught (examples 5, guarantees 0)
   why 3
 
-store [bdae93ae]  All guarantees proven
+store [e63ad320]  All guarantees proven
   ✔ ok otherwise
   ✔ keep next.get 0
   ✔ ensure source.get' slot = src
   ✔ ensure ref.get' slot = id
+  ✔ ensure body.get' slot = text
   ✔ ensure pending.get' src = 0
   ✔ invariant s:Int pending.get s = 0 or pending.get s = 1
   ✔ invariant i:Int ref.get i >= 0
   ✔ emit Stored slot src id clock.now
-  writes pending.src ref.slot source.slot
-  examples 4/4   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 22/22 (prover 22, random tests 0); examples 14/22; together 22/22
-  spec refusals: 6/7 changes caught (examples 6, guarantees 0)
+  writes body.slot pending.src ref.slot source.slot
+  examples 5/5   random tests 0/500 reached success, 0 violations
+  spec strength: guarantees 25/25 (prover 25, random tests 0); examples 17/25; together 25/25
+  spec refusals: 8/11 changes caught (examples 8, guarantees 0)
       unpinned: need src = 1 or src = 2 else UnknownSource (dropped)
-  why 1
+      unpinned: need length text <= 500 else TooLong (dropped, `<=` → `<`)
+  why 2
+      why reads like an obligation (move it to the spec?): store_pun only shape each API's JSON (setup + punchline, or joke) into the one text store keeps
+
+store_joke [6adec879]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure body.get' slot = setup + " " + punchline
+  ✔ invariant s:Int pending.get s = 0 or pending.get s = 1
+  ✔ invariant i:Int ref.get i >= 0
+  ✔ emit Stored slot src id clock.now
+  writes body.slot pending.src ref.slot source.slot   (no guarantee about the new value of pending.src, ref.slot, source.slot)
+  examples 1/1   random tests 0/500 reached success, 0 violations
+  spec strength: guarantees 9/9 (prover 9, random tests 0); examples 7/9; together 9/9
+  spec refusals: 7/11 changes caught (examples 2, guarantees 5)
+      unpinned: need length (setup + " " + punchline) > 0 else Empty (dropped, `>` → `>=`)
+      unpinned: need length (setup + " " + punchline) <= 500 else TooLong (dropped, `<=` → `<`)
+
+store_pun [d9a74ed5]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure body.get' slot = joke
+  ✔ invariant s:Int pending.get s = 0 or pending.get s = 1
+  ✔ invariant i:Int ref.get i >= 0
+  ✔ emit Stored slot src id clock.now
+  writes body.slot pending.src ref.slot source.slot   (no guarantee about the new value of pending.src, ref.slot, source.slot)
+  examples 1/1   random tests 0/500 reached success, 0 violations
+  spec strength: guarantees 7/7 (prover 7, random tests 0); examples 5/7; together 7/7
+  spec refusals: 9/11 changes caught (examples 2, guarantees 7)
+      unpinned: need length joke <= 500 else TooLong (dropped, `<=` → `<`)
 
 fetch_failed [f802a9f5]  All guarantees proven
   ✔ ok otherwise
@@ -135,55 +163,173 @@ body
     net.emit (FetchPun src slot)
 
 $ kern view examples/random-portal/portal.k store --as iface   (exit 0)
-store src:Int slot:Int id:Int
-  uses clock audit pending.write ref.write source.write want.read
-  writes pending.src ref.slot source.slot
-  fails UnknownSource Stale BadId
-  why 1
+store src:Int slot:Int id:Int text:Text
+  uses clock audit body.write pending.write ref.write source.write want.read
+  writes body.slot pending.src ref.slot source.slot
+  fails UnknownSource Stale BadId Empty TooLong
+  why 2
 
 $ kern view examples/random-portal/portal.k store --as spec   (exit 0)
-store src:Int slot:Int id:Int
-  uses clock audit pending.write ref.write source.write want.read
-  writes pending.src ref.slot source.slot
-  fails UnknownSource Stale BadId
-  why 1
+store src:Int slot:Int id:Int text:Text
+  uses clock audit body.write pending.write ref.write source.write want.read
+  writes body.slot pending.src ref.slot source.slot
+  fails UnknownSource Stale BadId Empty TooLong
+  why 2
   need src = 1 or src = 2 else UnknownSource
   need pending.get src = 1 else Stale
   need want.get src = slot else Stale
   need id > 0 else BadId
+  need length text > 0 else Empty
+  need length text <= 500 else TooLong
   ok otherwise
   keep next.get 0
   ensure source.get' slot = src
   ensure ref.get' slot = id
+  ensure body.get' slot = text
   ensure pending.get' src = 0
   emit Stored slot src id clock.now
   proof ok
 
 $ kern view examples/random-portal/portal.k store --as editor   (exit 0)
-store src:Int slot:Int id:Int
-  uses clock audit pending.write ref.write source.write want.read
-  writes pending.src ref.slot source.slot
-  fails UnknownSource Stale BadId
-  why 1
+store src:Int slot:Int id:Int text:Text
+  uses clock audit body.write pending.write ref.write source.write want.read
+  writes body.slot pending.src ref.slot source.slot
+  fails UnknownSource Stale BadId Empty TooLong
+  why 2
   need src = 1 or src = 2 else UnknownSource
   need pending.get src = 1 else Stale
   need want.get src = slot else Stale
   need id > 0 else BadId
+  need length text > 0 else Empty
+  need length text <= 500 else TooLong
   ok otherwise
   keep next.get 0
   ensure source.get' slot = src
   ensure ref.get' slot = id
+  ensure body.get' slot = text
   ensure pending.get' src = 0
   emit Stored slot src id clock.now
-  eg pending.1:1 want.1:3 | store 1 3 44 -> ok | source.3:1 ref.3:44 pending.1:0
-  eg pending.1:1 want.1:3 | store 1 2 44 -> Stale
-  eg want.1:3 | store 1 3 44 -> Stale
-  eg pending.1:1 want.1:3 | store 1 3 0 -> BadId
+  eg pending.1:1 want.1:3 | store 1 3 44 "a | b" -> ok | source.3:1 ref.3:44 pending.1:0 body.3:"a | b"
+  eg pending.1:1 want.1:3 | store 1 2 44 "x" -> Stale
+  eg want.1:3 | store 1 3 44 "x" -> Stale
+  eg pending.1:1 want.1:3 | store 1 3 0 "x" -> BadId
+  eg pending.1:1 want.1:3 | store 1 3 44 "" -> Empty
 body
   source.set slot src
   ref.set slot id
+  body.set slot text
   pending.set src 0
   audit.emit (Stored slot src id clock.now)
+
+$ kern view examples/random-portal/portal.k store_joke --as iface   (exit 0)
+store_joke src:Int slot:Int id:Int setup:Text punchline:Text
+  uses clock audit body.write pending.write ref.write source.write want.read
+  writes body.slot pending.src ref.slot source.slot
+  fails UnknownSource Stale BadId Empty TooLong
+
+$ kern view examples/random-portal/portal.k store_joke --as spec   (exit 0)
+store_joke src:Int slot:Int id:Int setup:Text punchline:Text
+  uses clock audit body.write pending.write ref.write source.write want.read
+  writes body.slot pending.src ref.slot source.slot
+  fails UnknownSource Stale BadId Empty TooLong
+  need src = 1 or src = 2 else UnknownSource
+  need pending.get src = 1 else Stale
+  need want.get src = slot else Stale
+  need id > 0 else BadId
+  need length (setup + " " + punchline) > 0 else Empty
+  need length (setup + " " + punchline) <= 500 else TooLong
+  ok otherwise
+  ensure body.get' slot = setup + " " + punchline
+  emit Stored slot src id clock.now
+  proof ok
+
+$ kern view examples/random-portal/portal.k store_joke --as editor   (exit 0)
+store_joke src:Int slot:Int id:Int setup:Text punchline:Text
+  uses clock audit body.write pending.write ref.write source.write want.read
+  writes body.slot pending.src ref.slot source.slot
+  fails UnknownSource Stale BadId Empty TooLong
+  need as store src slot id (setup + " " + punchline)
+  ok otherwise
+  ensure body.get' slot = setup + " " + punchline
+  emit as store src slot id (setup + " " + punchline)
+  eg pending.1:1 want.1:3 | store_joke 1 3 44 "Why?" "Because." -> ok | body.3:"Why? Because."
+body
+  store src slot id (setup + " " + punchline)
+
+store src:Int slot:Int id:Int text:Text
+  uses clock audit body.write pending.write ref.write source.write want.read
+  writes body.slot pending.src ref.slot source.slot
+  fails UnknownSource Stale BadId Empty TooLong
+  why 2
+  need src = 1 or src = 2 else UnknownSource
+  need pending.get src = 1 else Stale
+  need want.get src = slot else Stale
+  need id > 0 else BadId
+  need length text > 0 else Empty
+  need length text <= 500 else TooLong
+  ok otherwise
+  keep next.get 0
+  ensure source.get' slot = src
+  ensure ref.get' slot = id
+  ensure body.get' slot = text
+  ensure pending.get' src = 0
+  emit Stored slot src id clock.now
+  proof ok
+
+$ kern view examples/random-portal/portal.k store_pun --as iface   (exit 0)
+store_pun src:Int slot:Int id:Int joke:Text
+  uses clock audit body.write pending.write ref.write source.write want.read
+  writes body.slot pending.src ref.slot source.slot
+  fails UnknownSource Stale BadId Empty TooLong
+
+$ kern view examples/random-portal/portal.k store_pun --as spec   (exit 0)
+store_pun src:Int slot:Int id:Int joke:Text
+  uses clock audit body.write pending.write ref.write source.write want.read
+  writes body.slot pending.src ref.slot source.slot
+  fails UnknownSource Stale BadId Empty TooLong
+  need src = 1 or src = 2 else UnknownSource
+  need pending.get src = 1 else Stale
+  need want.get src = slot else Stale
+  need id > 0 else BadId
+  need length joke > 0 else Empty
+  need length joke <= 500 else TooLong
+  ok otherwise
+  ensure body.get' slot = joke
+  emit Stored slot src id clock.now
+  proof ok
+
+$ kern view examples/random-portal/portal.k store_pun --as editor   (exit 0)
+store_pun src:Int slot:Int id:Int joke:Text
+  uses clock audit body.write pending.write ref.write source.write want.read
+  writes body.slot pending.src ref.slot source.slot
+  fails UnknownSource Stale BadId Empty TooLong
+  need as store src slot id joke
+  ok otherwise
+  ensure body.get' slot = joke
+  emit as store src slot id joke
+  eg pending.2:1 want.2:5 | store_pun 2 5 7 "You have my Word!" -> ok | body.5:"You have my Word!"
+body
+  store src slot id joke
+
+store src:Int slot:Int id:Int text:Text
+  uses clock audit body.write pending.write ref.write source.write want.read
+  writes body.slot pending.src ref.slot source.slot
+  fails UnknownSource Stale BadId Empty TooLong
+  why 2
+  need src = 1 or src = 2 else UnknownSource
+  need pending.get src = 1 else Stale
+  need want.get src = slot else Stale
+  need id > 0 else BadId
+  need length text > 0 else Empty
+  need length text <= 500 else TooLong
+  ok otherwise
+  keep next.get 0
+  ensure source.get' slot = src
+  ensure ref.get' slot = id
+  ensure body.get' slot = text
+  ensure pending.get' src = 0
+  emit Stored slot src id clock.now
+  proof ok
 
 $ kern view examples/random-portal/portal.k fetch_failed --as iface   (exit 0)
 fetch_failed src:Int slot:Int

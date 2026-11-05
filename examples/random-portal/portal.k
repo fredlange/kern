@@ -8,6 +8,7 @@ state source Int
 state ref Int
 state votes Int
 state last Int
+state body Int -> Text
 
 invariant s:Int pending.get s = 0 or pending.get s = 1
 invariant i:Int votes.get i >= 0
@@ -43,26 +44,49 @@ body
   else
     net.emit (FetchPun src slot)
 
-store src:Int slot:Int id:Int
+store src:Int slot:Int id:Int text:Text
   need src = 1 or src = 2 else UnknownSource
   need pending.get src = 1 else Stale
   need want.get src = slot else Stale
   need id > 0 else BadId
+  need length text > 0 else Empty
+  need length text <= 500 else TooLong
   ok otherwise
   keep next.get 0
   ensure source.get' slot = src
   ensure ref.get' slot = id
+  ensure body.get' slot = text
   ensure pending.get' src = 0
   emit Stored slot src id clock.now
-  eg pending.1:1 want.1:3 | store 1 3 44 -> ok | source.3:1 ref.3:44 pending.1:0
-  eg pending.1:1 want.1:3 | store 1 2 44 -> Stale
-  eg want.1:3 | store 1 3 44 -> Stale
-  eg pending.1:1 want.1:3 | store 1 3 0 -> BadId
+  eg pending.1:1 want.1:3 | store 1 3 44 "a | b" -> ok | source.3:1 ref.3:44 pending.1:0 body.3:"a | b"
+  eg pending.1:1 want.1:3 | store 1 2 44 "x" -> Stale
+  eg want.1:3 | store 1 3 44 "x" -> Stale
+  eg pending.1:1 want.1:3 | store 1 3 0 "x" -> BadId
+  eg pending.1:1 want.1:3 | store 1 3 44 "" -> Empty
 body
   source.set slot src
   ref.set slot id
+  body.set slot text
   pending.set src 0
   audit.emit (Stored slot src id clock.now)
+
+store_joke src:Int slot:Int id:Int setup:Text punchline:Text
+  need as store src slot id (setup + " " + punchline)
+  ok otherwise
+  ensure body.get' slot = setup + " " + punchline
+  emit as store src slot id (setup + " " + punchline)
+  eg pending.1:1 want.1:3 | store_joke 1 3 44 "Why?" "Because." -> ok | body.3:"Why? Because."
+body
+  store src slot id (setup + " " + punchline)
+
+store_pun src:Int slot:Int id:Int joke:Text
+  need as store src slot id joke
+  ok otherwise
+  ensure body.get' slot = joke
+  emit as store src slot id joke
+  eg pending.2:1 want.2:5 | store_pun 2 5 7 "You have my Word!" -> ok | body.5:"You have my Word!"
+body
+  store src slot id joke
 
 fetch_failed src:Int slot:Int
   need src = 1 or src = 2 else UnknownSource

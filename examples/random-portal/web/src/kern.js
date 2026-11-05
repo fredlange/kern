@@ -40,8 +40,8 @@ export async function loadWorld() {
   return { items, pending: { 1: pending[1] === 1, 2: pending[2] === 1 } }
 }
 
-// Kern has no Text type yet (feature request R1 to kern-8b/kern-9b). Until it lands the
-// backend only knows each item's id at its source, and this returns null.
+// The joke itself: `state body Int -> Text`, filled by store (via store_joke / store_pun) from the reply.
 function textOf(state, slot) {
-  return null
+  const text = (state.body || {})[slot]
+  return typeof text === 'string' && text.length > 0 ? text : null
 }

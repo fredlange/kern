@@ -11,11 +11,12 @@ request 20/20
   need src = 1 or src = 2 else UnknownSource
   need pending.get src = 0 else AlreadyPending
   need clock.now >= last.get src + 5 else TooSoon (last.get src + 5 - clock.now)
-store 22/22
+store 25/25
   ok otherwise
   keep next.get 0
   ensure source.get' slot = src
   ensure ref.get' slot = id
+  ensure body.get' slot = text
   ensure pending.get' src = 0
   invariant s:Int pending.get s = 0 or pending.get s = 1
   invariant i:Int ref.get i >= 0
@@ -24,6 +25,32 @@ store 22/22
   need pending.get src = 1 else Stale
   need want.get src = slot else Stale
   need id > 0 else BadId
+  need length text > 0 else Empty
+  need length text <= 500 else TooLong
+store_joke 9/9
+  ok otherwise
+  ensure body.get' slot = setup + " " + punchline
+  invariant s:Int pending.get s = 0 or pending.get s = 1
+  invariant i:Int ref.get i >= 0
+  emit Stored slot src id clock.now
+  need src = 1 or src = 2 else UnknownSource
+  need pending.get src = 1 else Stale
+  need want.get src = slot else Stale
+  need id > 0 else BadId
+  need length (setup + " " + punchline) > 0 else Empty
+  need length (setup + " " + punchline) <= 500 else TooLong
+store_pun 7/7
+  ok otherwise
+  ensure body.get' slot = joke
+  invariant s:Int pending.get s = 0 or pending.get s = 1
+  invariant i:Int ref.get i >= 0
+  emit Stored slot src id clock.now
+  need src = 1 or src = 2 else UnknownSource
+  need pending.get src = 1 else Stale
+  need want.get src = slot else Stale
+  need id > 0 else BadId
+  need length joke > 0 else Empty
+  need length joke <= 500 else TooLong
 fetch_failed 7/7
   ok otherwise
   keep next.get 0
