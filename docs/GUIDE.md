@@ -82,7 +82,7 @@ body
 | Random tests | 500 random worlds and inputs; every guarantee is checked on each success |
 | Proofs | symbolic execution to Z3. Calls are verified *modularly*, from the callee's spec and inferred interface, never its body |
 | Refusals | with `ok otherwise`, proven to refuse only where a spec `need` fails |
-| Tiers | ✔ proven, ✗ refuted (replayed), ? unconfirmed or no answer, ! relies on something unproven, ⊙ relies on an assumed handler, ◐ tested only, ∅ never succeeds |
+| Tiers | ✔ proven, ✗ refuted (replayed), ? unconfirmed or no answer, ! relies on something unproven, ⊙ relies on an assumed handler, ◐ tested only, ○ a module invariant only `kern host` checks (after every call; `kern build` doesn't, and the gated host serves it only with `--no-gate`), ∅ never succeeds |
 | Trust | a modular proof is downgraded if a callee's guarantees are broken |
 | Counterexamples | rendered as `eg` lines and replayed in the interpreter; only a replayed one counts as ✗ |
 | Spec strength | mutation testing of the body. The headline is what the *guarantees* catch; examples are reported separately |
@@ -124,7 +124,9 @@ build hash of every definition that uses it: their `.why` entries go stale and t
    Here a call that passes payout's needs still refuses (transfer refuses a zero fee). Either
    the body is wrong, or the spec is: in this case add the missing `need`. Paste the line
    into the spec as an `eg` if it's worth keeping.
-4. **Read a `?`, `!` or ◐ as a spec too weak to prove from.**
+4. **Read a `?`, `!`, ◐ or ○ as a spec too weak to prove from.**
+   - ○ "writes a computed key": the invariant is checked key by key at the parameters, so write state
+     at a parameter key, or accept the host's runtime check.
    - `?` with "not reproduced": a callee's spec doesn't say enough, so strengthen the
      callee's `ensure`.
    - `!`: a callee isn't proven, so fix the callee first.

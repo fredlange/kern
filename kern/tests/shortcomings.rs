@@ -685,6 +685,64 @@ body
 }
 
 // =====================================================================================
+// S11 (closed). Tier ○: a module invariant the prover can't decide, which `kern host` checks at run time
+// =====================================================================================
+
+const S11_SRC: &str = "state hold Int
+
+invariant o:Int hold.get o >= 0
+
+shift k:Int v:Int
+  need v >= 0 else Negative
+  ok otherwise
+body
+  hold.set (k + 1) v
+
+drain k:Int v:Int
+  ok otherwise
+body
+  hold.set (k + 1) (0 - v)
+";
+
+#[test]
+fn s11_an_invariant_the_prover_cannot_decide_is_runtime_checked_on_the_page() {
+    use kern::report::Status;
+    let defs = parse(S11_SRC);
+    let reps = reports(&defs);
+    let inv = |n: &str| reps[n].guarantees.iter().find(|g| g.kind == "invariant").unwrap().clone();
+    // a computed key: no proof and no counterexample, so ○, and the random-test count is kept
+    let g = inv("shift");
+    assert_eq!((g.status, kern::render::icon(g.status)), (Status::Runtime, "○"));
+    assert!(g.tested.is_some());
+    assert_eq!(kern::render::status(&reps["shift"]).1, "Checked at run time only, not proven");
+    assert!(!reps["shift"].clean, "○ is not proven, so the definition isn't clean");
+    // random tests break drain's invariant: the definition is broken, the goal itself stays ○ (no proof either way)
+    assert_eq!(inv("drain").status, Status::Runtime);
+    assert_eq!(kern::render::status(&reps["drain"]).1, "Broken guarantees");
+    let whys: IndexMap<String, why::Status> = defs.defs.keys().map(|k| (k.clone(), why::Status::default())).collect();
+    let page = kern::render::page(&reps, &defs, &whys, "s11", &kern::render::Orphans::new(), None);
+    assert!(page.contains("<code>kern host</code> checks it after every call"), "the page says who checks it");
+    assert!(page.contains("doesn't check it"), "and that a `kern build` program doesn't");
+    let out = kern::render::terminal(&reps, &defs, &whys, &IndexMap::new());
+    assert!(out.contains("○ invariant o:Int hold.get o >= 0   (not proven; held in"), "{out}");
+}
+
+#[test]
+fn s11_the_runtime_check_the_page_promises_happens_in_the_host() {
+    // what ○ claims: with the gate off (○ isn't clean), a call that breaks the invariant is undone as a fault
+    let defs = parse(S11_SRC);
+    let o = Options { sinks: Some(vec![]), gate: false, ..Default::default() };
+    let mut h = Host::new(&defs, reports(&defs), o).unwrap();
+    let r = h.call("drain", &[Value::Int(3), Value::Int(4)]).unwrap();
+    assert_eq!(r["status"], "error");
+    assert!(r["error"].as_str().unwrap().contains("invariant broken"), "{r:?}");
+    assert_eq!(h.call("shift", &[Value::Int(3), Value::Int(4)]).unwrap()["status"], "ok");
+    // and the gated host refuses to serve a definition whose best evidence is ○
+    let mut gated = Host::new(&defs, reports(&defs), Options { sinks: Some(vec![]), ..Default::default() }).unwrap();
+    assert!(gated.call("shift", &[Value::Int(3), Value::Int(4)]).is_err());
+}
+
+// =====================================================================================
 // S12. The host: a request with no reply stays pending forever
 // =====================================================================================
 

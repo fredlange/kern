@@ -39,6 +39,7 @@ pub fn icon(s: G) -> &'static str {
         G::Tested => "◐",
         G::Vacuous => "∅",
         G::Assumed => "⊙",
+        G::Runtime => "○",
     }
 }
 
@@ -80,8 +81,11 @@ pub fn status(r: &Report) -> (&'static str, String) {
     if any(G::Tested) {
         return ("warn", "Tested only, not proven".into());
     }
-    if gs.iter().any(|g| g.status != G::Proven && g.status != G::Assumed) {
+    if gs.iter().any(|g| !matches!(g.status, G::Proven | G::Assumed | G::Runtime)) {
         return ("warn", "Not proven: prover gave no answer".into());
+    }
+    if any(G::Runtime) {
+        return ("warn", "Checked at run time only, not proven".into());
     }
     let mut assumed: Vec<&String> = gs.iter().flat_map(|g| g.assuming.iter().flatten()).collect();
     assumed.sort();
@@ -167,6 +171,19 @@ fn how(g: &Guarantee) -> String {
             };
             format!("Fails for this input:<pre>{}</pre>{}{}", escape(&cx.eg), got, conf)
         }
+        G::Runtime => format!(
+            "Not proven{}{} <code>kern host</code> checks it after every call, at the keys the call wrote, and \
+             undoes a call that breaks it (a host fault, not one of the declared refusals). The gated host serves \
+             this definition only with <code>--no-gate</code>; a program from <code>kern build</code> doesn't check it.",
+            match g.reason.as_deref() {
+                Some(r) if !r.is_empty() => format!(" ({})", escape(r)),
+                _ => String::new(),
+            },
+            match g.tested {
+                Some(n) => format!("; it held in all {} random runs that succeeded.", n),
+                None => ".".into(),
+            }
+        ),
         G::Unknown => match g.reason.as_deref() {
             Some(r) if !r.is_empty() => format!("Cannot be proven: {}.", escape(r)),
             _ => "Prover gave no answer within the time limit.".into(),
@@ -700,6 +717,13 @@ pub fn terminal(reports: &IndexMap<String, Report>, defs: &Module, whys: &IndexM
                     line.push_str(&format!("\n      audit log got: {}", cx.emitted));
                 }
             }
+            if g.status == G::Runtime {
+                let tested = g.tested.map(|n| format!("held in {} random successes; ", n)).unwrap_or_default();
+                line.push_str(&format!("   (not proven; {}`kern host` checks it after every call)", tested));
+                if let Some(reason) = g.reason.as_deref().filter(|r| !r.is_empty()) {
+                    line.push_str(&format!("\n      cannot be proven: {}", reason));
+                }
+            }
             match (g.status, g.reason.as_deref()) {
                 (G::Unknown, Some(reason)) if !reason.is_empty() => {
                     line.push_str(&format!("\n      cannot be proven: {}", reason))
@@ -710,6 +734,7 @@ pub fn terminal(reports: &IndexMap<String, Report>, defs: &Module, whys: &IndexM
             if g.status == G::Tested {
                 line.push_str(&format!("   (not proven; held in {} random successes)", g.tested.unwrap_or(0)));
             }
+
             if g.status == G::Assumed {
                 line.push_str(&format!("   (assuming {})", g.assuming.clone().unwrap_or_default().join(", ")));
             }

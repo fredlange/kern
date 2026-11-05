@@ -59,6 +59,7 @@ pub enum Status {
     Vacuous,     // ∅ never succeeds
     Unknown,     // the prover gave up (rlimit) or can't express it
     Tested,      // ◐ no proof, random tests found nothing
+    Runtime,     // ○ a module invariant with no proof and no counterexample: `kern host` checks it after every call
 }
 
 impl Status {
@@ -73,6 +74,7 @@ impl Status {
             Status::Vacuous => "vacuous",
             Status::Unknown => "unknown",
             Status::Tested => "tested",
+            Status::Runtime => "runtime",
         }
     }
 }
@@ -411,7 +413,8 @@ fn goal_expr_from(j: &J) -> Option<GoalExpr> {
 }
 
 fn status_from(s: &str) -> Option<Status> {
-    [Status::Proven, Status::Assumed, Status::Conditional, Status::Refuted, Status::Unconfirmed, Status::Vacuous, Status::Unknown, Status::Tested]
+    [Status::Proven, Status::Assumed, Status::Conditional, Status::Refuted, Status::Unconfirmed, Status::Vacuous, Status::Unknown, Status::Tested,
+     Status::Runtime]
         .into_iter()
         .find(|x| x.as_str() == s)
 }
@@ -733,6 +736,16 @@ pub fn analyse(
             if g.status == Status::Unknown && g.kind != "ok" && succeeded >= TESTED_MIN && clean_props {
                 g.status = Status::Tested;
                 g.tested = Some(succeeded);
+            }
+        }
+    }
+    // ○ runtime-checked: a module invariant the prover neither proved nor refuted is still enforced at run time,
+    // since `kern host` checks the module invariants after every call (at the keys the call wrote). It keeps
+    // `tested` when random tests also held it. Nothing else is checked at run time, so nothing else gets ○.
+    for r in reports.values_mut() {
+        for g in &mut r.guarantees {
+            if g.kind == "invariant" && matches!(g.status, Status::Unknown | Status::Tested) {
+                g.status = Status::Runtime;
             }
         }
     }

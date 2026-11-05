@@ -7,7 +7,7 @@ shifted [835f5629]  Broken guarantees
   ✗ loop hold.get' j = 0 for j from lo to k  (kept by every iteration)
       counterexample: eg  hold.0:1 hold.1:451 hold.2:613 | shifted 0 1 2 -> ok |  hold.1:0
   ! loop module invariant o:Int hold.get o >= 0  (kept by every iteration)   (relies on loop invariant hold.get' j = 0 for j from lo to k  (holds when the loop starts), loop invariant hold.get' j = 0 for j from lo to k  (kept by every iteration), which is not proven)
-  ? invariant o:Int hold.get o >= 0
+  ○ invariant o:Int hold.get o >= 0   (not proven; `kern host` checks it after every call)
       cannot be proven: it writes a computed key, so the invariant can't be checked key by key
   writes hold.*   (no guarantee about the new value of hold.*)
   examples 0/0   random tests 246/500 reached success, 1 violations

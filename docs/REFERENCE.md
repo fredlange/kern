@@ -98,6 +98,7 @@ Every guarantee gets an icon:
 - `?` no proof (unconfirmed counterexample, or no answer);
 - `!` proven, but relies on a callee that isn't;
 - ◐ held in random tests only;
+- ○ a module invariant with no proof: `kern host` checks it after every call (`kern build` doesn't);
 - ∅ the call can never succeed;
 - ⊙ proven, assuming a handler's declared spec.
 
@@ -110,6 +111,7 @@ Each definition gets one status:
 | Never succeeds | ∅ |
 | Depends on unproven code | `!` |
 | Not proven: … / Tested only, not proven | `?` or ◐ |
+| Checked at run time only, not proven | ○ |
 | No guarantees stated | there's nothing to prove |
 | Weaker than baseline | below the recorded `kern baseline` |
 | Spec changed since baseline | a `need` was added, removed or changed |
