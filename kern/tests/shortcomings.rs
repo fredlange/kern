@@ -6,7 +6,7 @@
 //! The day a gap closes, its test fails. In the same commit it becomes an ordinary test (drop `should_panic`),
 //! and the entry moves to "Closed" in SHORTCOMINGS.md.
 //!
-//! Some gaps have no syntax yet (records, text, `match`, named constants, `sum`, `clock.tick`, events in `eg`).
+//! Some gaps have no syntax yet (records, text, `match`, `sum`, `clock.tick`, events in `eg`).
 //! Those tests write a *placeholder* syntax, marked `placeholder:`. Whoever builds the feature adjusts the
 //! source to the syntax actually chosen, and the test must then pass. A test that still panics after a feature
 //! has landed means the placeholder was never updated, not that the gap is still open.
@@ -172,22 +172,84 @@ body
 }
 
 #[test]
-#[should_panic(expected = "gap S5 named constants:")]
 fn s5_named_constants_check() {
-    // gap (S5): no named constants. placeholder: `const NAME VALUE`
+    // closed (S5): `const NAME N` (DECISIONS.md, 2026-11-05). A constant on one side keeps `*` linear.
     must_check(
         "gap S5 named constants",
-        "const Fee 5
+        "const fee 5
+const rate 3
 
 state paid Int
 
 charge k:Int
   ok otherwise
-  ensure paid.get' k = paid.get k + Fee
+  ensure paid.get' k = paid.get k + fee
 body
-  paid.set k (paid.get k + Fee)
+  paid.set k (paid.get k + fee)
+
+scaled amount:Int -> Int
+  ensure result = amount * rate
+body
+  result = rate * amount
 ",
     );
+}
+
+const FEE_SRC: &str = "const fee 5
+
+state paid Int
+
+charge k:Int
+  ok otherwise
+  ensure paid.get' k = paid.get k + fee
+body
+  paid.set k (paid.get k + fee)
+";
+
+#[test]
+fn s5_a_constant_is_its_value_to_the_checker_and_its_name_in_views() {
+    let defs = parse(FEE_SRC);
+    let literal = parse(&FEE_SRC.replace("const fee 5\n", "").replace("+ fee", "+ 5"));
+    // the AST holds the value, so every checker path sees a literal, and the build hash (.why anchor, cache key)
+    // is the literal version's
+    assert_eq!(defs.defs["charge"].hash(), literal.defs["charge"].hash());
+    let six = parse(&FEE_SRC.replace("const fee 5", "const fee 6"));
+    assert_ne!(defs.defs["charge"].hash(), six.defs["charge"].hash(), "a new value must re-hash its users");
+    // the views show the source, so they say what the name means
+    let view = views::spec(&reports(&defs)["charge"], &why::Status::default());
+    assert!(view.contains("\n  const fee 5\n"), "{view}");
+    assert!(view.contains("paid.get k + fee"), "{view}");
+}
+
+#[test]
+fn s5_a_name_that_would_hide_a_constant_is_an_error() {
+    let cases = [
+        ("charge fee:Int\n  ensure 1 = 1\nbody\n  x = fee\n", "the parameter fee"),
+        ("charge k:Int\n  ensure 1 = 1\nbody\n  fee = k\n", "the `let` fee"),
+        ("charge k:Int\n  ensure 1 = 1\nbody\n  for fee from 0 to 3\n    x = k\n", "the loop variable fee"),
+        ("charge k:Int\n  ensure paid.get' k = fee'\nbody\n  paid.set k 5\n", "no after-state"),
+        ("charge k:Int\n  ensure 1 = 1\nbody\n  x = fee k\n", "takes no arguments"),
+        ("fee k:Int\n  ensure 1 = 1\nbody\n  x = k\n", "constant fee has the name of a definition"),
+    ];
+    for (def, want) in cases {
+        let src = format!("const fee 5\n\nstate paid Int\n\n{def}");
+        let e = parse_module(&src, true).expect_err(def);
+        assert!(e.0.contains(want), "{def}: {}", e.0);
+    }
+}
+
+#[test]
+fn s5_a_constant_from_another_module_needs_an_import() {
+    let root = tmp("s5-const-import");
+    let rates = ("rates.k", "const fee 5\n\nstate paid Int\n");
+    let charge = "charge k:Int\n  ok otherwise\n  ensure paid.get' k = paid.get k + fee\nbody\n  paid.set k (paid.get k + fee)\n";
+    let with_import = format!("import rates\n\n{charge}");
+    let dir = write_tree(&root.join("ok"), &[rates, ("app.k", &with_import)], true);
+    let defs = kern::package::load(&dir.join("app.k").to_string_lossy(), &IndexMap::new()).unwrap();
+    assert!(reports(&defs)["charge"].clean);
+    let dir = write_tree(&root.join("bad"), &[rates, ("app.k", "import rates\n"), ("other.k", charge)], true);
+    let e = kern::package::load(&dir.join("app.k").to_string_lossy(), &IndexMap::new()).unwrap_err();
+    assert!(e.0.contains("uses const fee, which rates declares: add `import rates`"), "{}", e.0);
 }
 
 #[test]

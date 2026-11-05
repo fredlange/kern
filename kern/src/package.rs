@@ -259,6 +259,32 @@ pub fn load(path: &str, overrides: &IndexMap<String, String>) -> Result<Module, 
         ["def", "state", "handler", "channel"].iter().map(|k| (k.to_string(), IndexMap::new())).collect();
     let mut mods: Vec<String> = files.keys().cloned().collect();
     mods.sort();
+    // named constants: unique across the package, substituted per file from what that file declares or imports
+    let mut const_origin: IndexMap<String, String> = IndexMap::new();
+    for m in &mods {
+        let (p, defs, _) = &files[m];
+        for (n, v) in &defs.consts {
+            if let Some(other) = const_origin.get(n) {
+                return Err(load_error(p, &format!("const {} is already declared in {}", n, other), None));
+            }
+            const_origin.insert(n.clone(), m.clone());
+            merged.consts.insert(n.clone(), *v);
+        }
+    }
+    for m in &mods {
+        let mut visible_mods: BTreeSet<&str> = imports[m].iter().map(|(n, _)| n.as_str()).collect();
+        visible_mods.insert(m);
+        let (mut visible, mut hidden) = (IndexMap::new(), IndexMap::new());
+        for (n, owner) in &const_origin {
+            if visible_mods.contains(owner.as_str()) {
+                visible.insert(n.clone(), merged.consts[n]);
+            } else {
+                hidden.insert(n.clone(), owner.clone());
+            }
+        }
+        let (p, defs, _) = files.get_mut(m).unwrap();
+        crate::syntax::resolve_consts(defs, &visible, &hidden).map_err(|e| load_error(p, &e.0, None))?;
+    }
     for m in &mods {
         let (p, defs, text) = files.get_mut(m).unwrap();
         let kinds: [(&str, Vec<String>); 3] = [
@@ -290,6 +316,13 @@ pub fn load(path: &str, overrides: &IndexMap<String, String>) -> Result<Module, 
             }
             merged.defs.insert(n.clone(), d.clone());
             origin.get_mut("def").unwrap().insert(n.clone(), m.clone());
+        }
+    }
+    for (n, owner) in &const_origin {
+        let kind = ["def", "state", "handler", "channel"].into_iter().find(|k| origin[*k].contains_key(n));
+        if let Some(kind) = kind {
+            let p = &files[owner].0;
+            return Err(load_error(p, &format!("const {} has the name of a {} in {}", n, kind, origin[kind][n]), None));
         }
     }
     expand_refs(&mut merged).map_err(|e| load_error(&path, &e.0, None))?;

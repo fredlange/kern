@@ -69,10 +69,16 @@ pub fn iface(r: &Report, why: &Status) -> String {
 /// What a caller that must *reason about* the definition reads: interface + guarantees + proof status.
 pub fn spec(r: &Report, why: &Status) -> String {
     let mut lines = vec![iface(r, why)];
+    lines.extend(const_lines(r.def.spec_consts.iter()));
     lines.extend(spec_lines(&r.def).iter().map(|l| format!("  {}", l)));
     lines.extend(body_needs(r).iter().map(|l| format!("  {}", l)));
     lines.push(proof_line(r));
     lines.join("\n")
+}
+
+/// One `  const NAME N` line per named constant the shown source mentions (its value is substituted everywhere else).
+fn const_lines<'a>(cs: impl Iterator<Item = &'a (String, crate::Int)>) -> Vec<String> {
+    cs.map(|(n, v)| format!("  const {} {}", n, v)).collect()
 }
 
 fn need_line(c: &Expr, ctor: &str, args: &[Expr]) -> String {
@@ -113,6 +119,8 @@ pub fn editor(reports: &IndexMap<String, Report>, name: &str, whys: &IndexMap<St
     let r = &reports[name];
     let d = &r.def;
     let mut own = vec![iface(r, &whys[name])];
+    let body_only = d.body_consts.iter().filter(|(n, _)| !d.spec_consts.iter().any(|(s, _)| s == n));
+    own.extend(const_lines(d.spec_consts.iter().chain(body_only)));
     own.extend(d.src_lines["spec"].iter().map(|l| format!("  {}", l)));
     own.push("body".into());
     own.extend(d.src_lines["body"].iter().map(|l| format!("  {}", l)));

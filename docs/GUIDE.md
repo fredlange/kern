@@ -100,6 +100,11 @@ body
 | `spec` | + need, keep, ensure, emit, own `body need` lines, proof status | 77 tokens |
 | `editor` | own full definition + the `spec` view of each callee (never callee bodies) | 251 tokens |
 
+A `const NAME N` the shown source mentions adds a line `  const NAME N` after the interface lines. The checker
+substitutes the value at load time, so lines printed from the checked code (`check` output, `body need` lines,
+expanded `need as`, counterexamples, the proof page) show the value, and changing a constant's value changes the
+build hash of every definition that uses it: their `.why` entries go stale and their `.kern-cache` entries miss.
+
 ## The loop
 
 1. **Write the spec before the body.** Write the `need`s, then `ok otherwise` if callers may

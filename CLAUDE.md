@@ -246,7 +246,10 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
 - Packages (a proposal, roadmap run P): `import a.b` brings a module's names in unqualified; names are unique
   per package; imports reach within one package only (each example app copies its ledger). Missing for
   ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): Accounts as state values, iteration over
-  accounts, variable × variable, named constants, effects that return values, records, text.
+  accounts, variable × variable, effects that return values, records, text.
+- Named constants: `const NAME N` (N ≥ 0) is substituted at load time (`syntax::resolve_consts`), so checker,
+  host and compiled program see a literal; views add `const NAME N` lines. No negative values, no constant
+  expressions, none in `eg` lines. A name that would hide one (parameter, `let`, loop variable) is an error.
 - Application arguments must be atoms; nested calls need parentheses. An open
   design question is whether to parse by arity instead, using known interfaces.
 - The `.why` file is chosen with `--why`, defaulting to `<module>.why`.

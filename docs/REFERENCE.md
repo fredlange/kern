@@ -52,6 +52,7 @@ body
 |---|---|
 | `state NAME Int` or `state NAME Account` | a map to Int (default 0): `NAME.get k` (specs may read it), `NAME.set k v` |
 | `invariant x:Type COND` | COND holds for every key, before and after every call. It may read state only at `x` |
+| `const NAME N` | a named integer (N ≥ 0), usable wherever a literal is (`amount * rate` stays linear). Views add a `const NAME N` line |
 | `channel NAME` | another output stream: `NAME.emit (Ev …)` |
 | `handler a.b p:Int -> Int`, then `need` and `ensure` lines (no body) | an observation inside a call, such as `rand.below n`. Its spec is *assumed*: it may read only its arguments and `result`. Its `need`s are preconditions every call must meet. The host provides the value and checks the spec at runtime |
 

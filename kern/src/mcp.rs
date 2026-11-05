@@ -131,7 +131,7 @@ fn one_def(source: &str) -> T<String> {
     }
     let m = Regex::new(r"^([a-z]\w*)").unwrap().captures(heads[0]).map(|c| c[1].to_string());
     let h = heads[0];
-    let Some(name) = m.filter(|_| !(h.starts_with("state ") || h.starts_with("invariant ") || h.starts_with("channel ")))
+    let Some(name) = m.filter(|_| !["state ", "invariant ", "channel ", "const "].iter().any(|k| h.starts_with(k)))
     else {
         return tool(format!("not a definition header: {}", repr_str(h)));
     };

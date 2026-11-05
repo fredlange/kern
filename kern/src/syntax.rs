@@ -102,6 +102,9 @@ pub struct Def {
     pub module: Option<String>,
     pub file: Option<String>,
     pub line: Option<usize>,
+    /// the named constants (`const NAME N`) the spec / body source mentions, with their values, for views
+    pub spec_consts: Vec<(String, Int)>,
+    pub body_consts: Vec<(String, Int)>,
     raw: Vec<(usize, String, usize)>,
 }
 
@@ -112,6 +115,8 @@ pub struct Module {
     pub invariants: Vec<(String, String, Expr)>,
     pub channels: Vec<String>,
     pub handlers: IndexMap<String, Def>,
+    /// `const NAME N`: substituted into every use at load time (`resolve_consts`), kept for views and checks
+    pub consts: IndexMap<String, Int>,
     /// set by the package loader (kern/package.py's `defs.package`)
     pub package: Option<crate::package::Package>,
 }
@@ -768,6 +773,10 @@ fn handler_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     re(&R, r"^handler ([a-z]\w*(?:\.[a-z]\w*)+)((?:\s+\w+:\w+)*)\s*(?:->\s*(\w+))?\s*$")
 }
+fn const_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    re(&R, r"^const ([a-z]\w*) (\d+)$")
+}
 fn invariant_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     re(&R, r"^invariant ([a-z]\w*):(Int|Account) (.+)$")
@@ -839,6 +848,22 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
                 d.assumed = true;
                 cur = Some((true, d.name.clone()));
                 defs.handlers.insert(d.name.clone(), d);
+                in_body = false;
+                continue;
+            }
+            if line.starts_with("const ") || line == "const" {
+                let Some(m) = const_re().captures(line) else {
+                    return Err(ParseError::at("want `const NAME N` (a lower-case name, a non-negative integer)", no));
+                };
+                if RESERVED.contains(&&m[1]) {
+                    return Err(ParseError::at(format!("`{}` is a keyword and can't name a constant", &m[1]), no));
+                }
+                if defs.consts.contains_key(&m[1]) {
+                    return Err(ParseError::at(format!("constant {} is declared twice", &m[1]), no));
+                }
+                defs.consts.insert(m[1].to_string(), int(&m[2], no)?);
+                finish_cur(&mut defs, &cur)?;
+                cur = None;
                 in_body = false;
                 continue;
             }
@@ -945,6 +970,8 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
     }
     finish_cur(&mut defs, &cur)?;
     if expand {
+        let consts = defs.consts.clone();
+        resolve_consts(&mut defs, &consts, &IndexMap::new())?;
         expand_refs(&mut defs)?;
     }
     Ok(defs)
@@ -966,6 +993,173 @@ pub fn subst(e: &Expr, m: &IndexMap<String, Expr>) -> Expr {
         Expr::App(h, p, args) => Expr::App(h.clone(), *p, args.iter().map(|a| subst(a, m)).collect()),
         _ => e.clone(),
     }
+}
+
+/// Words that can't name a constant: they are keywords, or a constant would hide them.
+const RESERVED: [&str; 18] = [
+    "and", "or", "else", "when", "as", "result", "body", "need", "keep", "ensure", "emit", "eg", "ok", "if", "for",
+    "from", "to", "distinct",
+];
+
+/// Substitutes named constants into a definition, collecting what it used.
+struct Consts<'a> {
+    visible: &'a IndexMap<String, Int>,
+    /// constant -> the module that declares it, for constants this module doesn't import
+    hidden: &'a IndexMap<String, String>,
+    who: String,
+}
+
+impl Consts<'_> {
+    fn is_const(&self, n: &str) -> bool {
+        self.visible.contains_key(n) || self.hidden.contains_key(n)
+    }
+    fn err(&self, msg: String) -> ParseError {
+        ParseError(format!("{}: {}", self.who, msg))
+    }
+    fn binder(&self, n: &str, what: &str) -> PResult<()> {
+        if self.is_const(n) {
+            return Err(self.err(format!("{} {} has the name of a constant; rename it", what, n)));
+        }
+        Ok(())
+    }
+    fn expr(&self, e: &Expr, used: &mut Vec<(String, Int)>) -> PResult<Expr> {
+        Ok(match e {
+            Expr::Int(_) => e.clone(),
+            Expr::Name(n, primed) | Expr::App(n, primed, _) if self.is_const(n) => {
+                if let Some(m) = self.hidden.get(n) {
+                    return Err(self.err(format!("uses const {}, which {} declares: add `import {}`", n, m, m)));
+                }
+                if *primed {
+                    return Err(self.err(format!("`{}'`: a constant has no after-state", n)));
+                }
+                if let Expr::App(..) = e {
+                    return Err(self.err(format!("`{}`: constant {} takes no arguments", code(e), n)));
+                }
+                let v = self.visible[n];
+                if !used.iter().any(|(u, _)| u == n) {
+                    used.push((n.clone(), v));
+                }
+                Expr::Int(v)
+            }
+            Expr::Name(..) => e.clone(),
+            Expr::App(h, p, args) => {
+                Expr::App(h.clone(), *p, args.iter().map(|a| self.expr(a, used)).collect::<PResult<_>>()?)
+            }
+            Expr::Bin(op, l, r) => Expr::Bin(op, Box::new(self.expr(l, used)?), Box::new(self.expr(r, used)?)),
+            Expr::All(j, a, b, x) => {
+                self.binder(j, "the range variable")?;
+                Expr::All(
+                    j.clone(),
+                    Box::new(self.expr(a, used)?),
+                    Box::new(self.expr(b, used)?),
+                    Box::new(self.expr(x, used)?),
+                )
+            }
+        })
+    }
+    fn exprs(&self, es: &[Expr], used: &mut Vec<(String, Int)>) -> PResult<Vec<Expr>> {
+        es.iter().map(|e| self.expr(e, used)).collect()
+    }
+    fn stmts(&self, ss: &[Stmt], used: &mut Vec<(String, Int)>) -> PResult<Vec<Stmt>> {
+        ss.iter()
+            .map(|s| {
+                Ok(match s {
+                    Stmt::Let(x, e) => {
+                        self.binder(x, "the `let`")?;
+                        Stmt::Let(x.clone(), self.expr(e, used)?)
+                    }
+                    Stmt::Need(c, ctor, args) => Stmt::Need(self.expr(c, used)?, ctor.clone(), self.exprs(args, used)?),
+                    Stmt::Do(e) => Stmt::Do(self.expr(e, used)?),
+                    Stmt::If(c, t, o) => Stmt::If(self.expr(c, used)?, self.stmts(t, used)?, self.stmts(o, used)?),
+                    Stmt::For(k, lo, hi, invs, body) => {
+                        self.binder(k, "the loop variable")?;
+                        Stmt::For(
+                            k.clone(),
+                            self.expr(lo, used)?,
+                            self.expr(hi, used)?,
+                            self.exprs(invs, used)?,
+                            self.stmts(body, used)?,
+                        )
+                    }
+                    Stmt::Inv(e) => Stmt::Inv(self.expr(e, used)?),
+                })
+            })
+            .collect()
+    }
+    fn def(&self, d: &mut Def) -> PResult<()> {
+        for (p, _) in &d.params {
+            self.binder(p, "the parameter")?;
+        }
+        let mut used = vec![];
+        let mut needs = vec![];
+        for n in &d.needs {
+            needs.push(match n {
+                Need::Need(c, ctor, args) => Need::Need(self.expr(c, &mut used)?, ctor.clone(), self.exprs(args, &mut used)?),
+                Need::As(callee, args, no) => Need::As(callee.clone(), self.exprs(args, &mut used)?, *no),
+            });
+        }
+        d.needs = needs;
+        d.keeps = self.exprs(&d.keeps, &mut used)?;
+        d.ensures = self.exprs(&d.ensures, &mut used)?;
+        let mut emits = vec![];
+        for ev in &d.emits {
+            let cond = |c: &Option<Expr>, used: &mut Vec<(String, Int)>| -> PResult<Option<Expr>> {
+                c.as_ref().map(|c| self.expr(c, used)).transpose()
+            };
+            emits.push(match ev {
+                Emit::Ev(ctor, args, c) => Emit::Ev(ctor.clone(), self.exprs(args, &mut used)?, cond(c, &mut used)?),
+                Emit::As(callee, args, no, c) => {
+                    Emit::As(callee.clone(), self.exprs(args, &mut used)?, *no, cond(c, &mut used)?)
+                }
+            });
+        }
+        d.emits = emits;
+        d.spec_consts = used;
+        let mut used = vec![];
+        d.body = self.stmts(&d.body, &mut used)?;
+        d.body_consts = used;
+        Ok(())
+    }
+}
+
+/// Replace every use of a named constant (`const NAME N`) by its value, in each definition, handler and module
+/// invariant. `visible`: the constants this module may use; `hidden`: constant -> declaring module, for the
+/// package's other constants (using one is an "add import" error). A name that would hide a constant (parameter,
+/// `let`, loop or range variable, invariant variable) is an error, as is a constant named like a definition,
+/// handler, state or channel.
+pub fn resolve_consts(
+    defs: &mut Module,
+    visible: &IndexMap<String, Int>,
+    hidden: &IndexMap<String, String>,
+) -> PResult<()> {
+    if visible.is_empty() && hidden.is_empty() {
+        return Ok(());
+    }
+    for n in visible.keys().chain(hidden.keys()) {
+        let kind = if defs.defs.contains_key(n) {
+            "a definition"
+        } else if defs.handlers.contains_key(n) {
+            "a handler"
+        } else if defs.states.contains_key(n) {
+            "a state"
+        } else if defs.channels.contains(n) {
+            "a channel"
+        } else {
+            continue;
+        };
+        return Err(ParseError(format!("constant {} has the name of {}", n, kind)));
+    }
+    for d in defs.defs.values_mut().chain(defs.handlers.values_mut()) {
+        Consts { visible, hidden, who: d.name.clone() }.def(d)?;
+    }
+    let mut invs = vec![];
+    for (x, t, c) in &defs.invariants {
+        let k = Consts { visible, hidden, who: format!("invariant {}:{}", x, t) };
+        k.binder(x, "the variable")?;
+        invs.push((x.clone(), t.clone(), k.expr(c, &mut vec![])?));
+    }
+    defs.invariants = invs;
+    Ok(())
 }
 
 /// Replace `need as C args` / `emit as C args` by C's spec needs / emits with C's parameters replaced by args.
