@@ -141,7 +141,8 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   `release()` lets held-back replies go in a random order.
 - **The page:** `kern host page FILE.k --html X` writes the proof page plus a Host
   section: effects, endpoints and assumptions, every line marked *assumed*, none ✔
-  (`render::host_html`, fixed templates).
+  (`render::host_html`, fixed templates). Since S12 the assumptions end with each endpoint's effective
+  deadline (`Request deadlines: Fetch 300 s (the default).`), and the manifest's `net:` line says the same.
 
 **Findings:**
 - **The plan's demo design needed one change to pass item 5.** With only `pending` as a flag, a

@@ -1275,8 +1275,8 @@ pub const NET_ASSUMPTIONS: [&str; 2] = [
      status or anything that isn't an Int becomes the `fail` call. Kern never sees bytes.",
     "A request that no call to its reply or fail definition has answered (returned ok) within its deadline gets its \
      `fail` call, once, as a new top-level call: a reply that never arrives, or one the module refuses. The deadline \
-     is `timeout N` in the host config, default 300 seconds of the recorded clock, checked after each call's replies, \
-     so an idle host fires it at its next call. A reply that arrives later is an ordinary call the module may refuse.",
+     is in seconds of the recorded clock (below), checked after each call's replies, so an idle host fires it at its \
+     next call. A reply that arrives later is an ordinary call the module may refuse.",
 ];
 
 /// The data for render::host_html: effects the module uses, endpoints, assumptions.
@@ -1291,6 +1291,15 @@ pub fn host_facts(host: &Host) -> HostInfo {
     let mut assumptions: Vec<String> = ASSUMPTIONS.iter().map(|s| s.to_string()).collect();
     if !host.endpoints.is_empty() {
         assumptions.extend(NET_ASSUMPTIONS.iter().map(|s| s.to_string()));
+        // the effective values, not the default: the page says what this host will do
+        let deadlines: Vec<String> = eps
+            .iter()
+            .map(|(c, ep)| {
+                let how = if ep.src.split(';').count() == 4 { "" } else { " (the default)" };
+                format!("{} {} s{}", c, ep.timeout, how)
+            })
+            .collect();
+        assumptions.push(format!("Request deadlines: {}.", deadlines.join(", ")));
     }
     HostInfo {
         effects: used.iter().map(|u| (u.clone(), host_effect(u).to_string())).collect(),
@@ -1782,6 +1791,7 @@ mod tests {
         assert_eq!(h.call("request_limit", &[a()]).unwrap()["status"], "ok", "progress: a new request is allowed");
         assert!(h.replay().unwrap().is_empty());
         assert!(manifest_text(&h).contains("reply got_limit, fail limit_failed; no answer within 100s -> limit_failed"));
+        assert!(host_facts(&h).assumptions.contains(&"Request deadlines: Fetch 100 s.".to_string()));
     }
 
     #[test]
@@ -1794,6 +1804,7 @@ mod tests {
         assert_eq!(tick(&mut h), ["got_limit"]);
         assert!((0..10).all(|_| tick(&mut h).is_empty()), "answered: no timeout, ever");
         assert_eq!(h.load().unwrap().maps["limit"][&Key::Str("A".into())], 250);
+        assert!(host_facts(&h).assumptions.contains(&"Request deadlines: Fetch 300 s (the default).".to_string()));
     }
 
     #[test]
