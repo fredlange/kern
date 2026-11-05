@@ -14,6 +14,8 @@ transfer [adca12b4]  All guarantees proven
       survived: `from` → `to` in `audit.emit (TransferDone from to amount clock.now)`
       survived: `to` → `from` in `audit.emit (TransferDone from to amount clock.now)`
       survived: `clock.now` → `0` in `audit.emit (TransferDone from to amount clock.now)`
+  spec refusals: 4/6 changes caught (examples 3, guarantees 1)
+      unpinned: need amount > 0 else BadAmount (dropped, `>` → `>=`)
 
 payout [d8d99a9c]  All guarantees proven
   ✔ keep ledger.total
@@ -23,6 +25,8 @@ payout [d8d99a9c]  All guarantees proven
   spec strength: guarantees 10/12 (prover 10, random tests 6); examples 12/12; together 12/12
       missed: `to` → `house` in `transfer from to amount`   (an example catches it)
       missed: `house` → `to` in `transfer from house fee`   (an example catches it)
+  spec refusals: 0/2 changes caught (examples 0, guarantees 0)
+      unpinned: need fee >= 0 else BadAmount (dropped, `>=` → `>`)
 
 
 $ kern view examples/ledger-tour/ledger_v2.k transfer --as iface   (exit 0)

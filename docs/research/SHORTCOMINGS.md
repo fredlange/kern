@@ -139,15 +139,6 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Fixed when:** `s6_a_guarantee_kills_the_sweep_one_too_many_mutant` (on `advance_subs`; closing it
   means stating the frame in batch.k itself) and `s6_a_sum_invariant_proves` (P).
 
-### S8. Mutants are body-only
-- **Kind:** code gap. **Weakens:** spec strength as a measure.
-- **Evidence:** moving a `need` from the body into the spec removes its mutants. In the ledger tour,
-  transfer goes from 14 mutants to 10, so v6–v7's 10/10 is a smaller denominator, not more
-  strength (examples/ledger-tour/README.md; [FIXES.md](FIXES.md)).
-- **Fixed when:** `s8_spec_need_mutants_are_generated`.
-- **Note:** a mutated spec that is still self-consistent is S3's problem, not this one's. Spec
-  mutants can only be caught by examples, callers' `ok otherwise` or the ratchet.
-
 ### S9. The `why` obligation lint is a keyword heuristic
 - **Kind:** code gap (a measurement, not a test). **Weakens:** F6 (nothing that must be obeyed lives in
   prose).
@@ -254,6 +245,53 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S8. Mutants were body-only
+- **Kind:** code gap. **Closed** 2026-11-05, under delegation.
+- **Was:** moving a `need` from the body into the spec removed its mutants. In the ledger tour, transfer
+  went from 14 mutants to 10, so v6–v7's 10/10 is a smaller denominator, not more strength
+  (examples/ledger-tour/README.md; [FIXES.md](FIXES.md)).
+- **Decided by** F8 (a surviving mutant becomes a guarantee or an example, and strength is measured) and
+  F5 (each number says what it measures). A spec need isn't body: the runtime enforces it from the spec.
+  Mutating it asks a different question: does anything pin the refusal itself? So it gets its own line,
+  **spec refusals**, and the body score keeps its meaning. `.strength` baselines and both digests read only
+  the body score, and are unchanged.
+  - **Mutants:** each spec `need` dropped, and its top-level comparison flipped (`>` → `>=`, `=` → `!=`), as
+    for body mutants. Two per need. The body mutant set would give 58 extra mutants on ledger_v7 and 1,201 on
+    escrow_s3 (against 22 and 605 body mutants), which would roughly triple a full check (bet 1).
+  - **Scoring:** cheapest first, stopping at the first catch: examples, then the prover, then random tests.
+    Callers' proofs (`ok otherwise`) aren't re-run, as for body mutants (modular), so a strengthened need is
+    caught only by an example.
+  - **Output:** `spec refusals: 6/8 changes caught (examples 5, guarantees 1)`, and one `unpinned:` line per
+    need with a surviving change. The page says the same in a paragraph under Spec strength.
+- **Found:**
+  - Across the 18 example modules' goldens, 552 of 772 spec changes are caught: 247 by examples, 305 by
+    guarantees. 220 survive (28%).
+  - In the tour's last step, nothing pins transfer's `need amount > 0` (dropped or `>=`). payout's
+    `ledger.balance from >= amount + fee` survives `>` (no example at the boundary).
+- **Cost (a trade-off, measured):**
+  - Best of three, with HEAD and the new build alternated on this machine:
+
+    | Run | Before | After | Change |
+    |---|---|---|---|
+    | C6 P1 (s per definition) | 0.359 | 0.422 | ×1.17 |
+    | C6 P2 (s per definition) | 0.070 | 0.089 | ×1.28 |
+    | C6 k=6 (s per definition) | 1.235 | 1.354 | ×1.10 |
+    | escrow_s3 `check` (s) | 2.18 | 3.03 | ×1.39 |
+    | ledger_large `check` (s) | 0.148 | 0.181 | ×1.22 |
+    | ledger_v7 `check` (s) | 0.062 | 0.081 | ×1.30 |
+
+    C6's thresholds (1 s per definition; P2 60 s in all) still pass.
+  - **Tokens:** escrow_s3's CLI `check` report grows from 10,220 to 12,834 (+26%), mostly from 84
+    `unpinned:` lines. That counts against C2b's K-full arm. MCP's `kern_check` and the views are unchanged.
+    REFERENCE.md grows by one bullet (2,227 → 2,262 tokens).
+- **Evidence:** `s8_spec_need_mutants_are_generated`, rewritten from a gap test. Its old assertion was on
+  `check::mutants`, which stays body-only by design; it now asserts on `check::spec_mutants` and on
+  `Report.spec_mutation`. Also `s8_a_spec_need_is_pinned_by_an_example_that_expects_the_refusal`.
+  Goldens gain lines only (331 insertions, 0 deletions); 285 tests pass.
+- **What remains:**
+  - The ratchet (`kern baseline`) doesn't record spec refusals, so a drop in them isn't flagged.
+  - A mutated spec that is still self-consistent remains S3's problem.
 
 ### S18. The page showed a body need's source text even when it read post-write state
 - **Kind:** code gap (page wording). **Closed** 2026-11-05, under delegation.

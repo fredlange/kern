@@ -199,9 +199,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
 - `ok otherwise` (opt-in) says a call succeeds whenever its spec needs hold. A caller that
   opts in must restate every refusal (payout's spec view: 97 → 163 tokens); nothing is
   inherited, and every refusing callee must be marked too. Only 1 of 9 existing defs passed
-  with it on by default. Moving a `need` into the spec removes its mutants (mutants are
-  body-only), so v7 transfer's 10/10 is a smaller denominator, not more strength
-  (docs/research/FIXES.md). Without the marker, refusal mutants are caught only by examples. If a
+  with it on by default. Moving a `need` into the spec removes its body mutants, so v7 transfer's 10/10 is a
+  smaller denominator, not more strength (docs/research/FIXES.md); since S8, spec needs get their own mutants
+  (dropped, comparison flipped), reported apart as "spec refusals" (SHORTCOMINGS.md S8). Without the marker, refusal mutants are caught only by examples. If a
   body or callee need contradicts the spec needs outright, the claim shows ∅ "never succeeds"
   rather than ✗ (both red, different wording). A ∅ that rests on something unproven (a refuted loop
   invariant, a callee with a broken spec) shows `!` instead, since the code does succeed (FZ finding 3).

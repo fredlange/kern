@@ -8,6 +8,8 @@ transfer [c7ab3b04]  All guarantees proven
   writes from to
   examples 4/4   random tests 96/500 reached success, 0 violations
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+  spec refusals: 6/8 changes caught (examples 5, guarantees 1)
+      unpinned: need amount > 0 else BadAmount (dropped, `>` → `>=`)
   why 2
       why reads like an obligation (move it to the spec?): same-owner rule: cross-customer transfers must go through payments.send, which runs AML screening
 

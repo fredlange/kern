@@ -12,6 +12,8 @@ transfer [fcb2ea04]  All guarantees proven
       missed: `>=` → `>` in `need have >= amount else Insufficient (amount - have)`   (an example catches it)
       missed: `-` → `+` in payload of `need have >= amount else Insufficient (amount - have)`   (an example catches it)
       survived: `clock.now` → `0` in `audit.emit (TransferDone from to amount clock.now)`
+  spec refusals: 4/6 changes caught (examples 3, guarantees 1)
+      unpinned: need amount > 0 else BadAmount (dropped, `>` → `>=`)
   why 2
       why reads like an obligation (move it to the spec?): same-owner rule: cross-customer transfers must go through payments.send, which runs AML screening
 
@@ -22,6 +24,8 @@ payout [c87360bc]  All guarantees proven
   writes from to house   (no guarantee about the new balance of to, house)
   examples 1/1   random tests 29/500 reached success, 0 violations
   spec strength: guarantees 12/12 (prover 12, random tests 8); examples 12/12; together 12/12
+  spec refusals: 0/2 changes caught (examples 0, guarantees 0)
+      unpinned: need fee >= 0 else BadAmount (dropped, `>=` → `>`)
   why 1
 
 

@@ -37,6 +37,8 @@ draw [12db448c]  Proven, assuming rand.below
       survived: `c` → `pot` in `audit.emit (Won c amount clock.now)`
       survived: `c` → `a` in `audit.emit (Won c amount clock.now)`
       survived: `c` → `b` in `audit.emit (Won c amount clock.now)`
+  spec refusals: 4/5 changes caught (examples 0, guarantees 4)
+      unpinned: need ledger.balance pot >= amount else Insufficient (`>=` → `>`)
 
 == money.ledger  (examples/lottery/money/ledger.k)
 transfer [27367a3f]  All guarantees proven
@@ -48,6 +50,9 @@ transfer [27367a3f]  All guarantees proven
   writes from to
   examples 2/2   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+  spec refusals: 3/6 changes caught (examples 2, guarantees 1)
+      unpinned: need amount > 0 else BadAmount (dropped, `>` → `>=`)
+      unpinned: need ledger.balance from >= amount else Insufficient (`>=` → `>`)
 
 == tickets  (examples/lottery/tickets.k)
 buy_ticket [d1ce6d07]  All guarantees proven
@@ -59,6 +64,9 @@ buy_ticket [d1ce6d07]  All guarantees proven
   writes buyer pot tickets.player   (no guarantee about the new balance of buyer, pot)
   examples 2/2   random tests 327/500 reached success, 0 violations
   spec strength: guarantees 7/7 (prover 7, random tests 7); examples 7/7; together 7/7
+  spec refusals: 3/6 changes caught (examples 1, guarantees 2)
+      unpinned: need 10 > 0 else BadAmount (dropped, `>` → `>=`)
+      unpinned: need ledger.balance buyer >= 10 else Insufficient (`>=` → `>`)
 
 loyalty_bonus [2be98d3c]  All guarantees proven
   ✔ ok otherwise

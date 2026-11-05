@@ -530,16 +530,35 @@ fn s18_a_refusal_whose_pre_state_form_splits_on_aliasing_says_it_reads_the_chang
 // =====================================================================================
 
 #[test]
-#[should_panic(expected = "gap S8 spec mutants:")]
 fn s8_spec_need_mutants_are_generated() {
-    // gap (S8): moving a `need` from the body into the spec removes its mutants. Control first: in the body,
+    // was a gap (S8): moving a `need` from the body into the spec removed its mutants. Spec needs now get their own
+    // (check::spec_mutants: dropped, comparison flipped), reported apart from the body's score. Control: in the body,
     // `k > 0` is mutated.
     let body_need = parse("state cnt Int\n\nbump k:Int\n  ensure cnt.get' k = cnt.get k + 1\nbody\n  need k > 0 else BadKey\n  cnt.set k (cnt.get k + 1)\n");
     let spec_need = parse("state cnt Int\n\nbump k:Int\n  need k > 0 else BadKey\n  ok otherwise\n  ensure cnt.get' k = cnt.get k + 1\nbody\n  cnt.set k (cnt.get k + 1)\n");
     let on_need = |defs: &Module| mutants(&defs.defs["bump"]).into_iter().filter(|(d, _)| d.contains("k > 0")).count();
     assert!(on_need(&body_need) > 0, "control: no body mutant of `k > 0`");
-    let n = on_need(&spec_need);
-    assert!(n > 0, "gap S8 spec mutants: no mutant of the spec's `need k > 0`");
+    let n = kern::check::spec_mutants(&spec_need.defs["bump"]).into_iter().filter(|(d, _)| d.contains("k > 0")).count();
+    assert_eq!(n, 2, "drop it, and `>` → `>=`");
+    // the body's score keeps its meaning: spec mutants are counted apart
+    let r = &analyse(&spec_need, true, None, None).unwrap()["bump"];
+    assert_eq!(r.spec_mutation.as_ref().map(|m| m.total), Some(2));
+}
+
+#[test]
+fn s8_a_spec_need_is_pinned_by_an_example_that_expects_the_refusal() {
+    let src = "state cnt Int\n\nbump k:Int\n  need k > 0 else BadKey\n  ensure cnt.get' k = cnt.get k + 1\nbody\n  cnt.set k (cnt.get k + 1)\n";
+    let score = |src: &str| analyse(&parse(src), true, None, None).unwrap()["bump"].spec_mutation.clone().unwrap();
+    // nothing depends on `k > 0`: both changes survive, and the page lists them
+    let m = score(src);
+    assert_eq!((m.total, m.by_examples + m.by_guarantees), (2, 0), "{m:?}");
+    // an example at the boundary catches both: k = 0 must refuse
+    let m = score(&src.replace("body\n", "  eg | bump 0 -> BadKey\nbody\n"));
+    assert_eq!((m.by_examples, m.survived.len()), (2, 0), "{m:?}");
+    // a guarantee that holds only because of the need catches dropping it (the prover refutes it)
+    let dep = src.replace("  ensure cnt.get' k", "  ensure k >= 1\n  ensure cnt.get' k");
+    let m = score(&dep);
+    assert!(m.by_guarantees >= 1 && !m.survived.iter().any(|(_, cs)| cs.iter().any(|c| c == "dropped")), "{m:?}");
 }
 
 // =====================================================================================

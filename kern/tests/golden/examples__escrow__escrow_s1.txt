@@ -8,6 +8,8 @@ transfer [27367a3f]  All guarantees proven
   writes from to
   examples 4/4   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+  spec refusals: 5/6 changes caught (examples 5, guarantees 0)
+      unpinned: need ledger.balance from >= amount else Insufficient (`>=` → `>`)
 
 move [f812f27e]  All guarantees proven
   ✔ ok otherwise
@@ -18,6 +20,7 @@ move [f812f27e]  All guarantees proven
   writes from to
   examples 3/3   random tests 221/500 reached success, 0 violations
   spec strength: guarantees 7/7 (prover 7, random tests 7); examples 6/7; together 7/7
+  spec refusals: 4/4 changes caught (examples 1, guarantees 3)
 
 reserve [f7259baf]  All guarantees proven
   ✔ ok otherwise
@@ -28,6 +31,8 @@ reserve [f7259baf]  All guarantees proven
   writes buyer escrow
   examples 2/2   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+  spec refusals: 5/6 changes caught (examples 1, guarantees 4)
+      unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
 
 release [28c1a300]  All guarantees proven
   ✔ ok otherwise
@@ -38,6 +43,7 @@ release [28c1a300]  All guarantees proven
   writes escrow buyer
   examples 1/1   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+  spec refusals: 6/6 changes caught (examples 2, guarantees 4)
 
 capture [1faee5c4]  All guarantees proven
   ✔ ok otherwise
@@ -51,6 +57,8 @@ capture [1faee5c4]  All guarantees proven
   writes escrow seller house
   examples 3/3   random tests 24/500 reached success, 0 violations
   spec strength: guarantees 30/30 (prover 30, random tests 28); examples 23/30; together 30/30
+  spec refusals: 5/6 changes caught (examples 1, guarantees 4)
+      unpinned: need ledger.balance escrow >= amount else Insufficient (`>=` → `>`)
 
 purchase [298b4e17]  All guarantees proven
   ✔ ok otherwise
@@ -61,6 +69,8 @@ purchase [298b4e17]  All guarantees proven
   writes buyer escrow seller house   (no guarantee about the new balance of seller, house)
   examples 1/1   random tests 19/500 reached success, 0 violations
   spec strength: guarantees 20/20 (prover 20, random tests 20); examples 20/20; together 20/20
+  spec refusals: 7/8 changes caught (examples 1, guarantees 6)
+      unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
 
 cancel [12c9e4f6]  All guarantees proven
   ✔ ok otherwise
@@ -70,6 +80,7 @@ cancel [12c9e4f6]  All guarantees proven
   writes escrow buyer   (no guarantee about the new balance of escrow)
   examples 1/1   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+  spec refusals: 6/6 changes caught (examples 2, guarantees 4)
 
 refund [80da2224]  All guarantees proven
   ✔ ok otherwise
@@ -81,6 +92,7 @@ refund [80da2224]  All guarantees proven
   examples 2/2   random tests 5/500 reached success, 0 violations
   spec strength: guarantees 41/42 (prover 41, random tests 18); examples 41/42; together 41/42
       survived: `amount` → `part` in `release escrow buyer amount`
+  spec refusals: 5/5 changes caught (examples 1, guarantees 4)
 
 split [43ce7383]  All guarantees proven
   ✔ ok otherwise
@@ -91,6 +103,7 @@ split [43ce7383]  All guarantees proven
   writes escrow a b
   examples 2/2   random tests 24/500 reached success, 0 violations
   spec strength: guarantees 14/14 (prover 14, random tests 14); examples 14/14; together 14/14
+  spec refusals: 4/4 changes caught (examples 1, guarantees 3)
 
 tip [65fb29ac]  All guarantees proven
   ✔ ok otherwise
@@ -100,6 +113,7 @@ tip [65fb29ac]  All guarantees proven
   writes buyer seller   (no guarantee about the new balance of buyer)
   examples 2/2   random tests 221/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+  spec refusals: 4/4 changes caught (examples 1, guarantees 3)
 
 
 $ kern view examples/escrow/escrow_s1.k transfer --as iface   (exit 0)

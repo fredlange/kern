@@ -115,7 +115,8 @@ Each definition gets one status:
 
 `spec strength` is mutation testing of the body:
 - **guarantees** = mutants the proofs and random tests catch, out of all mutants;
-- **missed** lines name what no guarantee pins down.
+- **missed** lines name what no guarantee pins down;
+- **spec refusals**: each spec `need` dropped or its comparison flipped; an `unpinned` one wants an `eg` at its boundary.
 
 ## Example 1: a guarded transfer and a zero-tolerant caller
 

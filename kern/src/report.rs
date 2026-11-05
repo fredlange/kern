@@ -39,6 +39,8 @@ pub struct Report {
     pub handler_sat: IndexMap<String, String>,
     /// measured only when the definition is clean
     pub mutation: Option<Mutation>,
+    /// with `mutation`, when the definition has spec needs (S8)
+    pub spec_mutation: Option<SpecMutation>,
     /// "not measured (--quick)" when clean and not measured
     pub mutation_note: Option<String>,
     pub clean: bool,
@@ -198,9 +200,22 @@ pub struct Mutation {
     pub errors: Vec<String>,
 }
 
+/// S8: changes to the spec's own `need`s (each dropped, each comparison flipped), and what caught them, cheapest
+/// first: an example, else a guarantee (prover, then random tests). Separate from `Mutation`, which measures the
+/// body, so body scores and `.strength` baselines keep their meaning.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpecMutation {
+    pub total: u64,
+    pub by_examples: u64,
+    pub by_guarantees: u64,
+    /// per spec need (its code) the changes nothing caught: "dropped", "`>` → `>=`"
+    pub survived: Vec<(String, Vec<String>)>,
+    pub errors: Vec<String>,
+}
+
 // ================================================================ analyse (report.py)
 
-use crate::check::{mutation_score, proptest, run_examples};
+use crate::check::{mutation_score, proptest, run_examples, spec_mutation_score};
 use crate::infer::{callees, fails, lifted, uses, writes};
 use crate::prove::{handler_sat, Prover};
 use crate::wf::{check_module, WellFormedError};
@@ -514,6 +529,28 @@ pub fn mutation_json(m: &Mutation) -> J {
     })
 }
 
+pub fn spec_mutation_json(m: &SpecMutation) -> J {
+    json!({
+        "total": m.total, "by_examples": m.by_examples, "by_guarantees": m.by_guarantees,
+        "survived": m.survived.iter().map(|(n, cs)| json!([n, cs])).collect::<Vec<_>>(), "errors": m.errors,
+    })
+}
+
+fn spec_mutation_from(j: &J) -> Option<SpecMutation> {
+    let strs = |k: &str| -> Option<Vec<String>> { Some(j[k].as_array()?.iter().filter_map(|x| x.as_str().map(String::from)).collect()) };
+    Some(SpecMutation {
+        total: j["total"].as_u64()?,
+        by_examples: j["by_examples"].as_u64()?,
+        by_guarantees: j["by_guarantees"].as_u64()?,
+        survived: j["survived"]
+            .as_array()?
+            .iter()
+            .map(|x| Some((x[0].as_str()?.to_string(), x[1].as_array()?.iter().filter_map(|c| c.as_str().map(String::from)).collect())))
+            .collect::<Option<Vec<_>>>()?,
+        errors: strs("errors")?,
+    })
+}
+
 fn mutation_from(j: &J) -> Option<Mutation> {
     let strs = |k: &str| -> Option<Vec<String>> { Some(j[k].as_array()?.iter().filter_map(|x| x.as_str().map(String::from)).collect()) };
     Some(Mutation {
@@ -655,6 +692,7 @@ pub fn analyse(
                 assumptions: vec![],
                 handler_sat: IndexMap::new(),
                 mutation: None,
+                spec_mutation: None,
                 mutation_note: None,
                 clean: false,
                 regression: vec![],
@@ -696,7 +734,7 @@ pub fn analyse(
     }
     for name in &names {
         let is_clean = clean_of(&reports[name.as_str()]);
-        let (mut m, mut note) = (None, None);
+        let (mut m, mut note, mut sm) = (None, None, None);
         if is_clean {
             let d = &reports[name.as_str()].def;
             let key = cache_key(defs, d, "mutation");
@@ -709,9 +747,25 @@ pub fn analyse(
             } else {
                 note = Some("not measured (--quick)".to_string());
             }
+            if m.is_some() {
+                let key = cache_key(defs, d, "spec-mutation");
+                // null: no spec needs; an entry that doesn't parse is measured again
+                let hit = cache_get(cache, &key).and_then(|v| match &v["spec_mutation"] {
+                    J::Null => Some(None),
+                    j => spec_mutation_from(j).map(Some),
+                });
+                if let Some(hit) = hit {
+                    sm = hit;
+                } else if mutation {
+                    let got = spec_mutation_score(defs, d, 150);
+                    cache_put(cache, &key, json!({"spec_mutation": got.as_ref().map(spec_mutation_json)}));
+                    sm = got;
+                }
+            }
         }
         let r = reports.get_mut(name.as_str()).unwrap();
         r.mutation = m;
+        r.spec_mutation = sm;
         r.mutation_note = note;
         r.clean = is_clean;
     }

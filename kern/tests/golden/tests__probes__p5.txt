@@ -7,6 +7,9 @@ transfer [e7627586]  All guarantees proven
   writes from to
   examples 0/0   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 0/6; together 6/6
+  spec refusals: 2/6 changes caught (examples 0, guarantees 2)
+      unpinned: need amount > 0 else BadAmount (dropped, `>` → `>=`)
+      unpinned: need ledger.balance from >= amount else Insufficient (dropped, `>=` → `>`)
 
 pay_n [8a9e38b0]  Broken guarantees
   ✗ ok otherwise

@@ -7,6 +7,8 @@ set_price [05298cae]  All guarantees proven
   writes price.item
   examples 2/2   random tests 428/500 reached success, 0 violations
   spec strength: guarantees 3/3 (prover 3, random tests 3); examples 3/3; together 3/3
+  spec refusals: 1/2 changes caught (examples 1, guarantees 0)
+      unpinned: need amount >= 0 else BadPrice (`>=` → `>`)
 
 restock [7129430f]  All guarantees proven
   ✔ ok otherwise
@@ -15,6 +17,8 @@ restock [7129430f]  All guarantees proven
   writes stock.item
   examples 1/1   random tests 408/500 reached success, 0 violations
   spec strength: guarantees 5/5 (prover 5, random tests 5); examples 5/5; together 5/5
+  spec refusals: 1/2 changes caught (examples 0, guarantees 1)
+      unpinned: need n > 0 else BadCount (`>` → `>=`)
 
 restock_range [d9443d18]  All guarantees proven
   ✔ ok otherwise
@@ -29,6 +33,8 @@ restock_range [d9443d18]  All guarantees proven
   spec strength: guarantees 9/11 (prover 9, random tests 9); examples 9/11; together 9/11
       survived: `lo` → `lo - 1` in `for k from lo to hi`
       survived: `hi` → `hi + 1` in `for k from lo to hi`
+  spec refusals: 1/2 changes caught (examples 0, guarantees 1)
+      unpinned: need n > 0 else BadCount (`>` → `>=`)
 
 == inventory.promotions  (examples/shop/inventory/promotions.k)
 discount_range [00907e46]  All guarantees proven
@@ -55,6 +61,9 @@ transfer [27367a3f]  All guarantees proven
   writes from to
   examples 2/2   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+  spec refusals: 3/6 changes caught (examples 2, guarantees 1)
+      unpinned: need amount > 0 else BadAmount (dropped, `>` → `>=`)
+      unpinned: need ledger.balance from >= amount else Insufficient (`>=` → `>`)
 
 == orders  (examples/shop/orders.k)
 buy [da94caa8]  All guarantees proven
@@ -67,6 +76,8 @@ buy [da94caa8]  All guarantees proven
   writes buyer shop stock.item   (no guarantee about the new balance of shop)
   examples 3/3   random tests 31/500 reached success, 0 violations
   spec strength: guarantees 9/9 (prover 9, random tests 9); examples 6/9; together 9/9
+  spec refusals: 7/8 changes caught (examples 3, guarantees 4)
+      unpinned: need ledger.balance buyer >= price.get item else Insufficient (`>=` → `>`)
 
 refund [742f8ee5]  All guarantees proven
   ✔ ok otherwise
@@ -77,6 +88,7 @@ refund [742f8ee5]  All guarantees proven
   writes buyer shop stock.item   (no guarantee about the new balance of buyer, shop)
   examples 1/1   random tests 54/500 reached success, 0 violations
   spec strength: guarantees 9/9 (prover 9, random tests 9); examples 6/9; together 9/9
+  spec refusals: 6/6 changes caught (examples 2, guarantees 4)
 
 
 $ kern view examples/shop set_price --as iface   (exit 0)

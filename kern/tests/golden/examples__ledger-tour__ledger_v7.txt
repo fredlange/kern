@@ -8,6 +8,8 @@ transfer [c7ab3b04]  All guarantees proven
   writes from to
   examples 4/4   random tests 96/500 reached success, 0 violations
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+  spec refusals: 6/8 changes caught (examples 5, guarantees 1)
+      unpinned: need amount > 0 else BadAmount (dropped, `>` → `>=`)
   why 2
       why reads like an obligation (move it to the spec?): same-owner rule: cross-customer transfers must go through payments.send, which runs AML screening
 
@@ -19,6 +21,8 @@ payout [9fc4efd1]  All guarantees proven
   writes from to house   (no guarantee about the new balance of to, house)
   examples 1/1   random tests 29/500 reached success, 0 violations
   spec strength: guarantees 12/12 (prover 12, random tests 12); examples 12/12; together 12/12
+  spec refusals: 4/5 changes caught (examples 0, guarantees 4)
+      unpinned: need ledger.balance from >= amount + fee else Insufficient (`>=` → `>`)
   why 1
 
 

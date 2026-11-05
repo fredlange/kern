@@ -462,6 +462,9 @@ pub fn card(r: &Report, defs: &Module, why: &Status) -> String {
                     items
                 ));
             }
+            if let Some(sm) = &r.spec_mutation {
+                out.push(spec_mutation_html(sm));
+            }
         }
         None => out.push(
             "<h3>Spec strength</h3><p class='muted'>Not measured until every guarantee holds.</p>".into(),
@@ -772,6 +775,21 @@ pub fn terminal(reports: &IndexMap<String, Report>, defs: &Module, whys: &IndexM
                     if *ex { "   (an example catches it)" } else { "" }
                 ));
             }
+            if let Some(sm) = &r.spec_mutation {
+                out.push(format!(
+                    "  spec refusals: {}/{} changes caught (examples {}, guarantees {})",
+                    sm.by_examples + sm.by_guarantees,
+                    sm.total,
+                    sm.by_examples,
+                    sm.by_guarantees
+                ));
+                for (n, cs) in &sm.survived {
+                    out.push(format!("      unpinned: {n} ({})", cs.join(", ")));
+                }
+                for e in &sm.errors {
+                    out.push(format!("      crashed (not counted): {e}"));
+                }
+            }
             for e in &m.errors {
                 out.push(format!("      checker error: {}", e));
             }
@@ -828,4 +846,30 @@ fn simplify(e: &crate::syntax::Expr) -> crate::syntax::Expr {
         Expr::App(n, p, args) => Expr::App(n.clone(), *p, args.iter().map(simplify).collect()),
         _ => e.clone(),
     }
+}
+
+/// S8's line on the page: changes to the spec's own needs, and what caught them.
+fn spec_mutation_html(sm: &crate::report::SpecMutation) -> String {
+    let mut out = format!(
+        "<p>Refusals in the spec: {}/{} changes caught, by examples {}, by guarantees {}. <span class='muted'>Each \
+         spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, \
+         not the body; callers' proofs aren't re-run.</span></p>",
+        sm.by_examples + sm.by_guarantees,
+        sm.total,
+        sm.by_examples,
+        sm.by_guarantees
+    );
+    if !sm.survived.is_empty() {
+        let items: String =
+            sm.survived.iter().map(|(n, cs)| format!("<li><code>{}</code>: {}</li>", escape(n), escape(&cs.join("; ")))).collect();
+        out.push_str(&format!(
+            "<p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p>\
+             <ul class='ex'>{items}</ul>"
+        ));
+    }
+    if !sm.errors.is_empty() {
+        let items: String = sm.errors.iter().map(|e| format!("<li>{}</li>", escape(e))).collect();
+        out.push_str(&format!("<p class='failc'>The checker crashed on these (not counted):</p><ul class='ex'>{items}</ul>"));
+    }
+    out
 }

@@ -9,6 +9,9 @@ transfer [27367a3f]  All guarantees proven
   writes from to
   examples 1/1   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+  spec refusals: 4/6 changes caught (examples 1, guarantees 3)
+      unpinned: need amount > 0 else BadAmount (`>` → `>=`)
+      unpinned: need ledger.balance from >= amount else Insufficient (`>=` → `>`)
 
 sweep_expired [169ca2c8]  All guarantees proven
   ✔ keep ledger.total
@@ -45,6 +48,8 @@ sweep_expired [169ca2c8]  All guarantees proven
       missed: drop `transfer escrow pool (hold.get k)`   (an example catches it)
       missed: `escrow` → `pool` in `transfer escrow pool (hold.get k)`   (an example catches it)
       missed: `pool` → `escrow` in `transfer escrow pool (hold.get k)`   (an example catches it)
+  spec refusals: 1/2 changes caught (examples 1, guarantees 0)
+      unpinned: need escrow != pool else SameAccount (dropped)
 
 advance_subs [b30bf85e]  All guarantees proven
   ✔ ok otherwise
@@ -84,6 +89,9 @@ installments [b4d63a09]  All guarantees proven
   audit: events emitted inside a loop are not described by any spec (no per-iteration emit form yet)
   examples 2/2   random tests 90/500 reached success, 0 violations
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 10/10; together 10/10
+  spec refusals: 4/6 changes caught (examples 1, guarantees 3)
+      unpinned: need n >= 0 else BadCount (`>=` → `>`)
+      unpinned: need ledger.balance buyer >= 10 * n else Insufficient (`>=` → `>`)
 
 sweep_elsewhere [dba518cc]  All guarantees proven
   ✔ keep ledger.total
@@ -97,6 +105,8 @@ sweep_elsewhere [dba518cc]  All guarantees proven
       missed: `lo` → `hi` in `sweep_expired escrow pool lo hi`   (an example catches it)
       missed: `hi` → `lo` in `sweep_expired escrow pool lo hi`   (an example catches it)
       survived: `hi` → `other` in `sweep_expired escrow pool lo hi`
+  spec refusals: 2/3 changes caught (examples 1, guarantees 1)
+      unpinned: need escrow != pool else SameAccount (dropped)
 
 
 $ kern view examples/batch/batch.k transfer --as iface   (exit 0)

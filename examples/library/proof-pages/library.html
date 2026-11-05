@@ -30,6 +30,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 408 succeeded and were checked against every guarantee; refused: BadCount 92.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 5/5 deliberate bugs (100%)</span></h3><p>Caught by the prover: 5; by random tests checking the guarantees: 5. The examples alone catch 5/5; everything together 5/5.</p>
+<p>Refusals in the spec: 1/2 changes caught, by examples 0, by guarantees 1. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need n &gt; 0 else BadCount</code>: `&gt;` → `&gt;=`</li></ul>
 </section>
 <section class="card"><header><h2><code>assess</code><span class="muted"> in fines</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 1bd51bbc</span></header>
 <h3>Can touch</h3><p>the clock, state <code>due</code> (read only), state <code>fine</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
@@ -76,6 +77,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 48 succeeded and were checked against every guarantee; refused: NoFine 424, SameAccount 27, Insufficient 1.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 5/5 deliberate bugs (100%)</span></h3><p>Caught by the prover: 5; by random tests checking the guarantees: 5. The examples alone catch 5/5; everything together 5/5.</p>
+<p>Refusals in the spec: 5/8 changes caught, by examples 3, by guarantees 2. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need fine.get loan &gt; 0 else BadAmount</code>: dropped; `&gt;` → `&gt;=`</li><li><code>need ledger.balance member &gt;= fine.get loan else Insufficient</code>: `&gt;=` → `&gt;`</li></ul>
 <h3>Relies on</h3><p><code>transfer</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>borrow</code><span class="muted"> in loans</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 1d4b021b</span></header>
@@ -97,6 +99,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 62 succeeded and were checked against every guarantee; refused: NoCopy 341, LoanExists 97.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 17/17 deliberate bugs (100%)</span></h3><p>Caught by the prover: 17; by random tests checking the guarantees: 17. The examples alone catch 13/17; everything together 17/17.</p>
+<p>Refusals in the spec: 4/6 changes caught, by examples 3, by guarantees 1. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need due.get loan = 0 else LoanExists</code>: dropped</li><li><code>need clock.now &gt;= 0 else BadClock</code>: `&gt;=` → `&gt;`</li></ul>
 </section>
 <section class="card"><header><h2><code>give_back</code><span class="muted"> in loans</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build f1ab4b2e</span></header>
 <h3>Can touch</h3><p>the audit log, the clock, state <code>copies</code> (read and write), state <code>due</code> (read and write), state <code>lent</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
@@ -116,6 +119,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 1 succeeded and were checked against every guarantee; refused: NoLoan 403, WrongBook 96.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 12/12 deliberate bugs (100%)</span></h3><p>Caught by the prover: 12; by random tests checking the guarantees: 0. The examples alone catch 7/12; everything together 12/12.</p>
+<p>Refusals in the spec: 2/4 changes caught, by examples 2, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need due.get loan &gt; 0 else NoLoan</code>: dropped; `&gt;` → `&gt;=`</li></ul>
 </section>
 <section class="card"><header><h2><code>transfer</code><span class="muted"> in money.ledger</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 27367a3f</span></header>
 <h3>Can touch</h3><p>the audit log, the clock, the ledger (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
@@ -134,4 +138,5 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 207 succeeded and were checked against every guarantee; refused: SameAccount 122, BadAmount 91, Insufficient 80.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 10/10 deliberate bugs (100%)</span></h3><p>Caught by the prover: 10; by random tests checking the guarantees: 10. The examples alone catch 6/10; everything together 10/10.</p>
+<p>Refusals in the spec: 3/6 changes caught, by examples 2, by guarantees 1. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need amount &gt; 0 else BadAmount</code>: dropped; `&gt;` → `&gt;=`</li><li><code>need ledger.balance from &gt;= amount else Insufficient</code>: `&gt;=` → `&gt;`</li></ul>
 </section></main></body></html>

@@ -7,9 +7,9 @@ use crate::infer::{relevant_states, uses};
 use crate::prove::Prover;
 use crate::pyrandom::Random;
 use crate::pyrepr::Py;
-use crate::report::{ExampleResult, Mutation, Props, Status, Violation};
+use crate::report::{ExampleResult, Mutation, Props, SpecMutation, Status, Violation};
 use crate::run::{Interp, Outcome as RunOutcome, RunError, Value, World};
-use crate::syntax::{code, stmt_code, Def, Expr, Key, Module, Outcome, Stmt};
+use crate::syntax::{code, stmt_code, Def, Expr, Key, Module, Need, Outcome, Stmt};
 use crate::wf::problems;
 use crate::Int;
 
@@ -456,32 +456,35 @@ fn score_one(defs: &Module, d: &Def, body: &[Stmt], n_props: u64) -> Scored {
     }
 }
 
+/// `f` over `items` on `mutation_jobs()` threads, results in item order (so the report is the serial one). A pool
+/// of threads takes items by index. Big stacks, as the fuzzer's: the interpreter and prover recurse.
+fn pool<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let jobs = mutation_jobs().min(items.len().max(1));
+    if jobs <= 1 {
+        return items.iter().map(f).collect();
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let slots: Vec<std::sync::Mutex<Option<R>>> = items.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    std::thread::scope(|sc| {
+        for _ in 0..jobs {
+            std::thread::Builder::new()
+                .stack_size(256 << 20)
+                .spawn_scoped(sc, || loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if i >= items.len() {
+                        break;
+                    }
+                    *slots[i].lock().unwrap() = Some(f(&items[i]));
+                })
+                .expect("spawn a mutation thread");
+        }
+    });
+    slots.into_iter().map(|s| s.into_inner().unwrap().expect("every item scored")).collect()
+}
+
 pub fn mutation_score(defs: &Module, d: &Def, n_props: u64) -> Mutation {
     let ms = mutants(d);
-    let jobs = mutation_jobs().min(ms.len().max(1));
-    let scored: Vec<Scored> = if jobs <= 1 {
-        ms.iter().map(|(_, body)| score_one(defs, d, body, n_props)).collect()
-    } else {
-        // A pool of `jobs` threads takes mutants by index; results are put back in mutant order, so the report
-        // is the same as the serial one. Big stacks, as the fuzzer's: the interpreter and prover recurse.
-        let next = std::sync::atomic::AtomicUsize::new(0);
-        let slots: Vec<std::sync::Mutex<Option<Scored>>> = ms.iter().map(|_| std::sync::Mutex::new(None)).collect();
-        std::thread::scope(|sc| {
-            for _ in 0..jobs {
-                std::thread::Builder::new()
-                    .stack_size(256 << 20)
-                    .spawn_scoped(sc, || loop {
-                        let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        if i >= ms.len() {
-                            break;
-                        }
-                        *slots[i].lock().unwrap() = Some(score_one(defs, d, &ms[i].1, n_props));
-                    })
-                    .expect("spawn a mutation thread");
-            }
-        });
-        slots.into_iter().map(|s| s.into_inner().unwrap().expect("every mutant scored")).collect()
-    };
+    let scored: Vec<Scored> = pool(&ms, |(_, body)| score_one(defs, d, body, n_props));
     let (mut rows, mut ill_formed, mut errors) = (vec![], vec![], vec![]);
     for ((desc, _), s) in ms.into_iter().zip(scored) {
         match s {
@@ -503,4 +506,96 @@ pub fn mutation_score(defs: &Module, d: &Def, n_props: u64) -> Mutation {
         ill_formed,
         errors,
     }
+}
+
+// ---- spec-need mutants (SHORTCOMINGS S8) ----------------------------------------------------------------------
+
+/// Mutants of d's spec `need`s: each one dropped, and each top-level comparison flipped (`>` → `>=`, `=` → `!=`,
+/// as for body mutants). The body stays. A spec need is enforced by the runtime, not written in the body, so these
+/// don't measure the body: they ask whether anything pins the refusal itself (an `eg` that expects it, or a
+/// guarantee that depends on it). Two per need, to keep a full check cheap: body needs get more.
+pub fn spec_mutants(d: &Def) -> Vec<(String, Def)> {
+    spec_mutants_by_need(d).into_iter().map(|(n, c, m)| (format!("{c} in the spec's `{n}`"), m)).collect()
+}
+
+/// (the need's code, the change, the mutated definition)
+fn spec_mutants_by_need(d: &Def) -> Vec<(String, String, Def)> {
+    let mut out = vec![];
+    for (i, n) in d.needs.iter().enumerate() {
+        let Need::Need(c, k, a) = n else { continue };
+        let sc = format!("need {} else {}", code(c), k);
+        let mut dropped = d.clone();
+        dropped.needs.remove(i);
+        out.push((sc.clone(), "dropped".to_string(), dropped));
+        if let Expr::Bin(op, l, r) = c {
+            if let Some(f) = swap(op).filter(|_| matches!(*op, ">" | ">=" | "<" | "<=" | "=" | "!=")) {
+                let mut m = d.clone();
+                m.needs[i] = Need::Need(Expr::Bin(f, l.clone(), r.clone()), k.clone(), a.clone());
+                out.push((sc.clone(), format!("`{op}` → `{f}`"), m));
+            }
+        }
+    }
+    out
+}
+
+enum SpecScored {
+    IllFormed,
+    Examples,
+    Guarantees,
+    Survived,
+    Error(String),
+}
+
+/// One spec mutant, cheapest check first, stopping at the first that catches it: examples, then the prover, then
+/// random tests. Callers' proofs (`ok otherwise`) aren't re-run: modular, as for body mutants.
+fn score_spec_one(defs: &Module, md: &Def, n_props: u64) -> SpecScored {
+    let mdefs = defs.with_def(md.clone());
+    if !problems(&mdefs, md).is_empty() {
+        return SpecScored::IllFormed;
+    }
+    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<SpecScored, Crash> {
+        if !run_examples(&mdefs, md)?.iter().all(|r| r.pass) {
+            return Ok(SpecScored::Examples);
+        }
+        let (gs, _) = Prover::new(&mdefs).prove(md, true);
+        if gs.iter().any(|g| matches!(g.status, Status::Refuted | Status::Vacuous)) {
+            return Ok(SpecScored::Guarantees);
+        }
+        if !proptest(&mdefs, md, n_props, 7)?.violations.is_empty() {
+            return Ok(SpecScored::Guarantees);
+        }
+        Ok(SpecScored::Survived)
+    }));
+    match run {
+        Ok(Ok(s)) => s,
+        Ok(Err(Crash(t, m))) => SpecScored::Error(format!("{t}: {m}")),
+        Err(p) => SpecScored::Error(format!("Panic: {}", panic_text(p))),
+    }
+}
+
+/// S8: how many changes to d's spec needs something catches. None when d has no spec need.
+pub fn spec_mutation_score(defs: &Module, d: &Def, n_props: u64) -> Option<SpecMutation> {
+    let ms = spec_mutants_by_need(d);
+    if ms.is_empty() {
+        return None;
+    }
+    let scored = pool(&ms, |(_, _, md)| score_spec_one(defs, md, n_props));
+    let mut m = SpecMutation { total: 0, by_examples: 0, by_guarantees: 0, survived: vec![], errors: vec![] };
+    for ((need, change, _), s) in ms.into_iter().zip(scored) {
+        match s {
+            SpecScored::IllFormed => continue,
+            SpecScored::Examples => m.by_examples += 1,
+            SpecScored::Guarantees => m.by_guarantees += 1,
+            SpecScored::Survived => match m.survived.iter_mut().find(|(n, _)| *n == need) {
+                Some((_, cs)) => cs.push(change),
+                None => m.survived.push((need, vec![change])),
+            },
+            SpecScored::Error(e) => {
+                m.errors.push(format!("{change} in the spec's `{need}`: {e}"));
+                continue;
+            }
+        }
+        m.total += 1;
+    }
+    Some(m)
 }

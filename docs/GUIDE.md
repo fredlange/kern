@@ -86,6 +86,7 @@ body
 | Trust | a modular proof is downgraded if a callee's guarantees are broken |
 | Counterexamples | rendered as `eg` lines and replayed in the interpreter; only a replayed one counts as ✗ |
 | Spec strength | mutation testing of the body. The headline is what the *guarantees* catch; examples are reported separately |
+| Spec refusals | each spec `need` dropped, and its comparison flipped; caught by an example, else a guarantee (cheapest first). `unpinned` lists the needs nothing pins; an `eg` at the boundary fixes it. Callers' proofs aren't re-run |
 | Ratchet | `kern baseline FILE.k` records strength and guarantees; `check` flags "Weaker than baseline" |
 | Proof page | fixed templates over the results. No model-written text |
 
@@ -328,6 +329,7 @@ The `kern` crate (`kern/`) is a library as well as the binary. The AST is plain 
 | `kern::check::run_examples` | run a definition's `eg` lines |
 | `kern::check::proptest` | random tests of a definition's guarantees |
 | `kern::check::mutation_score` | spec strength |
+| `kern::check::spec_mutation_score` | spec refusals (S8): `Report.spec_mutation` |
 | `kern::infer::uses` | inferred effects |
 | `kern::infer::fails` | inferred failures |
 | `kern::infer::writes` | inferred written balances and state |

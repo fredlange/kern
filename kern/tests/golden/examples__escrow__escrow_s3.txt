@@ -45,6 +45,8 @@ transfer [27367a3f]  All guarantees proven
   writes from to
   examples 4/4   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+  spec refusals: 5/6 changes caught (examples 5, guarantees 0)
+      unpinned: need ledger.balance from >= amount else Insufficient (`>=` → `>`)
 
 move [f812f27e]  All guarantees proven
   ✔ ok otherwise
@@ -56,6 +58,7 @@ move [f812f27e]  All guarantees proven
   writes from to
   examples 3/3   random tests 221/500 reached success, 0 violations
   spec strength: guarantees 7/7 (prover 7, random tests 7); examples 6/7; together 7/7
+  spec refusals: 4/4 changes caught (examples 1, guarantees 3)
 
 reserve [f7259baf]  All guarantees proven
   ✔ ok otherwise
@@ -67,6 +70,8 @@ reserve [f7259baf]  All guarantees proven
   writes buyer escrow
   examples 2/2   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+  spec refusals: 5/6 changes caught (examples 1, guarantees 4)
+      unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
 
 release [28c1a300]  All guarantees proven
   ✔ ok otherwise
@@ -78,6 +83,7 @@ release [28c1a300]  All guarantees proven
   writes escrow buyer
   examples 1/1   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+  spec refusals: 6/6 changes caught (examples 2, guarantees 4)
 
 capture [fe412ad6]  All guarantees proven
   ✔ ok otherwise
@@ -90,6 +96,8 @@ capture [fe412ad6]  All guarantees proven
   writes escrow seller house
   examples 4/4   random tests 69/500 reached success, 0 violations
   spec strength: guarantees 24/24 (prover 24, random tests 24); examples 20/24; together 24/24
+  spec refusals: 4/5 changes caught (examples 1, guarantees 3)
+      unpinned: need ledger.balance escrow >= amount else Insufficient (`>=` → `>`)
 
 purchase [f15444ee]  All guarantees proven
   ✔ ok otherwise
@@ -101,6 +109,8 @@ purchase [f15444ee]  All guarantees proven
   writes buyer escrow seller house   (no guarantee about the new balance of seller, house)
   examples 1/1   random tests 36/500 reached success, 0 violations
   spec strength: guarantees 17/17 (prover 17, random tests 17); examples 17/17; together 17/17
+  spec refusals: 6/7 changes caught (examples 1, guarantees 5)
+      unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
 
 cancel [12c9e4f6]  All guarantees proven
   ✔ ok otherwise
@@ -111,6 +121,7 @@ cancel [12c9e4f6]  All guarantees proven
   writes escrow buyer   (no guarantee about the new balance of escrow)
   examples 1/1   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+  spec refusals: 6/6 changes caught (examples 2, guarantees 4)
 
 refund [1e4ab4c6]  All guarantees proven
   ✔ ok otherwise
@@ -123,6 +134,7 @@ refund [1e4ab4c6]  All guarantees proven
   examples 2/2   random tests 0/500 reached success, 0 violations
   spec strength: guarantees 33/34 (prover 33, random tests 0); examples 33/34; together 33/34
       survived: `amount` → `part` in `release escrow buyer amount`
+  spec refusals: 4/4 changes caught (examples 1, guarantees 3)
 
 split [e0a17086]  All guarantees proven
   ✔ ok otherwise
@@ -135,6 +147,7 @@ split [e0a17086]  All guarantees proven
   writes escrow a b
   examples 2/2   random tests 24/500 reached success, 0 violations
   spec strength: guarantees 14/14 (prover 14, random tests 14); examples 14/14; together 14/14
+  spec refusals: 4/4 changes caught (examples 1, guarantees 3)
 
 tip [0a3bb90f]  All guarantees proven
   ✔ ok otherwise
@@ -146,6 +159,7 @@ tip [0a3bb90f]  All guarantees proven
   writes buyer seller
   examples 2/2   random tests 221/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+  spec refusals: 4/4 changes caught (examples 1, guarantees 3)
 
 open_order [d606d59e]  All guarantees proven
   ✔ ok otherwise
@@ -160,6 +174,8 @@ open_order [d606d59e]  All guarantees proven
   writes buyer escrow hold.id
   examples 3/3   random tests 79/500 reached success, 0 violations
   spec strength: guarantees 11/11 (prover 11, random tests 11); examples 7/11; together 11/11
+  spec refusals: 9/10 changes caught (examples 5, guarantees 4)
+      unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
 
 capture_order [52085654]  All guarantees proven
   ✔ ok otherwise
@@ -176,6 +192,9 @@ capture_order [52085654]  All guarantees proven
   writes escrow seller house captured.id hold.id   (no guarantee about the new balance of house)
   examples 3/3   random tests 7/500 reached success, 0 violations
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 10/10; together 10/10
+  spec refusals: 6/9 changes caught (examples 4, guarantees 2)
+      unpinned: need hold.get id > 0 else BadAmount (dropped, `>` → `>=`)
+      unpinned: need ledger.balance escrow >= hold.get id else Insufficient (`>=` → `>`)
 
 cancel_order [0e853947]  All guarantees proven
   ✔ ok otherwise
@@ -189,6 +208,10 @@ cancel_order [0e853947]  All guarantees proven
   writes escrow buyer hold.id   (no guarantee about the new balance of escrow)
   examples 1/1   random tests 24/500 reached success, 0 violations
   spec strength: guarantees 5/5 (prover 5, random tests 5); examples 5/5; together 5/5
+  spec refusals: 5/10 changes caught (examples 3, guarantees 2)
+      unpinned: need hold.get id > 0 else NoOrder (dropped, `>` → `>=`)
+      unpinned: need disputed.get id = 0 else Disputed (dropped)
+      unpinned: need hold.get id > 0 else BadAmount (dropped, `>` → `>=`)
 
 refund_order [8347fea4]  All guarantees proven
   ✔ ok otherwise
@@ -202,6 +225,9 @@ refund_order [8347fea4]  All guarantees proven
   writes escrow buyer seller house hold.id   (no guarantee about the new balance of escrow, seller, house)
   examples 1/1   random tests 0/500 reached success, 0 violations
   spec strength: guarantees 18/18 (prover 18, random tests 0); examples 18/18; together 18/18
+  spec refusals: 5/8 changes caught (examples 2, guarantees 3)
+      unpinned: need hold.get id > 0 else NoOrder (dropped, `>` → `>=`)
+      unpinned: need disputed.get id = 0 else Disputed (dropped)
 
 open_dispute [c9390920]  All guarantees proven
   ✔ ok otherwise
@@ -213,6 +239,8 @@ open_dispute [c9390920]  All guarantees proven
   writes disputed.id
   examples 2/2   random tests 35/500 reached success, 0 violations
   spec strength: guarantees 4/4 (prover 4, random tests 4); examples 2/4; together 4/4
+  spec refusals: 3/4 changes caught (examples 3, guarantees 0)
+      unpinned: need disputed.get id = 0 else Disputed (dropped)
 
 resolve_for_buyer [d5cfabae]  All guarantees proven
   ✔ ok otherwise
@@ -227,6 +255,8 @@ resolve_for_buyer [d5cfabae]  All guarantees proven
   writes escrow buyer disputed.id hold.id   (no guarantee about the new balance of escrow)
   examples 1/1   random tests 13/500 reached success, 0 violations
   spec strength: guarantees 9/9 (prover 9, random tests 9); examples 7/9; together 9/9
+  spec refusals: 7/8 changes caught (examples 3, guarantees 4)
+      unpinned: need disputed.get id = 1 else NotDisputed (dropped)
 
 resolve_for_seller [9a3b6892]  All guarantees proven
   ✔ ok otherwise
@@ -241,6 +271,9 @@ resolve_for_seller [9a3b6892]  All guarantees proven
   writes escrow seller house disputed.id hold.id   (no guarantee about the new balance of seller, house)
   examples 1/1   random tests 6/500 reached success, 0 violations
   spec strength: guarantees 13/13 (prover 13, random tests 13); examples 9/13; together 13/13
+  spec refusals: 5/7 changes caught (examples 1, guarantees 4)
+      unpinned: need disputed.get id = 1 else NotDisputed (dropped)
+      unpinned: need ledger.balance escrow >= hold.get id else Insufficient (`>=` → `>`)
 
 resolve_split [dcd599c7]  All guarantees proven
   ✔ ok otherwise
@@ -256,6 +289,8 @@ resolve_split [dcd599c7]  All guarantees proven
   writes escrow buyer seller disputed.id hold.id   (no guarantee about the new balance of escrow)
   examples 1/1   random tests 1/500 reached success, 0 violations
   spec strength: guarantees 18/18 (prover 18, random tests 0); examples 12/18; together 18/18
+  spec refusals: 5/6 changes caught (examples 2, guarantees 3)
+      unpinned: need disputed.get id = 1 else NotDisputed (dropped)
 
 set_limit [7496f246]  All guarantees proven
   ✔ ok otherwise
@@ -264,6 +299,8 @@ set_limit [7496f246]  All guarantees proven
   writes limit.a
   examples 1/1   random tests 422/500 reached success, 0 violations
   spec strength: guarantees 1/1 (prover 1, random tests 1); examples 1/1; together 1/1
+  spec refusals: 0/2 changes caught (examples 0, guarantees 0)
+      unpinned: need n >= 0 else BadLimit (dropped, `>=` → `>`)
 
 freeze [b3972af7]  All guarantees proven
   ✔ ok otherwise
@@ -294,6 +331,10 @@ withdraw [20495466]  All guarantees proven
   writes a bank spent.a
   examples 3/3   random tests 7/500 reached success, 0 violations
   spec strength: guarantees 7/7 (prover 7, random tests 7); examples 6/7; together 7/7
+  spec refusals: 9/12 changes caught (examples 5, guarantees 4)
+      unpinned: need frozen.get a = 0 else Frozen (dropped)
+      unpinned: need spent.get a + amount <= limit.get a else OverLimit (`<=` → `<`)
+      unpinned: need ledger.balance a >= amount else Insufficient (`>=` → `>`)
 
 reset_day [36d79103]  All guarantees proven
   ✔ ok otherwise
@@ -313,6 +354,9 @@ payout_seller [5af1ba5e]  All guarantees proven
   writes seller bank spent.seller   (no guarantee about the new balance of bank)
   examples 1/1   random tests 7/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+  spec refusals: 10/12 changes caught (examples 3, guarantees 7)
+      unpinned: need spent.get seller + amount <= limit.get seller else OverLimit (`<=` → `<`)
+      unpinned: need ledger.balance seller >= amount else Insufficient (`>=` → `>`)
 
 deposit [48c57699]  All guarantees proven
   ✔ ok otherwise
@@ -323,6 +367,8 @@ deposit [48c57699]  All guarantees proven
   writes bank a   (no guarantee about the new balance of bank)
   examples 1/1   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+  spec refusals: 5/6 changes caught (examples 1, guarantees 4)
+      unpinned: need ledger.balance bank >= amount else Insufficient (`>=` → `>`)
 
 purchase_order [05a3f601]  All guarantees proven
   ✔ ok otherwise
@@ -338,6 +384,8 @@ purchase_order [05a3f601]  All guarantees proven
   writes buyer escrow seller house captured.id hold.id   (no guarantee about the new balance of seller, house, captured.id)
   examples 1/1   random tests 21/500 reached success, 0 violations
   spec strength: guarantees 20/20 (prover 20, random tests 20); examples 20/20; together 20/20
+  spec refusals: 12/13 changes caught (examples 4, guarantees 8)
+      unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
 
 verify [431233e0]  All guarantees proven
   ✔ ok otherwise
@@ -377,6 +425,9 @@ redeem_points [8dab20bc]  All guarantees proven
   writes a house points.a   (no guarantee about the new balance of house)
   examples 2/2   random tests 45/500 reached success, 0 violations
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 7/10; together 10/10
+  spec refusals: 6/8 changes caught (examples 2, guarantees 4)
+      unpinned: need points.get a >= n else NotEnoughPoints (`>=` → `>`)
+      unpinned: need ledger.balance house >= n else Insufficient (`>=` → `>`)
 
 clear_points [6e3a08ae]  All guarantees proven
   ✔ ok otherwise
@@ -396,6 +447,9 @@ transfer_points [e04aa6a5]  All guarantees proven
   writes points.a points.b
   examples 1/1   random tests 45/500 reached success, 0 violations
   spec strength: guarantees 8/8 (prover 8, random tests 8); examples 8/8; together 8/8
+  spec refusals: 4/6 changes caught (examples 1, guarantees 3)
+      unpinned: need n > 0 else BadAmount (`>` → `>=`)
+      unpinned: need points.get a >= n else NotEnoughPoints (`>=` → `>`)
 
 purchase_earning [5e54f141]  All guarantees proven
   ✔ ok otherwise
@@ -408,6 +462,8 @@ purchase_earning [5e54f141]  All guarantees proven
   writes buyer escrow seller house points.buyer   (no guarantee about the new balance of buyer, seller, house)
   examples 1/1   random tests 36/500 reached success, 0 violations
   spec strength: guarantees 17/17 (prover 17, random tests 17); examples 17/17; together 17/17
+  spec refusals: 6/7 changes caught (examples 1, guarantees 5)
+      unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
 
 subscribe [cb15dc87]  All guarantees proven
   ✔ ok otherwise
@@ -419,6 +475,10 @@ subscribe [cb15dc87]  All guarantees proven
   writes sub_amount.id sub_due.id
   examples 1/1   random tests 178/500 reached success, 0 violations
   spec strength: guarantees 12/12 (prover 12, random tests 12); examples 8/12; together 12/12
+  spec refusals: 3/6 changes caught (examples 2, guarantees 1)
+      unpinned: need sub_amount.get id = 0 else SubExists (dropped)
+      unpinned: need amount > 0 else BadAmount (`>` → `>=`)
+      unpinned: need frozen.get buyer = 0 else Frozen (dropped)
 
 change_sub [657bc3af]  All guarantees proven
   ✔ ok otherwise
@@ -428,6 +488,9 @@ change_sub [657bc3af]  All guarantees proven
   writes sub_amount.id
   examples 1/1   random tests 79/500 reached success, 0 violations
   spec strength: guarantees 3/3 (prover 3, random tests 3); examples 3/3; together 3/3
+  spec refusals: 1/4 changes caught (examples 0, guarantees 1)
+      unpinned: need sub_amount.get id > 0 else NoSub (dropped, `>` → `>=`)
+      unpinned: need amount > 0 else BadAmount (`>` → `>=`)
 
 cancel_sub [17881b9f]  All guarantees proven
   ✔ ok otherwise
@@ -439,6 +502,8 @@ cancel_sub [17881b9f]  All guarantees proven
   writes paused.id sub_amount.id
   examples 1/1   random tests 71/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 2/6; together 6/6
+  spec refusals: 0/2 changes caught (examples 0, guarantees 0)
+      unpinned: need sub_amount.get id > 0 else NoSub (dropped, `>` → `>=`)
 
 pause_sub [5051c15e]  All guarantees proven
   ✔ ok otherwise
@@ -447,6 +512,9 @@ pause_sub [5051c15e]  All guarantees proven
   writes paused.id
   examples 1/1   random tests 40/500 reached success, 0 violations
   spec strength: guarantees 2/2 (prover 2, random tests 2); examples 2/2; together 2/2
+  spec refusals: 1/4 changes caught (examples 1, guarantees 0)
+      unpinned: need sub_amount.get id > 0 else NoSub (dropped, `>` → `>=`)
+      unpinned: need paused.get id = 0 else Paused (dropped)
 
 resume_sub [5e36b178]  All guarantees proven
   ✔ ok otherwise
@@ -456,6 +524,8 @@ resume_sub [5e36b178]  All guarantees proven
   writes paused.id sub_due.id
   examples 1/1   random tests 40/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 6/6; together 6/6
+  spec refusals: 1/2 changes caught (examples 1, guarantees 0)
+      unpinned: need paused.get id = 1 else NotPaused (dropped)
 
 charge_sub [5d66877b]  All guarantees proven
   ✔ ok otherwise
@@ -467,6 +537,12 @@ charge_sub [5d66877b]  All guarantees proven
   writes buyer escrow seller house sub_due.id   (no guarantee about the new balance of buyer, seller, house)
   examples 2/2   random tests 7/500 reached success, 0 violations
   spec strength: guarantees 18/18 (prover 18, random tests 16); examples 16/18; together 18/18
+  spec refusals: 6/13 changes caught (examples 3, guarantees 3)
+      unpinned: need sub_amount.get id > 0 else NoSub (dropped, `>` → `>=`)
+      unpinned: need paused.get id = 0 else Paused (dropped)
+      unpinned: need clock.now >= sub_due.get id else NotDue (`>=` → `>`)
+      unpinned: need sub_amount.get id > 0 else BadAmount (dropped, `>` → `>=`)
+      unpinned: need ledger.balance buyer >= sub_amount.get id else Insufficient (`>=` → `>`)
 
 charge_sub_with_points [ffd520e2]  All guarantees proven
   ✔ ok otherwise
@@ -479,6 +555,11 @@ charge_sub_with_points [ffd520e2]  All guarantees proven
   writes buyer escrow seller house points.buyer sub_due.id   (no guarantee about the new balance of buyer, escrow, seller, house)
   examples 1/1   random tests 7/500 reached success, 0 violations
   spec strength: guarantees 17/17 (prover 17, random tests 11); examples 17/17; together 17/17
+  spec refusals: 7/13 changes caught (examples 2, guarantees 5)
+      unpinned: need sub_amount.get id > 0 else NoSub (dropped, `>` → `>=`)
+      unpinned: need clock.now >= sub_due.get id else NotDue (`>=` → `>`)
+      unpinned: need sub_amount.get id > 0 else BadAmount (dropped, `>` → `>=`)
+      unpinned: need ledger.balance buyer >= sub_amount.get id else Insufficient (`>=` → `>`)
 
 charge_late [bdee2257]  All guarantees proven
   ✔ ok otherwise
@@ -489,6 +570,9 @@ charge_late [bdee2257]  All guarantees proven
   writes buyer house   (no guarantee about the new balance of buyer)
   examples 2/2   random tests 75/500 reached success, 0 violations
   spec strength: guarantees 4/4 (prover 4, random tests 4); examples 4/4; together 4/4
+  spec refusals: 3/6 changes caught (examples 1, guarantees 2)
+      unpinned: need sub_amount.get id > 0 else NoSub (dropped, `>` → `>=`)
+      unpinned: need late_fee days >= 0 else BadAmount (dropped)
 
 chargeback [c20ae420]  All guarantees proven
   ✔ ok otherwise
@@ -501,6 +585,9 @@ chargeback [c20ae420]  All guarantees proven
   writes seller buyer captured.id   (no guarantee about the new balance of seller)
   examples 2/2   random tests 55/500 reached success, 0 violations
   spec strength: guarantees 7/7 (prover 7, random tests 7); examples 5/7; together 7/7
+  spec refusals: 5/8 changes caught (examples 3, guarantees 2)
+      unpinned: need captured.get id > 0 else BadAmount (dropped, `>` → `>=`)
+      unpinned: need ledger.balance seller >= captured.get id else Insufficient (`>=` → `>`)
 
 payout_holdback [5b499501]  All guarantees proven
   ✔ ok otherwise
@@ -513,6 +600,13 @@ payout_holdback [5b499501]  All guarantees proven
   writes seller reserve bank spent.seller   (no guarantee about the new balance of bank)
   examples 1/1   random tests 4/500 reached success, 0 violations
   spec strength: guarantees 15/15 (prover 15, random tests 9); examples 11/15; together 15/15
+  spec refusals: 8/17 changes caught (examples 3, guarantees 5)
+      unpinned: need amount > 0 else BadAmount (dropped, `>` → `>=`)
+      unpinned: need ledger.balance seller >= amount else Insufficient (`>=` → `>`)
+      unpinned: need spent.get seller + (amount - holdback_for amount) <= limit.get seller else OverLimit (`<=` → `<`)
+      unpinned: need amount - holdback_for amount > 0 else BadAmount (dropped, `>` → `>=`)
+      unpinned: need seller != bank else SameAccount (dropped)
+      unpinned: need ledger.balance seller >= amount - holdback_for amount else Insufficient (dropped, `>=` → `>`)
 
 release_holdback [7e971853]  All guarantees proven
   ✔ ok otherwise
@@ -523,6 +617,7 @@ release_holdback [7e971853]  All guarantees proven
   writes reserve seller   (no guarantee about the new balance of reserve)
   examples 1/1   random tests 207/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
+  spec refusals: 6/6 changes caught (examples 2, guarantees 4)
 
 checkout2 [61b9acc3]  All guarantees proven
   ✔ ok otherwise
@@ -537,6 +632,17 @@ checkout2 [61b9acc3]  All guarantees proven
   writes buyer escrow seller1 seller2 house captured.id1 captured.id2 hold.id1 hold.id2   (no guarantee about the new balance of seller1, seller2, house, captured.id1, captured.id2, hold.id1, hold.id2)
   examples 2/2   random tests 0/500 reached success, 0 violations
   spec strength: guarantees 59/59 (prover 59, random tests 0); examples 38/59; together 59/59
+  spec refusals: 17/31 changes caught (examples 9, guarantees 8)
+      unpinned: need id1 != id2 else SameOrder (dropped)
+      unpinned: need frozen.get buyer = 0 else Frozen (dropped, dropped)
+      unpinned: need buyer != escrow else SameAccount (dropped, dropped)
+      unpinned: need ledger.balance buyer >= a1 else Insufficient (dropped, `>=` → `>`)
+      unpinned: need disputed.get id1 = 0 else Disputed (dropped)
+      unpinned: need distinct escrow seller1 house else SameAccount (dropped)
+      unpinned: need ledger.balance buyer >= a2 else Insufficient (dropped, `>=` → `>`)
+      unpinned: need disputed.get id2 = 0 else Disputed (dropped)
+      unpinned: need distinct escrow seller2 house else SameAccount (dropped)
+      unpinned: need ledger.balance buyer >= a1 + a2 else Insufficient (`>=` → `>`)
 
 checkout_vat [1fd2f4ea]  All guarantees proven
   ✔ ok otherwise
@@ -551,6 +657,12 @@ checkout_vat [1fd2f4ea]  All guarantees proven
   writes buyer escrow seller house tax captured.id hold.id   (no guarantee about the new balance of escrow, seller, house, captured.id, hold.id)
   examples 1/1   random tests 0/500 reached success, 0 violations
   spec strength: guarantees 29/29 (prover 29, random tests 0); examples 27/29; together 29/29
+  spec refusals: 10/16 changes caught (examples 4, guarantees 6)
+      unpinned: need buyer != escrow else SameAccount (dropped)
+      unpinned: need ledger.balance buyer >= amount else Insufficient (dropped, `>=` → `>`)
+      unpinned: need disputed.get id = 0 else Disputed (dropped)
+      unpinned: need distinct escrow seller house else SameAccount (dropped)
+      unpinned: need ledger.balance buyer >= amount + vat_of amount else Insufficient (`>=` → `>`)
 
 checkout_tip [713f9ad9]  All guarantees proven
   ✔ ok otherwise
@@ -564,6 +676,13 @@ checkout_tip [713f9ad9]  All guarantees proven
   writes buyer escrow seller house captured.id hold.id   (no guarantee about the new balance of escrow, seller, house, captured.id, hold.id)
   examples 1/1   random tests 0/500 reached success, 0 violations
   spec strength: guarantees 26/26 (prover 26, random tests 0); examples 24/26; together 26/26
+  spec refusals: 11/18 changes caught (examples 4, guarantees 7)
+      unpinned: need buyer != escrow else SameAccount (dropped)
+      unpinned: need ledger.balance buyer >= amount else Insufficient (dropped, `>=` → `>`)
+      unpinned: need disputed.get id = 0 else Disputed (dropped)
+      unpinned: need distinct escrow seller house else SameAccount (dropped)
+      unpinned: need extra >= 0 else BadAmount (`>=` → `>`)
+      unpinned: need ledger.balance buyer >= amount + extra else Insufficient (`>=` → `>`)
 
 checkout_points [f8f61c99]  All guarantees proven
   ✔ ok otherwise
@@ -579,6 +698,11 @@ checkout_points [f8f61c99]  All guarantees proven
   writes buyer escrow seller house captured.id hold.id points.buyer   (no guarantee about the new balance of escrow, seller, house, captured.id, hold.id)
   examples 1/1   random tests 0/500 reached success, 0 violations
   spec strength: guarantees 20/20 (prover 20, random tests 0); examples 19/20; together 20/20
+  spec refusals: 10/14 changes caught (examples 4, guarantees 6)
+      unpinned: need buyer != escrow else SameAccount (dropped)
+      unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
+      unpinned: need disputed.get id = 0 else Disputed (dropped)
+      unpinned: need distinct escrow seller house else SameAccount (dropped)
 
 close_account [4535776a]  All guarantees proven
   ✔ ok otherwise
@@ -589,6 +713,7 @@ close_account [4535776a]  All guarantees proven
   writes frozen.a verified.a
   examples 2/2   random tests 1/500 reached success, 0 violations
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 4/6; together 6/6
+  spec refusals: 2/2 changes caught (examples 2, guarantees 0)
 
 reopen_account [714b117b]  All guarantees proven
   ✔ ok otherwise
@@ -598,6 +723,8 @@ reopen_account [714b117b]  All guarantees proven
   writes frozen.a
   examples 1/1   random tests 107/500 reached success, 0 violations
   spec strength: guarantees 3/3 (prover 3, random tests 3); examples 1/3; together 3/3
+  spec refusals: 1/2 changes caught (examples 1, guarantees 0)
+      unpinned: need frozen.get a = 1 else NotFrozen (dropped)
 
 
 $ kern view examples/escrow/escrow_s3.k fee_for --as iface   (exit 0)

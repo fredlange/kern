@@ -107,7 +107,8 @@ Read a card from top to bottom:
   success in 500 random worlds is checked against every guarantee.
 - **Spec strength** plants deliberate bugs in the body (mutants) and counts how many the guarantees
   catch. A bug that survives points at a missing guarantee. Strength is measured only when every
-  guarantee holds.
+  guarantee holds. The spec's own refusals are tested apart: each `need` is dropped or flipped, and a
+  change nothing catches is listed, since it wants an example.
 - **Why** is folded away. It holds rationale, never rules, and it is flagged stale when the
   definition or its interface changes.
 

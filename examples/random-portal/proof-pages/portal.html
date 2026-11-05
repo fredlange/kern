@@ -41,6 +41,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 11 succeeded and were checked against every guarantee; refused: UnknownSource 467, AlreadyPending 18, TooSoon 4.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 20/20 deliberate bugs (100%)</span></h3><p>Caught by the prover: 20; by random tests checking the guarantees: 20. The examples alone catch 10/20; everything together 20/20.</p>
+<p>Refusals in the spec: 5/5 changes caught, by examples 5, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 <details><summary>Why (3)</summary><ul><li>the slot is reserved at request time and travels in the event, so the reply writes a parameter key; a computed key would leave the invariants unproven</li><li>one request per source at a time keeps the public APIs from being hammered by a button-masher</li><li>the 5-second cooldown is politeness toward free APIs with no key; 5 is a guess, not a published limit</li></ul></details>
 </section>
 <section class="card"><header><h2><code>store</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build bdae93ae</span></header>
@@ -65,6 +66,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 0 succeeded and were checked against every guarantee; refused: UnknownSource 456, Stale 44.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 22/22 deliberate bugs (100%)</span></h3><p>Caught by the prover: 22; by random tests checking the guarantees: 0. The examples alone catch 14/22; everything together 22/22.</p>
+<p>Refusals in the spec: 6/7 changes caught, by examples 6, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need src = 1 or src = 2 else UnknownSource</code>: dropped</li></ul>
 <details><summary>Why (1)</summary><ul><li>the reply carries src and slot back from the event, so one definition serves every source</li></ul></details>
 </section>
 <section class="card"><header><h2><code>fetch_failed</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build f802a9f5</span></header>
@@ -85,6 +87,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 0 succeeded and were checked against every guarantee; refused: UnknownSource 468, Stale 32.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 7/7 deliberate bugs (100%)</span></h3><p>Caught by the prover: 7; by random tests checking the guarantees: 0. The examples alone catch 3/7; everything together 7/7.</p>
+<p>Refusals in the spec: 3/5 changes caught, by examples 3, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need src = 1 or src = 2 else UnknownSource</code>: dropped</li><li><code>need pending.get src = 1 else Stale</code>: dropped</li></ul>
 </section>
 <section class="card"><header><h2><code>give_up</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 6d01d70b</span></header>
 <h3>Can touch</h3><p>the audit log, the clock, state <code>deadline</code> (read only), state <code>pending</code> (read and write), state <code>want</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
@@ -103,6 +106,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 7 succeeded and were checked against every guarantee; refused: UnknownSource 467, NotPending 25, NotYet 1.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 4/4 deliberate bugs (100%)</span></h3><p>Caught by the prover: 4; by random tests checking the guarantees: 4. The examples alone catch 2/4; everything together 4/4.</p>
+<p>Refusals in the spec: 2/5 changes caught, by examples 2, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need src = 1 or src = 2 else UnknownSource</code>: dropped</li><li><code>need pending.get src = 1 else NotPending</code>: dropped</li><li><code>need clock.now &gt;= deadline.get src else NotYet</code>: `&gt;=` → `&gt;`</li></ul>
 <details><summary>Why (1)</summary><ul><li>a dropped reply would otherwise leave the source pending forever (the host has no request timeout)</li></ul></details>
 </section>
 <section class="card"><header><h2><code>upvote</code></h2><span class="badge ok">All guarantees proven</span><span class="hash">build cc304de8</span></header>
@@ -123,5 +127,6 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 88 succeeded and were checked against every guarantee; refused: NoSuchItem 412.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 5/5 deliberate bugs (100%)</span></h3><p>Caught by the prover: 5; by random tests checking the guarantees: 5. The examples alone catch 3/5; everything together 5/5.</p>
+<p>Refusals in the spec: 2/2 changes caught, by examples 2, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 <details><summary>Why (1)</summary><ul><li>votes are anonymous: Kern has no identity for page visitors yet, so one person can vote many times</li></ul></details>
 </section></main></body></html>
