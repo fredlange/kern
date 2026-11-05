@@ -331,3 +331,16 @@ fn a_small_literal_range_fuzz_run_is_clean() {
     let e = &s["tiers"]["ensure"];
     assert!(e["proven"].as_u64().unwrap_or(0) > 5 && e["refuted"].as_u64().unwrap_or(0) > 5, "{e}");
 }
+
+#[test]
+fn a_small_returning_procedure_fuzz_run_is_clean() {
+    // gen_ret (700e189): an allocator returning an id, used as a key, chained, in a loop; a returning procedure that
+    // refuses. Teeth (2026-11-06): a call handing the caller 0 instead of the constrained result -> 5,350 in 21 of 100.
+    let results: Vec<_> = kern_validation::fuzz::ret_jobs(5, 30, 60).iter().map(check_program).collect();
+    let s = summarise(&results);
+    assert_eq!(s["ret_well_formed"], "30/30");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    let e = &s["tiers"]["ensure"];
+    assert!(e["proven"].as_u64().unwrap_or(0) > 20 && e["refuted"].as_u64().unwrap_or(0) > 3, "{e}");
+}

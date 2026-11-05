@@ -944,6 +944,63 @@ pub fn lit_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         .collect()
 }
 
+// ---------------------------------------------------------------- returning procedures (700e189)
+
+/// An allocator `alloc -> Int` that bumps a counter and returns the new id (spec exact or loose), and a caller that
+/// uses the returned value as a key, chains two calls, calls it in a loop, or calls a returning procedure that
+/// refuses after a write. Claims right or off by one. Own stream (`ret_jobs`).
+pub fn gen_ret(rnd: &mut Random) -> String {
+    let exact = rnd.random() < 0.7;
+    // sometimes a claim that holds only if the returned value were 0 (false: an encoding that drops the callee's
+    // result would prove it)
+    let zero = rnd.random() < 0.3;
+    let off = *rnd.choice(&[0i64, 0, 0, 1, -1]);
+    let plus = |e: &str, d: i64| if d == 0 { e.to_string() } else if d > 0 { format!("{e} + {d}") } else { format!("{e} - {}", -d) };
+    let mut lines: Vec<String> = vec!["state next Int".into(), "state lent Int".into(), "state hold Int".into(), String::new()];
+    lines.extend(["alloc -> Int".to_string(), "  ok otherwise".into(), "  ensure next.get' 0 = next.get 0 + 1".into()]);
+    lines.push(if exact { "  ensure result = next.get 0 + 1".into() } else { "  ensure result > next.get 0".into() });
+    lines.extend(["body".to_string(), "  next.set 0 (next.get 0 + 1)".into(), "  result = next.get 0".into(), String::new()]);
+    match choice_str(rnd, &["key", "chain", "loop", "refuse"]) {
+        "key" => {
+            lines.extend(["f b:Int -> Int".to_string(), "  ok otherwise".into()]);
+            lines.push(if zero { "  ensure lent.get' 0 = b".to_string() } else { format!("  ensure lent.get' ({}) = b", plus("next.get 0", 1 + off)) });
+            lines.push(format!("  ensure result = {}", plus("next.get 0", 1 + if rnd.random() < 0.5 { off } else { 0 })));
+            lines.extend(["body".to_string(), "  id = alloc".into(), "  lent.set id b".into(), "  result = id".into()]);
+        }
+        "chain" => {
+            lines.extend(["f k:Int".to_string(), "  ok otherwise".into()]);
+            lines.push(if zero { "  ensure hold.get' k = 0".to_string() } else { format!("  ensure hold.get' k = {}", plus("2 * next.get 0", 3 + off)) });
+            lines.push(format!("  ensure next.get' 0 = {}", plus("next.get 0", 2 + if rnd.random() < 0.5 { off } else { 0 })));
+            lines.extend(["body".to_string(), "  a = alloc".into(), "  b = alloc".into(), "  hold.set k (a + b)".into()]);
+        }
+        "loop" => {
+            lines.extend(["f lo:Int hi:Int".to_string(), "  need lo <= hi else Bad".into(), "  ok otherwise".into()]);
+            lines.push(format!("  ensure next.get' 0 = next.get 0 + (hi - lo){}", if off == 0 { String::new() } else { format!(" + {}", off.abs()) }));
+            lines.extend(["body".to_string(), "  for k from lo to hi".into(), "    invariant next.get' 0 = next.get 0 + (k - lo)".into(), "    x = alloc".into(), "    hold.set k x".into()]);
+        }
+        _ => {
+            lines.extend(["take k:Int -> Int".to_string(), "  need hold.get k > 0 else Empty".into(), "  ok otherwise".into(),
+                          "  ensure result = hold.get k".into(), "  ensure hold.get' k = 0".into(), "body".into(),
+                          "  need hold.get k > 0 else Empty".into(), "  result = hold.get k".into(), "  hold.set k 0".into(), String::new()]);
+            lines.extend(["f j:Int k:Int".to_string(), "  need j != k else Same".into(), "  need j != 50 and k != 50 else Reserved".into()]);
+            lines.push(if zero { "  ensure hold.get' 50 = 0".to_string() } else { format!("  ensure hold.get' 50 = {}", plus("hold.get j + hold.get k", off)) });
+            lines.extend(["body".to_string(), "  a = take j".into(), "  b = take k".into(), "  hold.set 50 (a + b)".into()]);
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `n` returning-procedure programs from their own stream, labelled `ret#i`.
+pub fn ret_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 70);
+    (0..n)
+        .map(|i| {
+            let src = gen_ret(&mut rnd);
+            Job { label: format!("ret#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -1502,7 +1559,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "tiers": tiers, "runs": runs, "ok_runs": ok, "skipped": skipped, "unmapped": unmapped, "unmapped_kinds": unmapped_kinds,
         "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"), "text_well_formed": fam("text#"), "nest_well_formed": fam("nest#"), "match_well_formed": fam("match#"),
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
-        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"),
+        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"),
         "variant_mismatches": variant_mismatches(results),
     })
 }
@@ -1515,12 +1572,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--rets" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--rets N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -1557,6 +1614,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(ckey_jobs(num("seed", 1) as i128, num("ckeys", 100) as usize, num("runs", 300)));
     js.extend(rec_jobs(num("seed", 1) as i128, num("recs", 100) as usize, num("runs", 300)));
     js.extend(lit_jobs(num("seed", 1) as i128, num("lits", 100) as usize, num("runs", 300)));
+    js.extend(ret_jobs(num("seed", 1) as i128, num("rets", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));
