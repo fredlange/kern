@@ -469,9 +469,10 @@ fn s2_specs_may_read_state_but_not_write_it() {
 #[test]
 fn s3_functions_are_pure_total_and_only_they_appear_in_specs() {
     for (src, msg) in [
-        ("f a:Int -> Int\nbody\n  need a > 0 else Bad\n  result = a\n", "total"),
-        // since 72d2446 a function may read state (aggregation); it still may not change it
-        ("f a:Account -> Int\nbody\n  ledger.credit a 1\n  result = 0\n", "may read state but not change it"),
+        // since DECISIONS 2026-11-06 (#ZYGSNMXNW7) a -> Int with a need or a write is a returning procedure: legal,
+        // but not in a spec, and called only on a line of its own (x = f a)
+        ("f a:Int -> Int\nbody\n  need a > 0 else Bad\n  result = a\n\ng a:Int\n  ensure f a > 0\nbody\n  x = f a\n", "specs may call only functions"),
+        ("f a:Account -> Int\nbody\n  ledger.credit a 1\n  result = 0\n\ng a:Account\nbody\n  x = 1 + f a\n", "call it on a line of its own"),
         ("f a:Int -> Int\nbody\n  if a > 0\n    result = a\n", "every path"),
         ("g a:Account\n  ensure ledger.balance' a = 0\nbody\n  h a\n\nh a:Account\nbody\n  ledger.credit a 0\n\nk a:Account\n  ensure h a\nbody\n  h a\n", "only functions"),
     ] {
