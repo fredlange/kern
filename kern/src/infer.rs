@@ -315,11 +315,25 @@ fn writes_seen(defs: &Module, d: &Def, seen: &BTreeSet<String>) -> BTreeSet<Stri
 }
 
 /// One entry of `writes(defs, d)`: None for a balance (a parameter of d, or ANY_ACCOUNT), else (state, key). Record
-/// fields make parameter names dotted (`p.from`), so a balance is told apart by d's parameters, not by the dot; a
-/// state's name has no dot, so a state entry splits at its first one (`hold.p.x` is hold at key p.x).
+/// fields make parameter names dotted (`p.from`), so a balance is told apart by d's parameters, not by the dot; and a
+/// stored record's field states are dotted too (`order.qty`), so a state entry splits before its key: `*`, a loop
+/// range `[lo,hi)` or one of d's parameters (`hold.p.x` is hold at key p.x; `order.qty.k` is order.qty at k).
 pub fn split_write<'a>(w: &'a str, d: &Def) -> Option<(&'a str, &'a str)> {
     if w == ANY_ACCOUNT || d.params.iter().any(|(p, _)| p == w) {
         return None;
+    }
+    if let Some(i) = w.find(".[") {
+        return Some((&w[..i], &w[i + 1..]));
+    }
+    if let Some(x) = w.strip_suffix(&format!(".{ANY_ACCOUNT}")) {
+        return Some((x, ANY_ACCOUNT));
+    }
+    let mut keys: Vec<&str> = d.params.iter().map(|(p, _)| p.as_str()).collect();
+    keys.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    for p in keys {
+        if let Some(x) = w.strip_suffix(p).and_then(|x| x.strip_suffix('.')).filter(|x| !x.is_empty()) {
+            return Some((x, &w[x.len() + 1..]));
+        }
     }
     w.split_once('.')
 }

@@ -151,6 +151,8 @@ pub struct Module {
     pub records: IndexMap<String, Vec<(String, String)>>,
     /// declared states whose values are Text (`state NAME KEY -> Text`); the others hold Int
     pub text_states: Vec<String>,
+    /// `state NAME KEY -> Record`: NAME -> the record type; flatten_records makes one state per field (`NAME.f`)
+    pub record_states: IndexMap<String, String>,
     /// set by the package loader (kern/package.py's `defs.package`)
     pub package: Option<crate::package::Package>,
 }
@@ -854,7 +856,7 @@ fn now_item() -> &'static Regex {
 }
 fn map_item() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    re(&R, r"^([a-z]\w*)\.([A-Z]\w*|-?\d+):(-?\d+)$")
+    re(&R, r"^([a-z]\w*(?:\.[a-z]\w*)*)\.([A-Z]\w*|-?\d+):(-?\d+)$")
 }
 
 /// Kern's Int is i64 at run time (the host's store, `kern build` programs), so a literal outside it is refused
@@ -881,7 +883,7 @@ pub type Texts = IndexMap<String, IndexMap<Key, String>>;
 
 fn text_item() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    re(&R, r"^([a-z]\w*)\.([A-Z]\w*|-?\d+):(\x01\d+\x01)$")
+    re(&R, r"^([a-z]\w*(?:\.[a-z]\w*)*)\.([A-Z]\w*|-?\d+):(\x01\d+\x01)$")
 }
 
 /// Take `state.key:"text"` items out of an `eg` world or after-state: (rest, {state: {key: text}}).
@@ -1096,7 +1098,7 @@ fn header() -> &'static Regex {
 }
 fn state_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    re(&R, r"^state ([a-z]\w*) (Int|Account)(?: -> (Int|Text))?$")
+    re(&R, r"^state ([a-z]\w*) (Int|Account)(?: -> (Int|Text|[A-Z]\w*))?$")
 }
 fn channel_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
@@ -1235,15 +1237,20 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
                     defs.channels.push(ch[1].to_string());
                 } else if let Some(m) = state_re().captures(line) {
                     defs.states.insert(m[1].to_string(), m[2].to_string());
-                    if m.get(3).is_some_and(|v| v.as_str() == "Text") {
-                        defs.text_states.push(m[1].to_string());
+                    match m.get(3).map(|v| v.as_str()) {
+                        Some("Text") => defs.text_states.push(m[1].to_string()),
+                        Some("Int") | None => {}
+                        // a record: one state per field, made by flatten_records
+                        Some(r) => {
+                            defs.record_states.insert(m[1].to_string(), r.to_string());
+                        }
                     }
                 } else if let Some(inv) = invariant_re().captures(line) {
                     let e = parse_expr(&inv[3], no)?;
                     defs.invariants.push((inv[1].to_string(), inv[2].to_string(), e));
                 } else {
                     return Err(ParseError::at(
-                        "want `state NAME Int|Account [-> Text]`, `invariant x:Type COND` or `channel NAME`",
+                        "want `state NAME Int|Account [-> Text|Record]`, `invariant x:Type COND` or `channel NAME`",
                         no,
                     ));
                 }
@@ -1587,18 +1594,29 @@ struct Records<'a> {
     sigs: &'a IndexMap<String, Vec<(String, String)>>,
     /// record type -> its fields flattened to Int/Account/Text leaves: (path, type), `a.x` for a nested one
     flat: &'a IndexMap<String, Vec<(String, String)>>,
+    /// `state NAME KEY -> Record`: NAME -> record type (its fields are the states `NAME.f`)
+    stored: &'a IndexMap<String, String>,
     /// this definition's record-valued paths (a record parameter, and its fields of a record type) -> record type
     recs: IndexMap<String, String>,
     who: String,
     /// record types this definition names (header and literals), for the package's import rule
     used: Vec<String>,
+    /// record types of the stored records it reads or writes whole (views add their `record` lines)
+    shown: Vec<String>,
+    /// whole-record sets that read into fresh names so far (numbers them, per definition)
+    sets: usize,
 }
 
 impl Records<'_> {
     fn err(&self, msg: String) -> ParseError {
         ParseError(format!("{}: {}", self.who, msg))
     }
-    fn note(&mut self, r: &str) {
+    fn show(&mut self, r: &str) {
+        if !self.shown.iter().any(|u| u == r) {
+            self.shown.push(r.to_string());
+        }
+    }
+        fn note(&mut self, r: &str) {
         if !self.used.iter().any(|u| u == r) {
             self.used.push(r.to_string());
         }
@@ -1608,8 +1626,13 @@ impl Records<'_> {
         match e {
             Expr::Name(q, false) => self.recs.get(q).cloned(),
             Expr::App(r, false, _) if self.records.contains_key(r) => Some(r.clone()),
+            Expr::App(h, _, a) if a.len() == 1 => self.stored_op(h, "get").map(|x| self.stored[x].clone()),
             _ => None,
         }
+    }
+        /// `x.get` / `x.set` on a stored record x: x.
+    fn stored_op<'b>(&self, h: &'b str, op: &str) -> Option<&'b str> {
+        h.strip_suffix(&format!(".{op}")).filter(|x| self.stored.contains_key(*x))
     }
         /// The fields of a whole-record argument `arg` for a parameter of record type `want`.
     fn whole(&mut self, arg: &Expr, want: &str, callee: &str) -> PResult<Vec<Expr>> {
@@ -1620,6 +1643,15 @@ impl Records<'_> {
                     return Err(self.err(format!("`{}` passes {} ({}) where a {} is wanted", callee, q, self.recs[q], want)));
                 }
                 Ok(self.flat[want].iter().map(|(f, _)| Expr::Name(format!("{}.{}", q, f), false)).collect())
+            }
+            Expr::App(h, primed, a) if a.len() == 1 && self.stored_op(h, "get").is_some() => {
+                let x = self.stored_op(h, "get").unwrap().to_string();
+                if self.stored[&x] != want {
+                    return Err(self.err(format!("`{}` passes {}.get ({}) where a {} is wanted", callee, x, self.stored[&x], want)));
+                }
+                self.show(want);
+                let k = self.expr(&a[0])?;
+                Ok(self.flat[want].iter().map(|(f, _)| Expr::App(format!("{x}.{f}.get"), *primed, vec![k.clone()])).collect())
             }
             Expr::App(r, false, args) if r == want => {
                 self.note(want);
@@ -1688,6 +1720,20 @@ impl Records<'_> {
                 }
                 e.clone()
             }
+            Expr::App(h, _, _) if self.stored_op(h, "get").is_some() => {
+                let x = self.stored_op(h, "get").unwrap();
+                let r = &self.stored[x];
+                return Err(self.err(format!(
+                    "`{}` is a whole {} record: read a field ({}.{}.get k), compare it whole, or pass it to a definition that takes one",
+                    code(e),
+                    r,
+                    x,
+                    self.flat[r][0].0
+                )));
+            }
+            Expr::App(h, _, _) if self.stored_op(h, "set").is_some() => {
+                return Err(self.err(format!("`{}` sets a stored record: write it as a statement of its own", code(e))));
+            }
             Expr::App(h, p, args) => Expr::App(h.clone(), *p, self.args(h, args)?),
             Expr::Bin(op @ ("=" | "!="), l, r) if self.record_type(l).is_some() || self.record_type(r).is_some() => {
                 // two records of one type: every field equal (`=`), some field different (`!=`)
@@ -1734,6 +1780,10 @@ impl Records<'_> {
             out.push(match s {
                 Stmt::Let(x, e) => Stmt::Let(x.clone(), self.expr(e)?),
                 Stmt::Need(c, ctor, args) => Stmt::Need(self.expr(c)?, ctor.clone(), self.exprs(args)?),
+                Stmt::Do(Expr::App(h, false, a)) if a.len() == 2 && self.stored_op(h, "set").is_some() => {
+                    out.extend(self.set_whole(h, a)?);
+                    continue;
+                }
                 Stmt::Do(e) => Stmt::Do(self.expr(e)?),
                 Stmt::If(c, t, o) => Stmt::If(self.expr(c)?, self.stmts(t)?, self.stmts(o)?),
                 Stmt::For(k, lo, hi, invs, body) => {
@@ -1741,6 +1791,39 @@ impl Records<'_> {
                 }
                 Stmt::Inv(e) => Stmt::Inv(self.expr(e)?),
             });
+        }
+        Ok(out)
+    }
+    /// `x.set k v` on a stored record: one set per field. If the key or a value reads x, every one is read first
+    /// (into fresh names), so no field is set before all are read: the same as setting the record at once.
+    fn set_whole(&mut self, h: &str, a: &[Expr]) -> PResult<Vec<Stmt>> {
+        let x = self.stored_op(h, "set").unwrap().to_string();
+        let r = self.stored[&x].clone();
+        self.show(&r);
+        let mut key = self.expr(&a[0])?;
+        let mut vals = self.whole(&a[1], &r, h)?;
+        let prefix = format!("{x}.");
+        let reads_x = |e: &Expr| crate::infer::walk(e).iter().any(|n| matches!(n, Expr::App(m, _, _) if m.starts_with(&prefix)));
+        let mut out = vec![];
+        if std::iter::once(&key).chain(vals.iter()).any(&reads_x) {
+            // read before any field is set: `order.item.new`, numbered after the first such set in a definition
+            self.sets += 1;
+            let n = if self.sets == 1 { String::new() } else { self.sets.to_string() };
+            if reads_x(&key) {
+                let k = format!("{x}.key{n}");
+                out.push(Stmt::Let(k.clone(), key));
+                key = Expr::Name(k, false);
+            }
+            for ((f, _), v) in self.flat[&r].iter().zip(vals.iter_mut()) {
+                if reads_x(v) {
+                    let name = format!("{x}.{f}.new{n}");
+                    out.push(Stmt::Let(name.clone(), v.clone()));
+                    *v = Expr::Name(name, false);
+                }
+            }
+        }
+        for ((f, _), v) in self.flat[&r].iter().zip(vals) {
+            out.push(Stmt::Do(Expr::App(format!("{x}.{f}.set"), false, vec![key.clone(), v])));
         }
         Ok(out)
     }
@@ -1753,8 +1836,35 @@ impl Records<'_> {
             });
         }
         d.needs = needs;
-        d.keeps = self.exprs(&d.keeps)?;
-        d.ensures = self.exprs(&d.ensures)?;
+        let mut keeps = vec![];
+        for c in &d.keeps {
+            match c {
+                // `keep order.get k` (or any record): every field
+                c if self.record_type(c).is_some() => {
+                    let r = self.record_type(c).unwrap();
+                    keeps.extend(self.whole(c, &r, "keep")?);
+                }
+                c => keeps.push(self.expr(c)?),
+            }
+        }
+        d.keeps = keeps;
+        let mut ensures = vec![];
+        for c in &d.ensures {
+            match c {
+                // `keep order [except A to B]` (a stated frame, kept with the ensures): every field state
+                Expr::Frame(x, range) if self.stored.contains_key(x) => {
+                    let r = self.stored[x].clone();
+                    self.show(&r);
+                    let range = range
+                        .as_ref()
+                        .map(|(a, b)| Ok::<_, ParseError>((Box::new(self.expr(a)?), Box::new(self.expr(b)?))))
+                        .transpose()?;
+                    ensures.extend(self.flat[&r].iter().map(|(f, _)| Expr::Frame(format!("{x}.{f}"), range.clone())));
+                }
+                c => ensures.push(self.expr(c)?),
+            }
+        }
+        d.ensures = ensures;
         d.decreases = d.decreases.as_ref().map(|m| self.expr(m)).transpose()?;
         let mut emits = vec![];
         for ev in &d.emits {
@@ -1780,6 +1890,9 @@ impl Records<'_> {
 /// `move (Point a b)`) into fields, in every definition. Returns definition -> the record types it names, for the
 /// package's import rule. A module without records is left exactly as it was.
 pub fn flatten_records(defs: &mut Module) -> PResult<IndexMap<String, Vec<String>>> {
+    if let Some((x, r)) = defs.record_states.iter().find(|(_, r)| !defs.records.contains_key(*r)) {
+        return Err(ParseError(format!("state {}: {} is not a record (a value is Int, Text or a declared record)", x, r)));
+    }
     if defs.records.is_empty() {
         return Ok(IndexMap::new());
     }
@@ -1839,22 +1952,56 @@ pub fn flatten_records(defs: &mut Module) -> PResult<IndexMap<String, Vec<String
             }
         }
     }
+    // a stored record is one state per leaf field, `order.qty`, in the declared state's place
+    if !defs.record_states.is_empty() {
+        let mut states = IndexMap::new();
+        for (x, key) in defs.states.clone() {
+            let Some(r) = defs.record_states.get(&x) else {
+                states.insert(x, key);
+                continue;
+            };
+            for (f, t) in &flat[r] {
+                if t == "Account" {
+                    return Err(ParseError(format!(
+                        "state {}: field {} of {} is an Account; a stored record holds Int and Text fields",
+                        x, f, r
+                    )));
+                }
+                let name = format!("{x}.{f}");
+                if t == "Text" {
+                    defs.text_states.push(name.clone());
+                }
+                states.insert(name, key.clone());
+            }
+        }
+        defs.states = states;
+    }
     for h in defs.handlers.values() {
         if let Some((p, t)) = h.params.iter().find(|(_, t)| defs.records.contains_key(t)) {
             return Err(ParseError(format!("handler {}: parameter {} can't be a record ({})", h.name, p, t)));
         }
     }
     let mut roots: Vec<String> = ["ledger", "clock", "audit"].iter().map(|s| s.to_string()).collect();
-    roots.extend(defs.states.keys().cloned());
+    roots.extend(defs.states.keys().map(|x| x.split('.').next().unwrap().to_string()));
     roots.extend(defs.channels.iter().cloned());
     roots.extend(defs.handlers.keys().map(|h| h.split('.').next().unwrap().to_string()));
     let sigs: IndexMap<String, Vec<(String, String)>> =
         defs.defs.iter().map(|(n, d)| (n.clone(), d.params.clone())).collect();
     let records = defs.records.clone();
+    let stored = defs.record_states.clone();
     let mut used = IndexMap::new();
     for d in defs.defs.values_mut() {
-        let mut k =
-            Records { records: &records, flat: &flat, sigs: &sigs, recs: IndexMap::new(), who: d.name.clone(), used: vec![] };
+        let mut k = Records {
+            records: &records,
+            flat: &flat,
+            stored: &stored,
+            sigs: &sigs,
+            recs: IndexMap::new(),
+            who: d.name.clone(),
+            used: vec![],
+            shown: vec![],
+            sets: 0,
+        };
         let mut params = vec![];
         for (p, t) in &d.params {
             if !records.contains_key(t) {
@@ -1887,6 +2034,15 @@ pub fn flatten_records(defs: &mut Module) -> PResult<IndexMap<String, Vec<String
             params.extend(flat[t].iter().map(|(f, ft)| (format!("{}.{}", p, f), ft.clone())));
         }
         k.def(d)?;
+        for r in k.shown.clone() {
+            let mut types = vec![];
+            nested(&r, &records, &mut types);
+            for t in types {
+                if !d.records.iter().any(|(x, _)| *x == t) {
+                    d.records.push((t.clone(), records[&t].clone()));
+                }
+            }
+        }
         d.params = params;
         used.insert(d.name.clone(), k.used);
     }

@@ -113,6 +113,97 @@ body
     );
 }
 
+#[test]
+fn s5_records_as_state_values_check() {
+    // closed (S5, records second cut, DECISIONS.md 2026-11-06): `state order Int -> Order` is one state per field
+    // (`order.qty`); a field is read and written as that state, the whole entry with `order.get k` / `order.set k o`,
+    // compared whole, framed whole (`keep order except …`); `eg` worlds name the field states
+    must_check("gap S5 records as state values", "record Order item:Int qty:Int note:Text
+
+state order Int -> Order
+
+invariant k:Int order.qty.get k >= 0
+
+place k:Int o:Order
+  need o.qty > 0 else NoQty
+  need order.qty.get k = 0 else Taken
+  ok otherwise
+  ensure order.get' k = o
+  keep order except k to (k + 1)
+  eg | place 7 3 2 \"rush\" -> ok | order.item.7:3 order.qty.7:2 order.note.7:\"rush\"
+  eg order.qty.7:1 | place 7 3 2 \"x\" -> Taken
+body
+  order.set k o
+
+bump k:Int
+  need order.qty.get k > 0 else Empty
+  ok otherwise
+  ensure order.qty.get' k = order.qty.get k + 1
+  ensure order.item.get' k = order.item.get k
+  eg order.qty.4:2 | bump 4 -> ok | order.qty.4:3
+body
+  order.qty.set k (order.qty.get k + 1)
+
+move_to a:Int b:Int
+  need a != b else Same
+  ok otherwise
+  ensure order.get' b = order.get a
+  ensure order.get' a = Order 0 0 \"\"
+body
+  order.set b (order.get a)
+  order.set a (Order 0 0 \"\")
+
+same_as k:Int o:Order -> Int
+  ensure result = 1 when order.get k = o
+  ensure result = 0 when order.get k != o
+body
+  if order.get k = o
+    result = 1
+  else
+    result = 0
+");
+}
+
+#[test]
+fn s5_a_stored_record_is_read_by_field_or_whole_and_set_as_a_statement() {
+    let head = "record Order item:Int qty:Int\nrecord Line a:Int b:Account\nstate order Int -> Order\nstate hold Int\n\n";
+    for (def, want) in [
+        ("f k:Int\nbody\n  x = order.get k + 1\n", "is a whole Order record: read a field (order.item.get k)"),
+        ("f k:Int\nbody\n  x = 1 + order.set k (Order 1 2)\n", "sets a stored record"),
+        ("f k:Int\nbody\n  need order.get k = 3 else Bad\n", "both sides must be records of one type"),
+        ("f k:Int\nbody\n  order.set k (Order 1)\n", "has 2 field(s), got 1"),
+    ] {
+        let e = parse_module(&format!("{head}{def}"), true).expect_err(def);
+        assert!(e.0.contains(want), "{def}: {}", e.0);
+    }
+    assert!(parse_module("state order Int -> Nope\n", true).unwrap_err().0.contains("Nope is not a record"));
+    let e = parse_module("record Line a:Int b:Account\nstate line Int -> Line\n", true).unwrap_err();
+    assert!(e.0.contains("a stored record holds Int and Text fields"), "{}", e.0);
+    // a set that reads the record it writes reads every field first: copying an entry onto itself keeps it
+    let defs = parse(&format!("{head}same k:Int\n  ok otherwise\n  keep order.get k\nbody\n  order.set k (Order (order.qty.get k) (order.item.get k))\n"));
+    let g = &reports(&defs)["same"].guarantees;
+    assert!(g.iter().any(|g| g.status == kern::report::Status::Refuted), "a swap of fields is not a no-op: {g:?}");
+    let defs = parse(&format!("{head}swap_fields k:Int\n  ok otherwise\n  ensure order.item.get' k = order.qty.get k\n  ensure order.qty.get' k = order.item.get k\nbody\n  order.set k (Order (order.qty.get k) (order.item.get k))\n"));
+    assert!(reports(&defs)["swap_fields"].clean);
+}
+
+#[test]
+fn s5_a_stored_record_from_another_module_needs_an_import() {
+    let root = tmp("stored-records");
+    write_tree(
+        &root.join("shop"),
+        &[
+            ("orders.k", "record Order item:Int qty:Int\n\nstate order Int -> Order\n\nput k:Int\n  ok otherwise\nbody\n  order.qty.set k 1\n"),
+            ("audit.k", "peek k:Int -> Int\n  ensure result = order.qty.get k\nbody\n  result = order.qty.get k\n"),
+        ],
+        true,
+    );
+    let e = kern::package::load(&root.join("shop").to_string_lossy(), &IndexMap::new()).unwrap_err();
+    assert!(e.0.contains("peek uses state order.qty, which orders declares: add `import orders`"), "{}", e.0);
+    std::fs::write(root.join("shop/audit.k"), "import orders\n\npeek k:Int -> Int\n  ensure result = order.qty.get k\nbody\n  result = order.qty.get k\n").unwrap();
+    kern::package::load(&root.join("shop").to_string_lossy(), &IndexMap::new()).unwrap();
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int

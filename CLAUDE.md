@@ -267,8 +267,10 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   accounts, effects that return values, records as state values.
 - Records: `record Name f:Int|Account|Text|Record …` (nested; a cycle is an error); record-typed parameters,
   flattened to their leaf fields at load time (`syntax::flatten_records`; `l:Line` is `l.a.x l.a.y …`); `eg` and
-  counterexamples pass the fields positionally; `p = q` / `p != q` compare every field. Not yet: records as state
-  values, `-> Record`, records in `let`s.
+  counterexamples pass the fields positionally; `p = q` / `p != q` compare every field. Stored records:
+  `state order Int -> Order` is one state per field (`order.qty`), whole reads/sets/frames expand at load time
+  (a set that reads the record reads every field first); no Account fields in state. Not yet: `-> Record`,
+  records in `let`s.
 - Named constants: `const NAME N` (N ≥ 0) is substituted at load time (`syntax::resolve_consts`), so checker,
   host and compiled program see a literal; views add `const NAME N` lines. No negative values, no constant
   expressions, none in `eg` lines. A name that would hide one (parameter, `let`, loop variable) is an error.

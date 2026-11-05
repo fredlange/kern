@@ -64,6 +64,7 @@ body
 |---|---|
 | `state NAME Int` or `state NAME Account` | a map to Int (default 0): `NAME.get k` (specs may read it), `NAME.set k v` |
 | `state NAME Int -> Text` (or `Account -> Text`) | a map to Text (default `""`) |
+| `state NAME Int -> R` (R a record of Int and Text fields) | one map per field, `NAME.f`: `NAME.f.get k`, `NAME.f.set k v`. Whole: `NAME.get k` where an R goes (an argument, `=`), `NAME.set k r` (a statement), `keep NAME` |
 | `invariant x:Type COND` | COND holds for every key, before and after every call. It may read state only at `x` |
 | `record Name f:Type …` | a record type: Int, Account or Text fields. Views add its `record` line |
 | `const NAME N` | a named integer (N ≥ 0), usable wherever a literal is (`amount * rate` stays linear). Views add a `const NAME N` line |
@@ -102,7 +103,7 @@ A refusal undoes the whole call, so guarantees only have to hold on success. Eff
 ### `eg` lines
 
 - **WORLD:** `A:500@u1` (account, balance, owner), `now:5`, and state such as `hold.7:100`,
-  `limit.A:300` or `title.1:"a b"`.
+  `limit.A:300`, `title.1:"a b"` or a stored record's field, `order.qty.7:2`.
 - **ARGS:** integers, account names and Text literals.
 - **OUTCOME:** `ok`, `ok N` (also asserts the returned value), or `Ctor ints` (for example `Insufficient 50`).
 - **AFTER:** only the items listed are compared, such as `A:400 hold.7:0`.
