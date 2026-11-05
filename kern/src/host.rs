@@ -114,6 +114,11 @@ pub fn json_value(j: &J) -> Value {
     }
 }
 
+/// Loop and sum iterations one call may start (S21): the interpreter's budget, charged `hi - lo` when a loop or sum
+/// begins. A call past it is a host fault, so one huge bound can't hold the write lock. kern-rt's ITERATION_LIMIT is
+/// the same number (emit_rust::tests checks).
+pub const ITERATION_LIMIT: Int = 10_000_000;
+
 /// The host's one Int range (S20): i64, what SQLite stores and the compiled runtime computes in. The interpreter
 /// computes in i128; a call whose result leaves this range is a host fault, never a silently wrapped value.
 pub fn fits(n: Int) -> bool {
@@ -893,8 +898,18 @@ impl<'m> Host<'m> {
             None => Err(ProvideError::Other("KeyError".into(), repr_str(n))),
         });
         let mut interp = Interp::with_provider(defs, Some(provider), 0);
+        interp.budget = Some(ITERATION_LIMIT);
         let mut res = CallResult::new();
         match interp.run(name, args, &mut world) {
+            // the budget only goes below 0 when it ran out
+            Err(RunError::Kern(_)) if interp.budget.map_or(false, |b| b < 0) => {
+                res.insert("status".into(), json!("error"));
+                res.insert("fault".into(), json!("limit"));
+                res.insert(
+                    "error".into(),
+                    json!(format!("iteration limit exceeded: more than {} loop and sum iterations in one call", ITERATION_LIMIT)),
+                );
+            }
             Err(RunError::Kern(e)) => {
                 res.insert("status".into(), json!("error"));
                 res.insert("error".into(), json!(e));
@@ -1282,6 +1297,7 @@ pub fn manifest_text(host: &Host) -> String {
         "per call, on for every definition (the default; --skip-proven removes proven ones)".to_string()
     };
     lines.push(format!("runtime checks: invariants audited in full at startup (passed); {}", per_call));
+    lines.push(format!("iteration limit: {} loop and sum iterations per call; past it the call is a fault, undone", ITERATION_LIMIT));
     lines.push(String::new());
     for (n, v) in &m {
         let mark = if v["served"].as_bool().unwrap() { "serve" } else { "BLOCK" };
@@ -1560,7 +1576,7 @@ pub fn handle_http(host: &mut Host, mut req: tiny_http::Request) -> Result<(), H
         }
         Err(e) => respond(req, 500, &json!({"error": format!("host: {}", e)})), // a host fault; the call rolled back
         Ok(r) => {
-            let code = if matches!(r.get("fault").and_then(|f| f.as_str()), Some("module") | Some("range")) {
+            let code = if matches!(r.get("fault").and_then(|f| f.as_str()), Some("module") | Some("range") | Some("limit")) {
                 500 // ○ tier fired, or an Int left the host's range (S20): not the caller's input
             } else {
                 match r["status"].as_str() {
@@ -2152,6 +2168,31 @@ nope x:Int k:Int
         let page = std::fs::read_to_string(&html).unwrap();
         assert!(page.contains("one flag per key, so a retry is harmless"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_huge_bound_ends_as_a_fault_not_a_held_host() {
+        // S21: the call's iterations are charged when a loop or sum starts, so this fails at once
+        let src = "state hold Int\n\ncount n:Int\n  ok otherwise\nbody\n  hold.set 0 (sum j from 0 to n of 1)\n\n\
+                   fill n:Int\n  ok otherwise\nbody\n  for k from 0 to n\n    hold.set 1 k\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let mut h = Host::new(&defs, IndexMap::new(), Options { sinks: Some(vec![]), gate: false, ..Default::default() }).unwrap();
+        h.init("").unwrap();
+        let t = std::time::Instant::now();
+        for (name, n) in [("count", i64::MAX as Int), ("fill", 1_000_000_000_000)] {
+            let r = h.call(name, &[Value::Int(n)]).unwrap();
+            assert_eq!((r["status"].as_str(), r["fault"].as_str()), (Some("error"), Some("limit")), "{name}: {r:?}");
+        }
+        assert!(t.elapsed().as_secs() < 2, "{:?}", t.elapsed());
+        assert_eq!(h.call("count", &[Value::Int(ITERATION_LIMIT)]).unwrap()["status"], "ok");
+        assert_eq!(h.call("count", &[Value::Int(ITERATION_LIMIT + 1)]).unwrap()["fault"], "limit");
+        assert_eq!(h.load().unwrap().maps["hold"][&Key::Int(0)], ITERATION_LIMIT);
+        assert!(h.replay().unwrap().is_empty());
+        assert!(manifest_text(&h).contains("iteration limit: 10000000 loop and sum iterations per call"));
+        // the compiled program stops at the same number
+        let rt = include_str!("../../runtime/src/lib.rs");
+        assert!(rt.contains(&format!("pub const ITERATION_LIMIT: i64 = {};", "10_000_000")) && ITERATION_LIMIT == 10_000_000);
     }
 
     #[test]

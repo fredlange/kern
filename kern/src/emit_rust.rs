@@ -283,7 +283,7 @@ impl<'a> Gen<'a> {
                 };
                 Ok((
                     format!(
-                        "{{ let __lo = {}; let __hi = {}; let mut __s = 0i64; let mut __j = __lo; \
+                        "{{ let __lo = {}; let __hi = {}; tx.spend(__lo, __hi)?; let mut __s = 0i64; let mut __j = __lo; \
                          while __j < __hi {{ let {} = __j; {} __j += 1; }} __s }}",
                         lo,
                         hi,
@@ -421,10 +421,11 @@ impl<'a> Gen<'a> {
                     out.push(format!("{}}}", ind));
                 }
                 Stmt::For(k, lo, hi, _, body) => {
-                    // bounds evaluated once; invariants are proven
+                    // bounds evaluated once, charged against the call's iteration limit (S21); invariants are proven
                     let (lo, _) = self.expr(lo, sc)?;
                     let (hi, _) = self.expr(hi, sc)?;
-                    out.push(format!("{}for {} in ({})..({}) {{", ind, ident(k), lo, hi));
+                    out.push(format!("{}let __lo = {}; let __hi = {}; tx.spend(__lo, __hi)?;", ind, lo, hi));
+                    out.push(format!("{}for {} in __lo..__hi {{", ind, ident(k)));
                     let mut inner = sc.clone();
                     inner.insert(k.clone(), "Int".into());
                     out.extend(self.block(body, &mut inner, &deeper, d)?);

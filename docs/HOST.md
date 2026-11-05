@@ -41,7 +41,13 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   interpreter computes in i128. A successful call whose stored balance, map key or value, event or result, or a
   refusal whose payload, leaves i64 is a host fault (`"fault": "range"`): rolled back, logged as an error, which
   replay skips. Before, it was stored wrapped and `replay` reported "state differs". Input past i64 (HTTP, `repl`,
-  the genesis world) is refused, never wrapped or read as 0. Integer literals in Kern source are lang's side. The genesis world must satisfy the invariants. `GET /state`, `GET /manifest`.
+  the genesis world) is refused, never wrapped or read as 0. Integer literals in Kern source are lang's side.
+- **An iteration limit per call (S21, 2026-11-05).** At most 10,000,000 loop and sum iterations per top-level call
+  (`ITERATION_LIMIT`), charged as the interpreter's budget is: `hi - lo` when a `for` or `sum` starts, so a huge
+  bound fails at once instead of holding the write lock. Past it the call is a host fault (`"fault": "limit"`,
+  HTTP 500): undone, logged as an error, which replay skips. A `kern build` program has the same limit
+  (kern-rt `ITERATION_LIMIT`, `Tx::spend`) and faults at the same call. The manifest states it. The proof says a
+  call succeeds, not when; this bounds the when. The genesis world must satisfy the invariants. `GET /state`, `GET /manifest`.
 - **Console:** `repl` takes one call per line on stdin, prints the outcome and delivers the outbox
   to stdout. stdin is the event source and stdout is a sink.
 - **Permission manifest:** the inferred `uses` of every def, plus how the host realises each

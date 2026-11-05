@@ -308,17 +308,23 @@ enum Undo {
     I(u16, i64, Option<i64>),
 }
 
+/// Loop and sum iterations one top-level call may start (S21), charged as the interpreter charges its budget: `hi - lo`
+/// when a loop or sum begins. kern host uses the same number (host.rs ITERATION_LIMIT).
+pub const ITERATION_LIMIT: i64 = 10_000_000;
+
 /// Reusable per-thread buffers, so a call allocates nothing in the steady state.
 pub struct Exec<E> {
     undo: Vec<Undo>,
     /// (channel index, event) for the last call; channel 0 is `audit`
     pub events: Vec<(u16, E)>,
     pub obs: Vec<Obs>,
+    /// iterations per top-level call (ITERATION_LIMIT unless changed)
+    pub limit: i64,
 }
 
 impl<E> Default for Exec<E> {
     fn default() -> Self {
-        Exec { undo: Vec::new(), events: Vec::new(), obs: Vec::new() }
+        Exec { undo: Vec::new(), events: Vec::new(), obs: Vec::new(), limit: ITERATION_LIMIT }
     }
 }
 
@@ -329,6 +335,8 @@ pub struct Tx<'a, E> {
     events: &'a mut Vec<(u16, E)>,
     obs: &'a mut Vec<Obs>,
     prov: &'a mut dyn Provider,
+    /// iterations this call may still start
+    budget: i64,
     /// `clock.now`: one value for the whole top-level call
     pub now: i64,
 }
@@ -424,6 +432,18 @@ impl<'a, E> Tx<'a, E> {
         }
         out
     }
+    /// A loop or sum over [lo, hi) is about to start: charge hi - lo against the call's iteration limit (S21).
+    #[inline(always)]
+    pub fn spend(&mut self, lo: i64, hi: i64) -> Result<(), Fault> {
+        let n = hi as i128 - lo as i128;
+        if n > 0 {
+            self.budget = (self.budget as i128 - n).max(-1) as i64;
+            if self.budget < 0 {
+                return Err(Fault::Error("iteration limit exceeded".into()));
+            }
+        }
+        Ok(())
+    }
     /// An account's name (for a fault message).
     pub fn acct_name(&self, a: Acct) -> &str {
         self.w.name(a)
@@ -444,7 +464,8 @@ impl<E> Exec<E> {
         self.obs.clear();
         let now = w.clock;
         let out = {
-            let mut tx = Tx { w: &mut *w, undo: &mut self.undo, events: &mut self.events, obs: &mut self.obs, prov, now };
+            let budget = self.limit;
+            let mut tx = Tx { w: &mut *w, undo: &mut self.undo, events: &mut self.events, obs: &mut self.obs, prov, budget, now };
             body(&mut tx)
         };
         if out.is_err() {
@@ -570,6 +591,26 @@ mod tests {
             Ok((names, tx.written_ints()))
         });
         assert_eq!(seen, Ok((vec!["B".to_string(), "A".to_string()], vec![7, -2])));
+    }
+
+    #[test]
+    fn the_iteration_limit_is_per_call_and_cumulative() {
+        let mut w = World::new(0, 0);
+        let mut exec: Exec<()> = Exec { limit: 10, ..Default::default() };
+        let mut prov = Replay::default();
+        let mut run = |exec: &mut Exec<()>, spans: &[(i64, i64)]| {
+            let spans = spans.to_vec();
+            exec.call(&mut w, &mut prov, move |tx| -> Result<(), Stop<()>> {
+                for (lo, hi) in spans {
+                    tx.spend(lo, hi)?;
+                }
+                Ok(())
+            })
+        };
+        assert_eq!(run(&mut exec, &[(0, 4), (5, 3), (2, 8)]), Ok(())); // 4 + 0 + 6 = 10
+        assert!(matches!(run(&mut exec, &[(0, 4), (0, 7)]), Err(Stop::Fault(_)))); // 11
+        assert_eq!(run(&mut exec, &[(0, 10)]), Ok(()), "a new call starts with the whole limit");
+        assert!(matches!(run(&mut exec, &[(i64::MIN, i64::MAX)]), Err(Stop::Fault(_))));
     }
 
     #[test]
