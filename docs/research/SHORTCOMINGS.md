@@ -166,11 +166,6 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Needs a decision first:** `emit` is exact-sequence only. There's no agreed alternative ("contains",
   "at least"), so there's no test.
 
-### S11. Tier ○ (runtime-checked only) exists only in the host
-- **Kind:** code gap. **Weakens:** F5 (every claim carries its strength).
-- **Evidence:** the checker's proof page has no ○. The host checks invariants at run time.
-- **Fixed when:** `f5_runtime_only_tier_exists` (`kern/tests/fundamentals_back.rs:628`).
-
 ### S14. `ok otherwise` makes callers restate every refusal
 - **Kind:** trade-off.
 - **Evidence:** payout's spec view grows from 97 to 163 tokens. Nothing is inherited, every refusing
@@ -252,12 +247,29 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   leaves i64 is a host fault, rolled back, logged and skipped by replay (tester: every path, replay matches).
   The compiled runtime already faults on overflow. Still open: literals past i64 in Kern source (lang). The
   prover still reasons over unbounded integers, so a ✔ call can end as a range fault at the edge; it fails
-  atomically and says so, but the page doesn't mention the range.
+  atomically and says so; since `0f4ed45` the host page states the i64 range as an assumption.
 
 ## Closed
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S11. Tier ○ (runtime-checked only) existed only in the host
+- **Kind:** code gap. **Closed** 2026-11-05 in `f160617`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
+  tier ○, and its addendum); test flip and loop digest `68e7b93` (tester); compiled checks `f53e1a0` (runtime);
+  review fix `d654dbc`.
+- **Was:** the checker's proof page had no ○; the host checked invariants at run time, but the page said `?`.
+- **Decided by** F5 (each claim states its real evidence): a module-invariant goal with no proof *and no
+  counterexample* is ○, because `kern host` and `kern build` programs check it after every call at the keys the
+  call wrote, and undo a call that breaks it as a fault. The wording states the limits (a fault, not a declared
+  refusal; the gated host serves it only with `--no-gate`). In review, an invariant that random tests broke
+  read "○ checked at run time"; since `d654dbc` it is ✗ with the breaking run as an `eg` line that replays.
+- **Evidence:** `f5_runtime_only_tier_exists` passes as an ordinary test (`kern/tests/fundamentals_back.rs`).
+  Goldens re-recorded with reasons: p2 and fz2 (`?` → ○, one line each), invcheck (three broken invariants
+  ○ → ✗). Loop digest e7234c3d8ea6a48e → 776c5ca29063f921 in `68e7b93`: a dump diff shows exactly two goals,
+  unknown → runtime. S2 digest unchanged; fuzz seeds 1–3 0 contradictions. REFERENCE.md 2,300 → 2,344 tokens.
+- **What remains:** a compiled program doesn't audit its starting world against the invariants (the host
+  does, at startup; HOST.md).
 
 ### S21. No iteration limit at run time: a huge loop or sum bound held the host
 - **Kind:** code gap. **Closed** 2026-11-05 in `5ffab2d` (runtime); gap test `ec77a7b` (lang), tests `f05dd29`.
@@ -273,8 +285,8 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   faults; a reversed range refunds nothing; sums and callees add up; 2^63 faults at once), replay matches.
   difftest 330,360 calls and fuzzdiff 0 divergences.
 - **What remains:** the limit is a fixed constant, not configurable. `kern check` has no limit (random tests use
-  small values). As with S20, a ✔ call can end as a fault at the edge; it fails atomically and says so, but the
-  page doesn't mention the limit.
+  small values). As with S20, a ✔ call can end as a fault at the edge; it fails atomically and says so, and
+  since `0f4ed45` the host page states the limit as an assumption.
 
 ### S12. The host: a reply that never arrived left the request pending
 - **Kind:** code gap. **Closed** 2026-11-05 in `f79f085` (runtime); gap test flipped by lang in `96667ab`
@@ -313,8 +325,8 @@ to make decisions as long as they follow the fundamentals". Each one names the f
 - **What remains:**
   - Not built (decided): records as state values, `-> Point`, nested records, record equality, records in
     `let`s and handler parameters, grouped `eg` arguments.
-  - ~~A constructor named `Self` breaks `kern build`~~ fixed in `563177e` (variant `_Self`). Still loud, not
-    wrong: a constructor with an underscore (`Too_Big`) fails `kern build` (tester, sent to runtime).
+  - ~~A constructor named `Self` breaks `kern build`~~ fixed in `563177e` (variant `_Self`). Underscore
+    constructors (`Too_Big`) fixed in `02e40dd`; difftest test `c674eca`.
   - ~~Positional `eg` arguments that are too few, or grouped `(1 2)`, give a failing example with no reason~~
     fixed in `fb80e41`: a failing `eg` says why (wrong argument count, or the actual after-values;
     `s5_a_failing_eg_says_why`).
