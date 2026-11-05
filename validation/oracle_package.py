@@ -17,7 +17,17 @@ from kern import package  # noqa: E402
 from kern.syntax import ParseError  # noqa: E402
 
 LEDGER = open(os.path.join(ROOT, "examples/shop/money/ledger.k")).read()
-PAY = open(os.path.join(ROOT, "tests/test_package.py")).read().split('PAY = """', 1)[1].split('"""', 1)[0]
+PAY = """import money.ledger
+
+pay a:Account b:Account
+  need as transfer a b 5
+  ok otherwise
+  keep ledger.total
+  emit as transfer a b 5
+  eg A:10@u1 B:0@u2 | pay A B -> ok | A:5 B:5
+body
+  transfer a b 5
+"""  # as in toolchain/tests/package.rs, formerly read from tests/test_package.py (deleted in 33ca18f)
 CAT = "state stock Int\n\nrestock item:Int\n  ok otherwise\nbody\n  stock.set item 1\n"
 SELL = "sell item:Int\n  ok otherwise\nbody\n  stock.set item 0\n"
 CASES = {   # name -> (files, is a package, file to load)

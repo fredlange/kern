@@ -24,7 +24,20 @@ from kern import package  # noqa: E402
 from kern.host import Host, SimNet, load_config  # noqa: E402
 
 TABLES = ["meta", "account", "cell", "log", "outbox"]
-CH = open(os.path.join(ROOT, "tests/test_host.py")).read().split('CH = """\\\n', 1)[1].split('"""', 1)[0]
+CH = """\
+channel console
+
+hello to:Account amount:Int
+  need amount > 0 else BadAmount
+  ok otherwise
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit console Line to amount
+  emit Credited to amount
+body
+  ledger.credit to amount
+  audit.emit (Credited to amount)
+  console.emit (Line to amount)
+"""  # the channels module of toolchain/tests/host.rs (CH), formerly read from tests/test_host.py
 RAFFLE = os.path.join(ROOT, "examples/raffle/raffle.k")
 
 
