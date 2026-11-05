@@ -6,13 +6,11 @@ that import each other.
 
 ```
 shop/
-├── kern.pkg                 marks this directory as a package
+├── kern.pkg                 a package; `use ../money` (the shared ledger, money.ledger)
 ├── orders.k                 buy, refund
 ├── inventory/
 │   ├── catalog.k            state price, stock; set_price, restock, restock_range
 │   └── promotions.k         discount_range (10% off every item in a range)
-├── money/
-│   └── ledger.k             transfer
 └── proof-pages/shop.html    the generated proof page
 ```
 
@@ -69,5 +67,5 @@ state
 - Prices are per item id. Kern has no records, so an item is a set of `Int`-keyed maps, not
   one value.
 - An order total can't be "price × quantity": Kern multiplies only by a literal.
-- `money/ledger.k` is a copy of the same file in `library/` and `lottery/`, because packages
-  can't import from each other yet.
+- `money.ledger` comes from the shared package `examples/money` (`use ../money` in `kern.pkg`); it used to be
+  a copy in each example.

@@ -51,7 +51,7 @@ discount_range [00907e46]  All guarantees proven
       survived: `lo` → `lo - 1` in `for k from lo to hi`
       survived: `hi` → `hi + 1` in `for k from lo to hi`
 
-== money.ledger  (examples/shop/money/ledger.k)
+== money.ledger  (examples/money/ledger.k)
 transfer [27367a3f]  All guarantees proven
   ✔ ok otherwise
   ✔ keep ledger.total

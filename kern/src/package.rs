@@ -222,23 +222,61 @@ pub fn load(path: &str, overrides: &IndexMap<String, String>) -> Result<Module, 
         return Ok(defs);
     }
     let base = root.clone().unwrap_or_else(|| dirname(&path));
-    let mut todo: Vec<String> = match &root {
-        Some(r) => walk_k_files(r),
-        None => vec![path.clone()],
+    // packages this one uses (`use ../money` in kern.pkg), transitively: their modules are `money.<module>`
+    let deps = match &root {
+        Some(r) => dependencies(r)?,
+        None => vec![],
+    };
+    // module -> (file, the prefix its own imports may leave out: "" here, "money." in a dependency)
+    let mut known: IndexMap<String, (String, String)> = IndexMap::new();
+    if let Some(r) = &root {
+        for p in walk_k_files(r) {
+            known.insert(module_name(&base, &p), (p, String::new()));
+        }
+        for (name, dir) in &deps {
+            for p in walk_k_files(dir) {
+                let m = format!("{}.{}", name, module_name(dir, &p));
+                if let Some((other, _)) = known.get(&m) {
+                    return Err(load_error(&p, &format!("module {} is also {}", m, relpath(other, &base)), None));
+                }
+                known.insert(m, (p, format!("{name}.")));
+            }
+        }
+    }
+    let mut todo: Vec<(String, String, String)> = match &root {
+        Some(_) => known.iter().map(|(m, (p, pre))| (p.clone(), m.clone(), pre.clone())).collect(),
+        None => vec![(path.clone(), module_name(&base, &path), String::new())],
     };
     let mut files: IndexMap<String, (String, Module, String)> = IndexMap::new();
     let mut imports: IndexMap<String, Vec<(String, usize)>> = IndexMap::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
     while !todo.is_empty() {
-        let p = todo.remove(0);
+        let (p, m, prefix) = todo.remove(0);
         if !seen.insert(p.clone()) {
             continue;
         }
-        let m = module_name(&base, &p);
         let text = read(&p)?;
         let (imps, stripped) = split_imports(&text, &p)?;
         let defs = parse_module(&stripped, false).map_err(|e| load_error(&p, &e.0, None))?;
+        let mut resolved = vec![];
         for (name, no) in &imps {
+            if root.is_some() {
+                // within a dependency, its own modules first, then another package's
+                let full = format!("{prefix}{name}");
+                let name = if !prefix.is_empty() && known.contains_key(&full) { full } else { name.clone() };
+                if !known.contains_key(&name) {
+                    let target = module_path(&base, &name);
+                    if !overrides.contains_key(&target) {
+                        return Err(load_error(
+                            &p,
+                            &format!("no module {} (looked for {})", name, relpath(&target, &base)),
+                            Some(*no),
+                        ));
+                    }
+                }
+                resolved.push((name, *no));
+                continue;
+            }
             let target = module_path(&base, name);
             if !Path::new(&target).exists() && !overrides.contains_key(&target) {
                 return Err(load_error(
@@ -247,12 +285,11 @@ pub fn load(path: &str, overrides: &IndexMap<String, String>) -> Result<Module, 
                     Some(*no),
                 ));
             }
-            if root.is_none() {
-                todo.push(target);
-            }
+            todo.push((target.clone(), module_name(&base, &target), String::new()));
+            resolved.push((name.clone(), *no));
         }
         files.insert(m.clone(), (p, defs, text));
-        imports.insert(m, imps);
+        imports.insert(m, resolved);
     }
     let mut merged = Module::default();
     let mut origin: IndexMap<String, IndexMap<String, String>> =
@@ -381,6 +418,49 @@ pub fn load(path: &str, overrides: &IndexMap<String, String>) -> Result<Module, 
     });
     check_module(&merged)?;
     Ok(merged)
+}
+
+/// The packages `root` uses, transitively: (name, directory). kern.pkg holds `use PATH` lines (relative to the
+/// package), each naming a directory with its own kern.pkg; the name is the directory's. Blank lines are allowed.
+pub fn dependencies(root: &str) -> Result<Vec<(String, String)>, ParseError> {
+    let mut out: Vec<(String, String)> = vec![];
+    let mut todo = vec![(root.to_string(), vec![abspath(root)])];
+    while let Some((dir, chain)) = todo.pop() {
+        let file = join(&dir, MARKER);
+        let text = read_text(&file).unwrap_or_default();
+        for (i, line) in text.split('\n').enumerate() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Some(rel) = line.strip_prefix("use ").map(str::trim) else {
+                return Err(load_error(&file, &format!("want `use ../other` (a package directory), got {}", repr_str(line)), Some(i + 1)));
+            };
+            let target = abspath(&join(&dir, rel));
+            if !Path::new(&join(&target, MARKER)).exists() {
+                return Err(load_error(&file, &format!("{} is not a package (no {} in it)", rel, MARKER), Some(i + 1)));
+            }
+            let name = target.rsplit('/').next().unwrap_or("").to_string();
+            if !name_re().is_match(&name) || name.contains('.') {
+                return Err(load_error(&file, &format!("a package used by name {} needs a lower-case name", repr_str(&name)), Some(i + 1)));
+            }
+            if chain.contains(&target) {
+                return Err(load_error(&file, &format!("packages use each other in a cycle through {}", name), Some(i + 1)));
+            }
+            match out.iter().find(|(n, _)| *n == name) {
+                Some((_, d)) if *d == target => continue,
+                Some((_, d)) => {
+                    return Err(load_error(&file, &format!("two packages are named {}: {} and {}", name, d, target), Some(i + 1)))
+                }
+                None => {}
+            }
+            out.push((name, target.clone()));
+            let mut c = chain.clone();
+            c.push(target.clone());
+            todo.push((target, c));
+        }
+    }
+    Ok(out)
 }
 
 fn io_error_text(e: &std::io::Error, p: &str) -> String {

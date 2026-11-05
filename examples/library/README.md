@@ -5,13 +5,11 @@ returns, paid through the ledger. It's a Kern **package** of four files.
 
 ```
 library/
-├── kern.pkg
+├── kern.pkg                 `use ../money` (the shared ledger, money.ledger)
 ├── catalog/
 │   └── books.k              state copies; add_copies
 ├── loans.k                  state due, lent; borrow, give_back
 ├── fines.k                  state fine; assess (a loop over loans), pay_fine
-├── money/
-│   └── ledger.k             transfer
 └── proof-pages/library.html
 ```
 
@@ -52,7 +50,7 @@ Loans are numbered by the caller (`9`, `10`): a Kern operation can't return a ne
 - **A loop over a range of loans.** `assess` adds a fine of 5 to every overdue loan from `lo`
   to `hi`.
 - **Cross-file calls.** `pay_fine` (in `fines.k`) reads `due` (from `loans.k`) and pays through
-  `transfer` (from `money/ledger.k`).
+  `transfer` (from `money.ledger`, the shared package `examples/money`).
 
 ## Status
 

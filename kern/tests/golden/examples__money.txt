@@ -1,0 +1,56 @@
+$ kern check examples/money   (exit 0)
+== ledger  (examples/money/ledger.k)
+transfer [27367a3f]  All guarantees proven
+  ✔ ok otherwise
+  ✔ keep ledger.total
+  ✔ ensure ledger.balance' from = ledger.balance from - amount
+  ✔ ensure ledger.balance' to = ledger.balance to + amount
+  ✔ emit Moved from to amount clock.now
+  writes from to
+  examples 2/2   random tests 207/500 reached success, 0 violations
+  spec strength: guarantees 10/10 (prover 10, random tests 10); examples 6/10; together 10/10
+  spec refusals: 3/6 changes caught (examples 2, guarantees 1)
+      unpinned: need amount > 0 else BadAmount (dropped, `>` → `>=`)
+      unpinned: need ledger.balance from >= amount else Insufficient (`>=` → `>`)
+
+
+$ kern view examples/money transfer --as iface   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+
+$ kern view examples/money transfer --as spec   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  proof ok
+
+$ kern view examples/money transfer --as editor   (exit 0)
+transfer from:Account to:Account amount:Int
+  uses ledger.write clock audit
+  writes from to
+  fails BadAmount SameAccount Insufficient(Int)
+  need amount > 0 else BadAmount
+  need from != to else SameAccount
+  need ledger.balance from >= amount else Insufficient (amount - ledger.balance from)
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' from = ledger.balance from - amount
+  ensure ledger.balance' to = ledger.balance to + amount
+  emit Moved from to amount clock.now
+  eg A:500@u1 B:0@u2 | transfer A B 100 -> ok | A:400 B:100
+  eg A:50@u1 B:0@u2 | transfer A B 100 -> Insufficient 50
+body
+  ledger.debit from amount
+  ledger.credit to amount
+  audit.emit (Moved from to amount clock.now)

@@ -40,7 +40,7 @@ draw [12db448c]  Proven, assuming rand.below
   spec refusals: 4/5 changes caught (examples 0, guarantees 4)
       unpinned: need ledger.balance pot >= amount else Insufficient (`>=` → `>`)
 
-== money.ledger  (examples/lottery/money/ledger.k)
+== money.ledger  (examples/money/ledger.k)
 transfer [27367a3f]  All guarantees proven
   ✔ ok otherwise
   ✔ keep ledger.total

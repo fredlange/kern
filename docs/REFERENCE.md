@@ -76,7 +76,8 @@ each iteration in a loop `invariant`.
 A directory with a `kern.pkg` file is a package; each `.k` file in it is a module named by its
 path (`money/ledger.k` is `money.ledger`). `import money.ledger` (column 0) lets a file use that
 module's definitions, state and handlers, unqualified. A file uses only what it declares or
-imports; names are unique across the package. Checking any file checks the whole package.
+imports; names are unique across the package. Checking any file checks the whole package. A `use ../money`
+line in `kern.pkg` makes a sibling package's modules importable as `money.ledger` (transitively).
 
 ## Spec clauses
 

@@ -549,13 +549,12 @@ fn s5_a_constant_from_another_module_needs_an_import() {
 }
 
 #[test]
-#[should_panic(expected = "gap S5 cross-package import:")]
 fn s5_import_across_packages_loads() {
-    // gap (S5): imports reach within one package only, so each example app copies its ledger. Two sibling
-    // packages, `app` imports a module of `money`. placeholder: how `app` names its dependency (a `kern.pkg` line)
+    // closed (S5): kern.pkg's `use ../money` makes a sibling package's modules importable as `money.<module>`
+    // (DECISIONS.md, 2026-11-05, imports across packages); the placeholder was the chosen syntax
     let gap = "gap S5 cross-package import";
     let root = tmp("s5-cross-package");
-    write_tree(&root.join("money"), &[("ledger.k", &read("examples/shop/money/ledger.k"))], true);
+    write_tree(&root.join("money"), &[("ledger.k", &read("examples/money/ledger.k"))], true);
     let app = write_tree(
         &root.join("app"),
         &[
@@ -579,6 +578,46 @@ body
     let defs = kern::package::load(&app.join("pay.k").to_string_lossy(), &IndexMap::new()).unwrap_or_else(|e| panic!("{gap}: doesn't load: {}", e.0));
     let reps = analyse(&defs, false, None, None).unwrap_or_else(|e| panic!("{gap}: not well-formed: {}", e.message()));
     assert!(reps.values().all(|r| r.clean), "{gap}: not clean");
+}
+
+#[test]
+fn s5_packages_use_packages_transitively_with_one_name_each() {
+    let root = tmp("s5-pkg-deps");
+    // util <- money <- app: money imports its own module and util's
+    write_tree(&root.join("util"), &[("fees.k", "fee_of n:Int -> Int\n  ensure result = n / 100\nbody\n  result = n / 100\n")], true);
+    write_tree(
+        &root.join("money"),
+        &[
+            ("kern.pkg", "use ../util\n"),
+            ("ledger.k", &read("examples/money/ledger.k")),
+            ("pay.k", "import ledger\nimport util.fees\n\npay a:Account b:Account n:Int\n  need as transfer a b n\n  ok otherwise\n  keep ledger.total\nbody\n  transfer a b n\n"),
+        ],
+        false,
+    );
+    let app = write_tree(
+        &root.join("app"),
+        &[("kern.pkg", "use ../money\n\n"), ("shop.k", "import money.pay\nimport util.fees\n\nbuy a:Account b:Account\n  need as pay a b 5\n  ok otherwise\n  ensure fee_of 500 = 5\nbody\n  pay a b 5\n")],
+        false,
+    );
+    let defs = kern::package::load(&app.join("shop.k").to_string_lossy(), &IndexMap::new()).unwrap_or_else(|e| panic!("{}", e.0));
+    let pkg = defs.package.clone().unwrap();
+    for m in ["shop", "money.ledger", "money.pay", "util.fees"] {
+        assert!(pkg.files.contains_key(m), "{m}: {:?}", pkg.files.keys());
+    }
+    assert!(reports(&defs).values().all(|r| r.clean));
+    // the import rule still holds across packages: shop may not use transfer without importing money.ledger
+    let bad = root.join("app").join("shop.k");
+    std::fs::write(&bad, "import money.pay\n\nbuy a:Account b:Account\n  ok otherwise\nbody\n  transfer a b 5\n").unwrap();
+    let e = kern::package::load(&bad.to_string_lossy(), &IndexMap::new()).unwrap_err();
+    assert!(e.0.contains("add `import money.ledger`"), "{}", e.0);
+    // a cycle, a missing package and a bad line are load errors
+    std::fs::write(root.join("util").join("kern.pkg"), "use ../app\n").unwrap();
+    let e = kern::package::load(&bad.to_string_lossy(), &IndexMap::new()).unwrap_err();
+    assert!(e.0.contains("cycle"), "{}", e.0);
+    std::fs::write(root.join("util").join("kern.pkg"), "use ../nowhere\n").unwrap();
+    assert!(kern::package::load(&bad.to_string_lossy(), &IndexMap::new()).unwrap_err().0.contains("is not a package"));
+    std::fs::write(root.join("util").join("kern.pkg"), "needs money\n").unwrap();
+    assert!(kern::package::load(&bad.to_string_lossy(), &IndexMap::new()).unwrap_err().0.contains("want `use ../other`"));
 }
 
 // =====================================================================================

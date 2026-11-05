@@ -255,7 +255,8 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   answers within its deadline (`; timeout N`, default 300 s of the recorded clock, checked after each call) gets its
   `fail` call once. Delivery is at-least-once. docs/HOST.md has the scorecard.
 - Packages (a proposal, roadmap run P): `import a.b` brings a module's names in unqualified; names are unique
-  per package; imports reach within one package only (each example app copies its ledger). Missing for
+  per package; `use ../other` in kern.pkg brings in a sibling package as `other.<module>` (S5; examples
+  share examples/money). Missing for
   ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): Accounts as state values, iteration over
   accounts, effects that return values, records as state values.
 - Records (first cut): `record Name f:Int|Account …`; record-typed parameters only, flattened to their fields

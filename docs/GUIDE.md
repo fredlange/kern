@@ -313,7 +313,8 @@ Int is i64 at run time, i128 in the interpreter and the prover's model is unboun
 ## Files
 
 - **`FILE.k`:** the module.
-- **`kern.pkg`:** marks a package root (it may be empty). In a package, the `.why` and `.strength`
+- **`kern.pkg`:** marks a package root (it may be empty). A line `use ../money` brings in a sibling package: its
+  modules are imported as `money.<module>`, and checking this package checks them too. In a package, the `.why` and `.strength`
   files are per package: `<root>/kern.why` and `<root>/kern.strength`.
 - **`FILE.why`:** rationale, never obligations. Each block is a definition name and its
   *interface anchor*, followed by indented entries:

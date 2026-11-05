@@ -6,12 +6,10 @@ three players at random. It's a Kern **package** of four files. The randomness c
 
 ```
 lottery/
-├── kern.pkg
+├── kern.pkg                 `use ../money` (the shared ledger, money.ledger)
 ├── chance.k                 handler rand.below n -> Int (assumed: 0 <= result < n)
 ├── tickets.k                state tickets; buy_ticket, loyalty_bonus (a loop)
 ├── draw.k                   draw: pays a random one of three players
-├── money/
-│   └── ledger.k             transfer
 └── proof-pages/lottery.html
 ```
 
