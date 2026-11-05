@@ -100,6 +100,16 @@ pub fn ident(name: &str) -> String {
     out
 }
 
+/// A constructor's Rust variant name. Kern constructors are Capitalised words; `Self` is the one that is a Rust keyword,
+/// and no constructor starts with `_`, so `_Self` meets nothing. What the program prints stays `Self`.
+pub fn variant(name: &str) -> String {
+    if name == "Self" {
+        "_Self".into()
+    } else {
+        name.to_string()
+    }
+}
+
 /// Python's json.dumps of a string (ensure_ascii: non-ASCII as \uXXXX, surrogate pairs above the BMP).
 pub fn json_str(s: &str) -> String {
     let mut out = String::from("\"");
@@ -367,10 +377,10 @@ impl<'a> Gen<'a> {
         if name.chars().next().map_or(false, |c| c.is_uppercase()) {
             Self::ctor(&mut self.events, name, &types, &format!("event {}", name))?;
             if vals.is_empty() {
-                return Ok((format!("Event::{}", name), "Event".into()));
+                return Ok((format!("Event::{}", variant(name)), "Event".into()));
             }
             let codes: Vec<&str> = vals.iter().map(|(c, _)| c.as_str()).collect();
-            return Ok((format!("Event::{}({})", name, codes.join(", ")), "Event".into()));
+            return Ok((format!("Event::{}({})", variant(name), codes.join(", ")), "Event".into()));
         }
         unsupported(format!("unknown name {}", name))
     }
@@ -389,7 +399,7 @@ impl<'a> Gen<'a> {
         } else {
             format!("({})", vals.iter().map(|(c, _)| c.as_str()).collect::<Vec<_>>().join(", "))
         };
-        Ok(vec![format!("{}if !({}) {{ return Err(Stop::Refused(Refusal::{}{})); }}", ind, cond, ctor, payload)])
+        Ok(vec![format!("{}if !({}) {{ return Err(Stop::Refused(Refusal::{}{})); }}", ind, cond, variant(ctor), payload)])
     }
 
     fn block(&mut self, stmts: &[Stmt], sc: &mut Scope, ind: &str, d: &Def) -> G<Vec<String>> {
@@ -513,7 +523,7 @@ impl<'a> Gen<'a> {
     // ---- the module
     fn show_arm(enum_: &str, name: &str, types: &[String]) -> String {
         if types.is_empty() {
-            return format!("            {}::{} => {}.to_string(),", enum_, name, json_str(name));
+            return format!("            {}::{} => {}.to_string(),", enum_, variant(name), json_str(name));
         }
         let vs: Vec<String> = (0..types.len()).map(|i| format!("x{}", i)).collect();
         let parts: Vec<String> = vs
@@ -529,7 +539,7 @@ impl<'a> Gen<'a> {
         format!(
             "            {}::{}({}) => [{}.to_string(), {}].join(\" \"),",
             enum_,
-            name,
+            variant(name),
             vs.join(", "),
             json_str(name),
             parts.join(", ")
@@ -543,10 +553,10 @@ impl<'a> Gen<'a> {
         let mut out = vec!["#[derive(Clone, Debug, PartialEq)]".to_string(), format!("pub enum {} {{", name)];
         for (c, types) in table {
             if types.is_empty() {
-                out.push(format!("    {},", c));
+                out.push(format!("    {},", variant(c)));
             } else {
                 let ts: Vec<&str> = types.iter().map(|t| rust_type(t).unwrap()).collect();
-                out.push(format!("    {}({}),", c, ts.join(", ")));
+                out.push(format!("    {}({}),", variant(c), ts.join(", ")));
             }
         }
         out.push("}".into());
