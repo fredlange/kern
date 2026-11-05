@@ -308,7 +308,8 @@ to make decisions as long as they follow the fundamentals". Each one names the f
 - **What remains:**
   - Not built (decided): records as state values, `-> Point`, nested records, record equality, records in
     `let`s and handler parameters, grouped `eg` arguments.
-  - A constructor named `Self` breaks `kern build` (rustc: a keyword as an enum variant). Loud, not wrong.
+  - ~~A constructor named `Self` breaks `kern build`~~ fixed in `563177e` (variant `_Self`). Still loud, not
+    wrong: a constructor with an underscore (`Too_Big`) fails `kern build` (tester, sent to runtime).
   - Positional `eg` arguments that are too few, or grouped `(1 2)`, give a failing example with no reason
     (pre-existing `eg` behaviour, not records-specific).
 
