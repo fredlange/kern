@@ -39,7 +39,7 @@ static-z3 = ["z3/bundled"]
 # Known prover bugs that the soundness fuzzer must find (validation/src/fuzz.rs --fault a|b|c): compiled in
 # only with this feature, and inert unless KERN_FAULT names one. Only kern-validation enables it, so only
 # `cargo build --workspace` (resolver 2 unifies features across members) compiles it into the kern binary.
-# What ships never does: `cargo install --path toolchain` and the Dockerfile's `cargo build -p kern`.
+# What ships never does: `cargo install --path kern` and the Dockerfile's `cargo build -p kern`.
 faults = []
 
 [dev-dependencies]

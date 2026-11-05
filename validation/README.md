@@ -1,7 +1,7 @@
 # Validation: checking the toolchain itself
 
 These tools check that Kern's prover, checker and Rust runtime tell the truth. They aren't part of
-the distribution (`toolchain/` and `runtime/`), and they aren't unit tests. They live in this
+the distribution (`kern/` and `runtime/`), and they aren't unit tests. They live in this
 directory's crate `kern-validation` (`src/`, one binary per tool). They run longer, are run by hand
 after changes to the prover or the runtime, and report numbers into
 [docs/research/](../docs/research/). `validation/tests/` runs small, fast versions of some of them with
@@ -10,7 +10,7 @@ every `cargo test`.
 Until 2026-11-05 each tool also had a Python original, and the Rust toolchain was checked against the
 Python one by oracle scripts. Both went with the Python toolchain; the last record of what the oracles
 said is in docs/research/RUST_PORT_PLAN.md. The JSON fixtures recorded from CPython 3.9.6
-(`toolchain/tests/pyrandom_vectors.json`, `validation/tests/fuzz_generators.json`) stay.
+(`kern/tests/pyrandom_vectors.json`, `validation/tests/fuzz_generators.json`) stay.
 
 Run everything from the repository root.
 

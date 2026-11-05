@@ -9,7 +9,7 @@
 //! are compiled; `keep`/`ensure`/`emit` are proven, so they compile to nothing. The semantics are the interpreter's
 //! (docs/research/RUNTIME_PLAN.md has the contract); validation/difftest.py checks the generated program against it.
 //!
-//! The generated text is byte-identical to Python's (toolchain/tests/emit_oracle.rs), so every existing build hash
+//! The generated text is byte-identical to Python's (checked against the Python emitter until the 2026-11-05 cutover), so every existing build hash
 //! and binary stays the same. An installed `kern` carries kern-rt's sources inside it, so `kern build` works without a
 //! checkout (see `runtime_dir`).
 

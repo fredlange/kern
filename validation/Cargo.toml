@@ -10,7 +10,7 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies]
-kern = { path = "../toolchain", features = ["faults"] }
+kern = { path = "../kern", features = ["faults"] }
 indexmap = "2"
 serde_json = { version = "1", features = ["preserve_order"] }
 

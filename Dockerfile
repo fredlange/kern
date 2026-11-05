@@ -19,7 +19,7 @@ FROM rust:1.99-trixie AS build
 RUN apt-get update && apt-get install -y --no-install-recommends cmake && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
-COPY toolchain toolchain
+COPY kern kern
 COPY runtime runtime
 COPY validation validation
 RUN cargo build --release --locked -p kern --features static-z3

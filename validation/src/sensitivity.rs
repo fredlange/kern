@@ -20,7 +20,7 @@ use std::process::Command;
 use crate::difftest::ROOT;
 
 const LIB: &str = "runtime/src/lib.rs";
-const GEN: &str = "toolchain/src/emit_rust.rs";
+const GEN: &str = "kern/src/emit_rust.rs";
 
 /// (what, file, text, planted text)
 pub const PLANTS: [(&str, &str, &str, &str); 13] = [
@@ -46,7 +46,7 @@ pub const PLANTS: [(&str, &str, &str, &str); 13] = [
 ];
 
 /// What a sensitivity run copies: enough of the workspace to build and run difftest.
-const COPY: [&str; 7] = ["Cargo.toml", "Cargo.lock", "toolchain", "runtime", "validation", "examples", "tests/probes"];
+const COPY: [&str; 7] = ["Cargo.toml", "Cargo.lock", "kern", "runtime", "validation", "examples", "tests/probes"];
 
 /// Copy `from` to `to`, writing only files whose content differs (cargo goes by mtime). Skips build output.
 fn sync(from: &Path, to: &Path) -> std::io::Result<()> {

@@ -1,5 +1,5 @@
 //! Synthetic chain modules (port of validation/chains.py, itself a copy of C6's frozen generator), for the S2 digest.
-//! Copied from kern-9b's toolchain/tests/common/mod.rs, which the cache tests use.
+//! Copied from kern-9b's kern/tests/common/mod.rs, which the cache tests use.
 
 /// Synthetic chain modules (port of validation/chains.py, itself a copy of C6's frozen generator): n definitions in
 /// chains of depth d; f{c}_1 is a transfer-like leaf, f{c}_j calls f{c}_{j-1}. Every body has k sequential

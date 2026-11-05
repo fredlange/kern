@@ -10,7 +10,7 @@
 //!   per call (outcome, refusal payload, clock, events per channel) and the same world.
 //!
 //! Values stay small, so no interpreter integer leaves i64 (overflow is a deliberate divergence, tested separately
-//! in toolchain/tests/runtime.rs). The random draws use the same Python-compatible generator and the same order as
+//! in kern/tests/runtime.rs). The random draws use the same Python-compatible generator and the same order as
 //! the Python tool, so the scripts are the Python tool's scripts.
 
 use indexmap::IndexMap;

@@ -4,7 +4,7 @@
 //! - every ```kern block parses and passes the checker; ```kern clean blocks also prove clean
 //! - every handler, spec clause and declaration form is documented in REFERENCE.md
 //! - every command and option of `kern` and `kern host` is documented in GUIDE.md
-//! - every `kern::module::name` in GUIDE.md's API table exists in toolchain/src
+//! - every `kern::module::name` in GUIDE.md's API table exists in kern/src
 //! - every MCP tool is documented in GUIDE.md
 //! - REFERENCE.md stays within its token budget (docs/research/CHALLENGE.md, C2: 2,500)
 //!
@@ -86,8 +86,8 @@ fn every_api_name_exists() {
     let mut n = 0;
     for c in names.captures_iter(part) {
         let (module, name) = (&c[1], &c[2]);
-        let src = std::fs::read_to_string(format!("{ROOT}/toolchain/src/{module}.rs"))
-            .unwrap_or_else(|_| panic!("kern::{module} is in GUIDE.md but toolchain/src/{module}.rs doesn't exist"));
+        let src = std::fs::read_to_string(format!("{ROOT}/kern/src/{module}.rs"))
+            .unwrap_or_else(|_| panic!("kern::{module} is in GUIDE.md but kern/src/{module}.rs doesn't exist"));
         let def = Regex::new(&format!(r"pub (fn|struct|enum|type|trait|const) {name}\b")).unwrap();
         assert!(def.is_match(&src), "kern::{module}::{name} is in GUIDE.md but not in the code");
         n += 1;
