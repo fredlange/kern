@@ -9,9 +9,9 @@
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::infer::{called_names, callees, uses};
+use crate::infer::{called_names, callees, calls_procedure, is_function, uses, walk};
 use crate::run::{assumed_op, channel_op, is_handler, state_op};
-use crate::syntax::{code, flat, Def, Emit, Expr, Module, Need, ParseError, Stmt};
+use crate::syntax::{code, Def, Emit, Expr, Module, Need, ParseError, Stmt};
 
 pub const PARAM_TYPES: [&str; 3] = ["Int", "Account", "Text"];
 const ANY: &str = "Any";
@@ -234,9 +234,12 @@ impl<'a> Checker<'a> {
             return self.check_args(place, name, &want, &arg_types, result);
         }
         if let Some(callee) = defs.defs.get(name) {
-            let fn_ = callee.ret.is_some(); // `-> Int`: a pure, total function
-            if spec && !fn_ {
-                self.err(place, &format!("specs cannot call definitions (`{}`); only functions (`-> Int`)", name));
+            let fn_ = callee.ret.is_some(); // `-> Int`: it gives a value
+            if spec && !is_function(defs, callee) {
+                self.err(
+                    place,
+                    &format!("specs may call only functions (`-> Int`, reading state, never refusing), not `{}`", name),
+                );
             }
             if primed {
                 self.err(place, &format!("`{}'`: only handler reads have an after-state", name));
@@ -308,17 +311,10 @@ impl<'a> Checker<'a> {
         }
         if let Some(r) = &d.ret {
             if r != "Int" {
-                self.err("header", "a function returns Int");
+                self.err("header", "a definition returns Int (`-> Int`)");
             }
-            let has_need = d.needs.iter().any(|n| matches!(n, Need::Need(..)))
-                || flat(&d.body).iter().any(|s| matches!(s, Stmt::Need(..)));
-            if has_need {
-                self.err("header", "a function (-> Int) is total: no `need`");
-            }
-            // a function may read state and the clock, nothing else (DECISIONS.md, aggregation)
-            if uses(self.defs, d).iter().any(|u| !(u.ends_with(".read") || u == "clock")) {
-                self.err("header", "a function (-> Int) may read state but not change it or have other effects");
-            }
+            // one that writes, emits or refuses is a procedure returning a value: inferred, not written
+            // (DECISIONS.md, 2026-11-06)
             if !assigns(&d.body) {
                 self.err("body", "every path must set `result`");
             }
@@ -331,7 +327,7 @@ impl<'a> Checker<'a> {
             // over the parameters only: a measure that read state could change under the call it bounds
             for n in crate::infer::names(m) {
                 let reads_state = is_handler(self.defs, &n)
-                    || self.defs.defs.get(&n).is_some_and(|f| !uses(self.defs, f).is_empty());
+                    || self.defs.defs.get(&n).is_some_and(|f| !uses(self.defs, f).is_empty() || !is_function(self.defs, f));
                 if reads_state {
                     self.err(&place, &format!("a measure may read only parameters, constants and pure functions, not `{}`", n));
                 }
@@ -413,8 +409,34 @@ impl<'a> Checker<'a> {
         scope.contains_key(x) || self.used.contains(x) || is_handler(self.defs, x) || self.defs.defs.contains_key(x)
     }
 
+    /// A definition that changes state (or refuses) and returns a value is called only as a whole statement, `x = f a`
+    /// or `f a`, so effects happen in statement order: never inside an expression, a condition or a bound.
+    fn calls_on_their_own(&mut self, s: &Stmt) {
+        let (top, exprs): (Option<&Expr>, Vec<&Expr>) = match s {
+            Stmt::Let(_, e) | Stmt::Do(e) => (Some(e), vec![e]),
+            Stmt::Need(c, _, a) => (None, std::iter::once(c).chain(a.iter()).collect()),
+            Stmt::If(c, _, _) => (None, vec![c]),
+            Stmt::For(_, lo, hi, _, _) => (None, vec![lo, hi]),
+            Stmt::Inv(_) => (None, vec![]),
+        };
+        for e in exprs {
+            for n in walk(e) {
+                if top.is_some_and(|t| std::ptr::eq(t, n)) {
+                    continue;
+                }
+                if let Some(f) = calls_procedure(self.defs, n) {
+                    if self.defs.defs[&f].ret.is_some() {
+                        let msg = format!("`{}` changes state or refuses: call it on a line of its own, `x = {}`", f, code(n));
+                        self.err(&code(e), &msg);
+                    }
+                }
+            }
+        }
+    }
+
     fn block(&mut self, stmts: &[Stmt], scope: &mut Scope, in_loop: bool) {
         for s in stmts {
+            self.calls_on_their_own(s);
             match s {
                 Stmt::Inv(e) => {
                     self.err(&format!("invariant {}", code(e)), "an `invariant` line belongs at the start of a `for` loop")
@@ -479,7 +501,8 @@ impl<'a> Checker<'a> {
                 Stmt::Do(e) => {
                     let place = code(e);
                     let t = self.ty(e, scope, &place, false, false, false);
-                    if t != "Unit" && t != ANY {
+                    // a procedure's value may be dropped (`borrow book`): the call is for its effect
+                    if t != "Unit" && t != ANY && calls_procedure(self.defs, e).is_none() {
                         self.err(&place, &format!("value of type {} is computed and discarded", t));
                     }
                 }

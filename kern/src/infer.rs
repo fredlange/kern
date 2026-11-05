@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use indexmap::{IndexMap, IndexSet};
 
 use crate::run::{effect_of, is_handler, state_op};
-use crate::syntax::{flat, negate, subst, Def, Emit, Expr, Module, Need, Stmt};
+use crate::syntax::{call_stmt, flat, negate, subst, Def, Emit, Expr, Module, Need, Stmt};
 
 pub const WRITERS: [&str; 2] = ["ledger.debit", "ledger.credit"];
 pub const ANY_ACCOUNT: &str = "*";
@@ -93,6 +93,24 @@ fn with_seen(seen: &BTreeSet<String>, name: &str) -> BTreeSet<String> {
     let mut s = seen.clone();
     s.insert(name.to_string());
     s
+}
+
+/// A function: `-> Int`, never refuses, and only reads (state, the clock). Specs may call it, and so may any
+/// expression. A `-> Int` definition that writes, emits or refuses is a procedure that returns a value: called only
+/// as a statement, `x = f a` (DECISIONS.md, 2026-11-06).
+pub fn is_function(defs: &Module, d: &Def) -> bool {
+    d.ret.is_some()
+        && fails(defs, d).is_empty()
+        && uses(defs, d).iter().all(|u| u.ends_with(".read") || u == "clock")
+}
+
+/// A call to a definition that isn't a function (it may write, emit or refuse).
+pub fn calls_procedure(defs: &Module, e: &Expr) -> Option<String> {
+    let n = match e {
+        Expr::App(n, _, _) | Expr::Name(n, _) => n,
+        _ => return None,
+    };
+    defs.defs.get(n).filter(|d| !is_function(defs, d)).map(|_| n.clone())
 }
 
 pub fn uses(defs: &Module, d: &Def) -> BTreeSet<String> {
@@ -219,6 +237,15 @@ fn writes_seen(defs: &Module, d: &Def, seen: &BTreeSet<String>) -> BTreeSet<Stri
         for s in stmts {
             match s {
                 Stmt::Let(x, e) => {
+                    let (name, args): (&str, &[Expr]) = match e {
+                        Expr::App(n, _, a) => (n, a),
+                        Expr::Name(n, _) => (n, &[]),
+                        _ => ("", &[]),
+                    };
+                    if defs.defs.contains_key(name) {
+                        // `x = f a`: f's writes too
+                        call(name, args, loops, defs, d, seen, lets, out);
+                    }
                     lets.insert(x.clone(), e.clone());
                 }
                 Stmt::If(_, t, o) => {
@@ -230,49 +257,55 @@ fn writes_seen(defs: &Module, d: &Def, seen: &BTreeSet<String>) -> BTreeSet<Stri
                     l2.insert(k.clone(), (bound(lo, d, lets), bound(hi, d, lets)));
                     go(body, &l2, defs, d, seen, lets, out);
                 }
-                Stmt::Do(Expr::App(name, _, args)) => {
-                    let st = state_op(defs, name);
-                    if WRITERS.contains(&name.as_str()) {
-                        out.insert(account_param(&args[0], d, lets));
-                    } else if let Some((x, "set", _)) = st {
-                        out.insert(format!("{}.{}", x, key(&args[0], loops, d, lets)));
-                    } else if let Some(callee) = defs.defs.get(name) {
-                        if seen.contains(name) {
-                            continue;
-                        }
-                        let idx: IndexMap<&str, usize> =
-                            callee.params.iter().enumerate().map(|(i, (p, _))| (p.as_str(), i)).collect();
-                        for w in writes_seen(defs, callee, seen) {
-                            let (x, dot, p) = match split_write(&w, callee) {
-                                Some((x, p)) => (x, true, p),
-                                None => ("", false, w.as_str()),
-                            };
-                            if p.starts_with('[') {
-                                // a callee's loop range, mapped to our args
-                                let ends: Vec<Option<String>> = p[1..p.len() - 1]
-                                    .split(',')
-                                    .map(|b| {
-                                        let digits = b.trim_start_matches('-');
-                                        if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
-                                            Some(b.to_string())
-                                        } else {
-                                            bound(&args[idx[b]], d, lets)
-                                        }
-                                    })
-                                    .collect();
-                                match (&ends[0], &ends[1]) {
-                                    (Some(a), Some(b)) => out.insert(format!("{}.[{},{})", x, a, b)),
-                                    _ => out.insert(format!("{}.{}", x, ANY_ACCOUNT)),
-                                };
-                                continue;
-                            }
-                            let mapped =
-                                if p == ANY_ACCOUNT { ANY_ACCOUNT.to_string() } else { account_param(&args[idx[p]], d, lets) };
-                            out.insert(if dot { format!("{}.{}", x, mapped) } else { mapped });
-                        }
-                    }
-                }
+                Stmt::Do(Expr::App(name, _, args)) => call(name, args, loops, defs, d, seen, lets, out),
+                // a definition without parameters is called by its bare name
+                Stmt::Do(Expr::Name(name, _)) => call(name, &[], loops, defs, d, seen, lets, out),
                 _ => {}
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn call(name: &str, args: &[Expr], loops: &Loops, defs: &Module, d: &Def, seen: &BTreeSet<String>, lets: &Lets,
+            out: &mut BTreeSet<String>) {
+        let st = state_op(defs, name);
+        if WRITERS.contains(&name) {
+            out.insert(account_param(&args[0], d, lets));
+        } else if let Some((x, "set", _)) = st {
+            out.insert(format!("{}.{}", x, key(&args[0], loops, d, lets)));
+        } else if let Some(callee) = defs.defs.get(name) {
+            if seen.contains(name) {
+                return;
+            }
+            let idx: IndexMap<&str, usize> =
+                callee.params.iter().enumerate().map(|(i, (p, _))| (p.as_str(), i)).collect();
+            for w in writes_seen(defs, callee, seen) {
+                let (x, dot, p) = match split_write(&w, callee) {
+                    Some((x, p)) => (x, true, p),
+                    None => ("", false, w.as_str()),
+                };
+                if p.starts_with('[') {
+                    // a callee's loop range, mapped to our args
+                    let ends: Vec<Option<String>> = p[1..p.len() - 1]
+                        .split(',')
+                        .map(|b| {
+                            let digits = b.trim_start_matches('-');
+                            if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
+                                Some(b.to_string())
+                            } else {
+                                bound(&args[idx[b]], d, lets)
+                            }
+                        })
+                        .collect();
+                    match (&ends[0], &ends[1]) {
+                        (Some(a), Some(b)) => out.insert(format!("{}.[{},{})", x, a, b)),
+                        _ => out.insert(format!("{}.{}", x, ANY_ACCOUNT)),
+                    };
+                    continue;
+                }
+                let mapped =
+                    if p == ANY_ACCOUNT { ANY_ACCOUNT.to_string() } else { account_param(&args[idx[p]], d, lets) };
+                out.insert(if dot { format!("{}.{}", x, mapped) } else { mapped });
             }
         }
     }
@@ -412,8 +445,8 @@ struct Lifter<'a> {
 
 /// Whether running `stmts` may advance the clock (`clock.tick`, directly or in a callee).
 fn may_tick(defs: &Module, stmts: &[Stmt]) -> bool {
-    flat(stmts).iter().any(|s| match s {
-        Stmt::Do(Expr::App(n, _, _)) | Stmt::Do(Expr::Name(n, _)) => {
+    flat(stmts).iter().any(|s| match call_stmt(s) {
+        Some(Expr::App(n, _, _)) | Some(Expr::Name(n, _)) => {
             n == "clock.tick" || defs.defs.get(n).is_some_and(|c| uses(defs, c).contains("clock.tick"))
         }
         _ => false,
@@ -688,10 +721,69 @@ impl<'a> Lifter<'a> {
         self.learn(&learn_from);
     }
 
+    /// A call statement: `f a`, or `x = f a`.
+    fn call(&mut self, name: &String, args: &[Expr], guards: &[Option<Expr>]) {
+        if let Some(callee) = self.defs.defs.get(name) {
+            if self.seen.contains(name) {
+                return;
+            }
+            let m: IndexMap<String, Expr> =
+                callee.params.iter().map(|(p, _)| p.clone()).zip(args.iter().cloned()).collect();
+            for n in &callee.needs {
+                if let Need::Need(c, ctor, a) = n {
+                    let a: Vec<Expr> = a.iter().map(|x| subst(x, &m)).collect();
+                    self.add(&subst(c, &m), ctor, &a, name, guards, &[], None);
+                }
+            }
+            for l in lifted_seen(self.defs, callee, &self.seen) {
+                let a: Vec<Expr> = l.payload.map(|p| p.iter().map(|x| subst(x, &m)).collect()).unwrap_or_default();
+                let origin = if l.origin.is_empty() { name.clone() } else { l.origin };
+                self.add(&subst(&l.cond, &m), &l.ctor, &a, &origin, guards, &l.rests_on, None);
+            }
+            if uses(self.defs, callee).contains("clock.tick") {
+                self.ticked = true;
+            }
+            if !writes(self.defs, callee).is_empty() {
+                match self.pinned_writes(callee, &m) {
+                    Some(ws) if self.log.is_some() => {
+                        self.log.as_mut().unwrap().extend(ws);
+                        if !self.rests.contains(name) {
+                            self.rests.push(name.clone());
+                        }
+                    }
+                    _ => self.log = None,
+                }
+            }
+        } else if WRITERS.contains(&name.as_str()) {
+            let op = if name == "ledger.debit" { "-" } else { "+" };
+            let w = match (self.pre_value(&args[0]), self.pre_value(&args[1])) {
+                (Some(a), Some(n)) => Some(Write::Bal(a, op, n)),
+                _ => None,
+            };
+            self.push_write(w);
+        } else if let Some((x, "set", _)) = state_op(self.defs, name) {
+            let w = match (self.pre_value(&args[0]), self.pre_value(&args[1])) {
+                (Some(k), Some(v)) => Some(Write::Map(x.to_string(), k, v)),
+                _ => None,
+            };
+            self.push_write(w);
+        }
+    }
+
     fn walk(&mut self, stmts: &[Stmt], guards: &[Option<Expr>]) {
         for s in stmts {
             match s {
                 Stmt::Let(x, e) => {
+                    if let Some(name) = calls_procedure(self.defs, e) {
+                        // `x = f a`, f changing state: its refusals and writes, as a statement call; x is unknown
+                        let args = match e {
+                            Expr::App(_, _, a) => a.clone(),
+                            _ => vec![],
+                        };
+                        self.call(&name, &args, guards);
+                        self.lets.insert(x.clone(), (e.clone(), false));
+                        continue;
+                    }
                     let v = self.pre_value(e);
                     let usable = v.is_some();
                     self.lets.insert(x.clone(), (v.unwrap_or_else(|| e.clone()), usable));
@@ -703,7 +795,7 @@ impl<'a> Lifter<'a> {
                 Stmt::Inv(_) => continue,
                 Stmt::For(_, _, _, _, body) => {
                     // a loop's refusals depend on earlier iterations: never lifted; any effect ends lifting
-                    if flat(body).iter().any(|x| matches!(x, Stmt::Do(_))) {
+                    if flat(body).iter().any(|x| matches!(x, Stmt::Do(_)) || matches!(x, Stmt::Let(_, e) if calls_procedure(self.defs, e).is_some())) {
                         self.log = None;
                     }
                     self.ticked |= may_tick(self.defs, body);
@@ -731,53 +823,7 @@ impl<'a> Lifter<'a> {
                     }
                 }
                 Stmt::Do(Expr::Name(name, _)) if name == "clock.tick" => self.ticked = true,
-                Stmt::Do(Expr::App(name, _, args)) => {
-                    if let Some(callee) = self.defs.defs.get(name) {
-                        if self.seen.contains(name) {
-                            continue;
-                        }
-                        let m: IndexMap<String, Expr> =
-                            callee.params.iter().map(|(p, _)| p.clone()).zip(args.iter().cloned()).collect();
-                        for n in &callee.needs {
-                            if let Need::Need(c, ctor, a) = n {
-                                let a: Vec<Expr> = a.iter().map(|x| subst(x, &m)).collect();
-                                self.add(&subst(c, &m), ctor, &a, name, guards, &[], None);
-                            }
-                        }
-                        for l in lifted_seen(self.defs, callee, &self.seen) {
-                            let a: Vec<Expr> = l.payload.map(|p| p.iter().map(|x| subst(x, &m)).collect()).unwrap_or_default();
-                            let origin = if l.origin.is_empty() { name.clone() } else { l.origin };
-                            self.add(&subst(&l.cond, &m), &l.ctor, &a, &origin, guards, &l.rests_on, None);
-                        }
-                        if uses(self.defs, callee).contains("clock.tick") {
-                            self.ticked = true;
-                        }
-                        if !writes(self.defs, callee).is_empty() {
-                            match self.pinned_writes(callee, &m) {
-                                Some(ws) if self.log.is_some() => {
-                                    self.log.as_mut().unwrap().extend(ws);
-                                    if !self.rests.contains(name) {
-                                        self.rests.push(name.clone());
-                                    }
-                                }
-                                _ => self.log = None,
-                            }
-                        }
-                    } else if WRITERS.contains(&name.as_str()) {
-                        let op = if name == "ledger.debit" { "-" } else { "+" };
-                        let w = match (self.pre_value(&args[0]), self.pre_value(&args[1])) {
-                            (Some(a), Some(n)) => Some(Write::Bal(a, op, n)),
-                            _ => None,
-                        };
-                        self.push_write(w);
-                    } else if let Some((x, "set", _)) = state_op(self.defs, name) {
-                        let w = match (self.pre_value(&args[0]), self.pre_value(&args[1])) {
-                            (Some(k), Some(v)) => Some(Write::Map(x.to_string(), k, v)),
-                            _ => None,
-                        };
-                        self.push_write(w);
-                    }
-                }
+                Stmt::Do(Expr::App(name, _, args)) => self.call(name, args, guards),
                 Stmt::Do(_) => {}
             }
         }

@@ -15,8 +15,10 @@ body
 - **Parameter types:** `Int`, `Account`, `Text` and declared records. A record parameter `p:Point` is read by field,
   `p.x`, or passed whole to a definition taking a Point (`move p`); build one only as a call argument,
   `move (Point a b)`. In `eg` lines its fields are separate arguments, in order.
-- **`-> Int`** makes a function: it may read state and the clock but change nothing, it is
-  total (no `need`), and every path sets `result`. Specs may call functions; nothing else.
+- **`-> Int`**: the definition returns a value; every path sets `result`, and its spec calls it `result`. One
+  that only reads (state, the clock) and never refuses is a *function*: specs and expressions may call it. One that
+  changes state or refuses is called only as a whole statement, `loan = borrow book` (or `borrow book`, dropping
+  the value). Which one it is, is inferred.
 
 ### Statements
 
@@ -28,7 +30,7 @@ body
 | `if COND`, then an indented block, optionally `else` and a block | branches |
 | `match E`, then arms `PAT -> STMT` (or `PAT ->` and a block) | the `if E = PAT … else …` chain; PAT is an integer, a constant, a Text or a last `_`. n arms are n paths |
 | `for k from LO to HI`, then an indented block | a loop: k = LO … HI−1 (bounds evaluated once). It starts with `invariant CLAUSE` lines; loops nest |
-| `result = EXPR` | a function's result (once per path) |
+| `result = EXPR` | the value a `-> Int` definition returns (once per path) |
 
 ### Expressions
 
@@ -101,7 +103,7 @@ A refusal undoes the whole call, so guarantees only have to hold on success. Eff
 - **WORLD:** `A:500@u1` (account, balance, owner), `now:5`, and state such as `hold.7:100`,
   `limit.A:300` or `title.1:"a b"`.
 - **ARGS:** integers, account names and Text literals.
-- **OUTCOME:** `ok`, or `Ctor ints` (for example `Insufficient 50`).
+- **OUTCOME:** `ok`, `ok N` (also asserts the returned value), or `Ctor ints` (for example `Insufficient 50`).
 - **AFTER:** only the items listed are compared, such as `A:400 hold.7:0`.
 - **EVENTS:** `Ev args, [channel] Ev args`: the exact events appended to `audit` (an empty section: none) and
   to each channel named, such as `| | Moved A B 100 0`.

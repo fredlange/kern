@@ -67,6 +67,14 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
             (RunOutcome::Fail(c, xs), Outcome::Fail(c2, ys)) => c == c2 && same_args(xs, ys),
             _ => false,
         };
+        // `-> ok N`: the value returned
+        if let (true, Some(want)) = (same, ex.result) {
+            let got = interp.last_result.clone().unwrap_or(Value::None);
+            if got != Value::Int(want) {
+                out.push(ExampleResult { src: ex.src.clone(), pass: false, got: format!("ok {}", got.str()) });
+                continue;
+            }
+        }
         // Python's `and` chain: balances are read only when the outcome matched, in the eg's order, and
         // `after.bal[a]` raises KeyError (caught) for an account the world doesn't have
         let mut ok = same;

@@ -531,6 +531,88 @@ body
 }
 
 #[test]
+fn s5_effects_that_return_values_check() {
+    // closed (S5): a `-> Int` definition may change state and refuse; it is then called only as a statement,
+    // `a = borrow book`, and its callers are proven from its spec with a fresh `result` (DECISIONS.md, 2026-11-06).
+    // borrow_two's `need b = a + 1` never refuses (`ok otherwise`), which follows from borrow's ensures alone
+    must_check(
+        "gap S5 effects that return values",
+        "state next Int
+state copies Int
+state due Int
+state lent Int
+
+borrow book:Int -> Int
+  need copies.get book > 0 else NoCopy
+  ok otherwise
+  ensure result = next.get 0 + 1
+  ensure next.get' 0 = result
+  ensure copies.get' book = copies.get book - 1
+  ensure due.get' result = clock.now + 14
+  ensure lent.get' result = book
+  emit Borrowed result book
+  eg copies.3:1 now:100 | borrow 3 -> ok 1 | copies.3:0 due.1:114 lent.1:3 next.0:1
+  eg copies.3:0 | borrow 3 -> NoCopy
+body
+  loan = next.get 0 + 1
+  next.set 0 loan
+  copies.set book (copies.get book - 1)
+  due.set loan (clock.now + 14)
+  lent.set loan book
+  audit.emit (Borrowed loan book)
+  result = loan
+
+borrow_two book:Int -> Int
+  need copies.get book > 1 else NoCopy
+  ok otherwise
+  ensure lent.get' (next.get 0 + 2) = book
+  ensure next.get' 0 = next.get 0 + 2
+  eg copies.3:2 next.0:5 | borrow_two 3 -> ok 7 | lent.6:3 lent.7:3 next.0:7
+body
+  a = borrow book
+  b = borrow book
+  need b = a + 1 else Skipped
+  result = b
+",
+    );
+}
+
+#[test]
+fn s5_a_returning_procedure_is_called_on_a_line_of_its_own_and_eg_asserts_its_value() {
+    let base = "state next Int\n\nfresh -> Int\n  ok otherwise\n  ensure result = next.get 0 + 1\n  ensure next.get' 0 = result\nbody\n  n = next.get 0 + 1\n  next.set 0 n\n  result = n\n";
+    for (bad, want) in [
+        ("nested\n  ok otherwise\nbody\n  x = 1 + fresh\n", "call it on a line of its own"),
+        ("in_spec\n  ensure fresh > 0\nbody\n  fresh\n", "specs may call only functions"),
+        ("in_need\nbody\n  need fresh > 0 else No\n", "call it on a line of its own"),
+    ] {
+        let defs = parse(&format!("{base}\n{bad}"));
+        let e = analyse(&defs, false, None, None).unwrap_err().message();
+        assert!(e.contains(want), "{bad}: {e}");
+    }
+    // `-> ok N` compares the returned value
+    let defs = parse(&base.replace("body\n", "  eg next.0:4 | fresh -> ok 6\nbody\n"));
+    let reps = reports(&defs);
+    let ex = &reps["fresh"].examples[0];
+    assert!(!ex.pass && ex.got == "ok 5", "{}", ex.got);
+    // a bare call drops the value: allowed, and its writes are the caller's
+    let defs = parse(&format!("{base}\ntwice\n  ok otherwise\n  ensure next.get' 0 = next.get 0 + 2\nbody\n  fresh\n  fresh\n"));
+    assert!(reports(&defs)["twice"].clean);
+}
+
+#[test]
+fn a_call_to_a_definition_without_parameters_counts_as_its_writes() {
+    // found on #ZYGSNMXNW7: `reset` (no parameters, called by its bare name) wasn't in its caller's inferred
+    // `writes`, so a caller of that caller proved `keep c.get 0` (✔) while random tests broke it
+    use kern::report::Status;
+    let src = "state c Int\n\nreset\n  ok otherwise\nbody\n  c.set 0 5\n\nouter\n  ok otherwise\nbody\n  reset\n\nouter2\n  ok otherwise\n  keep c.get 0\nbody\n  outer\n";
+    let defs = parse(src);
+    assert!(kern::infer::writes(&defs, &defs.defs["outer"]).contains("c.*"));
+    let reps = reports(&defs);
+    let g = reps["outer2"].guarantees.iter().find(|g| g.kind == "keep").unwrap();
+    assert_eq!(g.status, Status::Refuted);
+}
+
+#[test]
 fn s5_named_constants_check() {
     // closed (S5): `const NAME N` (DECISIONS.md, 2026-11-05). A constant on one side keeps `*` linear.
     must_check(
@@ -924,9 +1006,10 @@ fn s6_a_function_that_reads_state_is_a_function_of_that_state() {
     let wrong = reports(&parse(&PEEK_SRC.replace("hold.get k + 1\nbody\n  a", "hold.get k + 2\nbody\n  a")));
     let g = wrong["twice"].guarantees.iter().find(|g| g.clause.contains("+ 2")).unwrap();
     assert_eq!(g.status, kern::report::Status::Refuted);
-    // still no writes: a function that changes state is rejected
-    let e = analyse(&parse("state hold Int\n\nf k:Int -> Int\n  ensure result = 0\nbody\n  hold.set k 1\n  result = 0\n"), false, None, None);
-    assert!(e.unwrap_err().message().contains("may read state but not change it"));
+    // one that changes state is not a function but a procedure returning a value (2026-11-06): no spec may call it
+    let src = "state hold Int\n\nf k:Int -> Int\n  ensure result = 0\nbody\n  hold.set k 1\n  result = 0\n\ng k:Int\n  ensure f k = 0\nbody\n  x = f k\n";
+    let e = analyse(&parse(src), false, None, None);
+    assert!(e.unwrap_err().message().contains("specs may call only functions"));
 }
 
 #[test]
@@ -1677,8 +1760,8 @@ body
     // (after every call the clock moves on once, refused calls included: 7 -> 8, not 9)
     assert!(matches!(out, kern::run::Outcome::Fail(ref c, _) if c == "TooLate"), "{out:?}");
     assert_eq!((w.clock, w.audit.len()), (8, 0));
-    let e = analyse(&parse("f k:Int -> Int\n  ensure result = 0\nbody\n  clock.tick\n  result = 0\n"), false, None, None).unwrap_err();
-    assert!(e.message().contains("may read state but not change it"), "{}", e.message());
+    let defs = parse("f k:Int -> Int\n  ensure result = 0\nbody\n  clock.tick\n  result = 0\n");
+    assert!(!kern::infer::is_function(&defs, &defs.defs["f"]), "a definition that ticks is a procedure, not a function");
 }
 
 // =====================================================================================

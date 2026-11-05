@@ -408,9 +408,11 @@ for (name, r) in &reports {
 | `` `when` is only allowed at the end of an `ensure` or `emit` `` | for a conditional need, write `need C2 or COND else …` |
 | `` `/` needs a positive number on the right `` | arithmetic is linear: divide by a literal |
 | `every path must set result` | a function needs `result = …` in both branches |
+| `` `f` changes state or refuses: call it on a line of its own `` | a `-> Int` definition that writes or refuses runs as a statement: `x = f a`, then use `x` |
+| `` specs may call only functions (`-> Int`, reading state, never refusing) `` | describe what the callee guarantees with its own ensures, or make it read-only and total |
 | `` invariant …: `…` must read state at `x` only `` | an invariant may only read state at its own bound key |
 | `` `as F`: … `` / `as` references loop | `need as` / `emit as` must name a definition with the right number of arguments |
-| `recursive (f -> g -> f)` | no recursion yet (there are no termination measures) |
+| `` recursive (f -> g -> f); f needs `decreases E` `` | give every definition of the cycle a `decreases E` over its parameters |
 
 ## Loops
 

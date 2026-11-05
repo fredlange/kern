@@ -552,7 +552,13 @@ pub fn kern_run(file: &str, call: &str, world: &str) -> T<Value> {
         (w, name.to_string(), args)
     };
     let name = name.as_str();
-    let outcome = Interp::new(&defs).run(name, &args, &mut w).map_err(|e| ToolError("KernError", e.to_string()))?;
+    let mut interp = Interp::new(&defs);
+    let outcome = interp.run(name, &args, &mut w).map_err(|e| ToolError("KernError", e.to_string()))?;
+    // a definition with `-> Int` returns a value on success
+    let returned = match (&outcome, defs.defs[name].ret.is_some(), &interp.last_result) {
+        (Outcome::Ok, true, Some(v)) => value_json(v),
+        _ => Value::Null,
+    };
     let state: Map<String, Value> = w
         .maps
         .iter()
@@ -574,6 +580,7 @@ pub fn kern_run(file: &str, call: &str, world: &str) -> T<Value> {
         "balances": w.bal.iter().map(|(a, b)| (a.clone(), json!(*b as i64))).collect::<Map<String, Value>>(),
         "events": w.audit.iter().map(value_json).collect::<Vec<_>>(),
         "state": state,
+        "result": returned,
     }))
 }
 

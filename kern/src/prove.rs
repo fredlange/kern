@@ -20,7 +20,7 @@ use z3::Model;
 use crate::infer::{callees, fails, ledger_writes, lifted, names, relevant_states, state_writes, uses, writes, ANY_ACCOUNT};
 use crate::report::{Counterexample, GoalExpr, Guarantee, LoopAst, Status};
 use crate::run::{assumed_op, channel_op, emit_channels, state_op, Interp, Outcome, ProvideError, RunError, Value, World};
-use crate::syntax::{code, emit_code, flat, Def, Emit, Expr, Key, Module, Need, Stmt};
+use crate::syntax::{call_stmt, code, emit_code, flat, Def, Emit, Expr, Key, Module, Need, Stmt};
 use crate::zz;
 use crate::Int;
 
@@ -682,7 +682,7 @@ impl<'m> Prover<'m> {
         matches!(name, "ledger.debit" | "ledger.credit" | "audit.emit" | "clock.tick")
             || channel_op(self.defs, name).is_some()
             || matches!(state_op(self.defs, name), Some((_, "set", _)))
-            || (self.defs.defs.get(name).is_some_and(|d| d.ret.is_none()) && assumed_op(self.defs, name).is_none())
+            || (self.defs.defs.get(name).is_some_and(|d| !crate::infer::is_function(self.defs, d)) && assumed_op(self.defs, name).is_none())
     }
 
     fn scall_read(&mut self, name: &str, a: Vec<SV>, s: &Sym) -> SV {
@@ -705,7 +705,7 @@ impl<'m> Prover<'m> {
             return SV::I(zz::select(&s.maps[x], a[0].i()));
         }
         if let Some(d) = self.defs.defs.get(name) {
-            if d.ret.is_some() {
+            if crate::infer::is_function(self.defs, d) {
                 return SV::I(self.function_call(d, &a, s));
             }
             panic!("prover: a call to {name} in an expression");
@@ -758,8 +758,10 @@ impl<'m> Prover<'m> {
             return SV::Unit;
         }
         let callee = &self.defs.defs[name];
-        self.modular_call(callee, &a, s);
-        SV::Unit
+        match self.modular_call(callee, &a, s) {
+            Some(r) => SV::I(r),
+            None => SV::Unit,
+        }
     }
 
     /// An assumed handler: any value its spec allows, a fresh one per call; its needs are call-site goals.
@@ -787,10 +789,15 @@ impl<'m> Prover<'m> {
         SV::I(r)
     }
 
-    fn modular_call(&mut self, callee: &Def, args: &[SV], s: &mut Sym) {
+    /// A call, modularly. A definition that returns a value (`-> Int`) gives a fresh `result` its ensures constrain.
+    fn modular_call(&mut self, callee: &Def, args: &[SV], s: &mut Sym) -> Option<ZInt> {
         self.measure_goal(callee, args);
         self.rely_on(&callee.name);
-        let env: Env = callee.params.iter().zip(args).map(|((p, _), v)| (p.clone(), v.clone())).collect();
+        let mut env: Env = callee.params.iter().zip(args).map(|((p, _), v)| (p.clone(), v.clone())).collect();
+        let result = callee.ret.as_ref().map(|_| fresh_int(&format!("{}_result", callee.name)));
+        if let Some(r) = &result {
+            env.insert("result".into(), SV::I(r.clone()));
+        }
         for n in &callee.needs {
             let c = self.sev(need_cond(n), &env, s, None).b().clone();
             self.refusal_point(c);
@@ -918,6 +925,7 @@ impl<'m> Prover<'m> {
                 s.append(&ch, vec![Event::Ev(ctor.clone(), vals, c)]);
             }
         }
+        result
     }
 
     /// At a call to `callee` from the body being proved: if the callee can call back into it (recursion), a
@@ -1215,8 +1223,8 @@ impl<'m> Prover<'m> {
 
     /// Whether a loop body may advance the clock (`clock.tick`, directly or in a callee).
     fn may_tick(&self, body: &[Stmt]) -> bool {
-        flat(body).iter().any(|s| match s {
-            Stmt::Do(Expr::App(n, _, _)) | Stmt::Do(Expr::Name(n, _)) => {
+        flat(body).iter().any(|s| match call_stmt(s) {
+            Some(Expr::App(n, _, _)) | Some(Expr::Name(n, _)) => {
                 n == "clock.tick" || self.defs.defs.get(n).is_some_and(|c| uses(self.defs, c).contains("clock.tick"))
             }
             _ => false,
@@ -1226,7 +1234,11 @@ impl<'m> Prover<'m> {
     fn loop_effects(&self, body: &[Stmt]) -> Effects {
         let (mut acc, mut ranged, mut full, mut chans) = (vec![], vec![], BTreeSet::new(), BTreeSet::new());
         for s in flat(body) {
-            let Stmt::Do(Expr::App(name, _, args)) = s else { continue };
+            let (name, args): (&String, &[Expr]) = match call_stmt(s) {
+                Some(Expr::App(n, _, a)) => (n, a),
+                Some(Expr::Name(n, _)) => (n, &[]),
+                _ => continue,
+            };
             let st = state_op(self.defs, name);
             if name == "ledger.debit" || name == "ledger.credit" {
                 acc.push(Some(args[0].clone()));

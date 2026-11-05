@@ -47,6 +47,16 @@ pub enum Stmt {
     Inv(Expr),
 }
 
+/// The call a statement makes, if any: `f a` on its own line, or bound, `x = f a` (a definition that changes state
+/// and returns a value is called only these two ways).
+pub fn call_stmt(s: &Stmt) -> Option<&Expr> {
+    match s {
+        Stmt::Do(e) => Some(e),
+        Stmt::Let(_, e @ (Expr::App(..) | Expr::Name(..))) => Some(e),
+        _ => None,
+    }
+}
+
 /// A spec need: written, or `need as callee ARGS` before expansion.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Need {
@@ -89,6 +99,8 @@ pub struct Example {
     /// the fourth section, when written: (channel, constructor, args) in order; `audit` is always compared then,
     /// other channels only if named
     pub events: Option<Vec<(String, String, Vec<Key>)>>,
+    /// `-> ok N`: the value a definition with `-> Int` returns
+    pub result: Option<Int>,
 }
 
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -992,7 +1004,16 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
         }
     }
     let out: Vec<&str> = sides[1].split_whitespace().collect();
+    let mut result = None;
     let outcome = if out == ["ok"] {
+        Outcome::Ok
+    } else if out.len() == 2 && out[0] == "ok" {
+        // `ok N`: the returned value
+        let n: Int = out[1].parse().map_err(|_| ParseError::at("want `ok` or `ok N` (the Int the call returns)", line))?;
+        if !in_range(n) {
+            return Err(ParseError::at(out_of_range(out[1]), line));
+        }
+        result = Some(n);
         Outcome::Ok
     } else {
         let Some((ctor, rest)) = out.split_first() else { return Err(usage()) };
@@ -1023,6 +1044,7 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
         texts,
         after_texts,
         events,
+        result,
     })
 }
 

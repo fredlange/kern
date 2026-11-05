@@ -194,9 +194,10 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   computes in i128 and the prover over unbounded integers, so an i64 overflow in the middle of a call is a run-time fault.
 - Types: `Int`, `Account`, `Text` and record parameters (plus internal Owner/Bool/Event/Unit). Text: literals,
   `=`/`!=`, `length`, `+` (join), `state NAME KEY -> Text` maps; Z3 strings in the prover; no substring, search,
-  ordering or conversion yet, and no Text in refusal payloads. Return values only for
-  total functions (`-> Int`, set `result`) that may read state and the clock but write nothing; specs may call
-  them (modularly: uninterpreted over their arguments and the state they read, + their ensures). Recursion needs `decreases E` on every definition of the cycle
+  ordering or conversion yet, and no Text in refusal payloads. `-> Int` returns a value
+  (set `result`; `eg … -> ok N` asserts it). A total, read-only one is a function: specs may call it (modularly:
+  uninterpreted over its arguments and the state it reads, + its ensures). One that writes or refuses is called
+  only as a statement, `x = f a`, proven from its spec with a fresh `result` (#ZYGSNMXNW7). Int results only. Recursion needs `decreases E` on every definition of the cycle
   (proven: `0 <= E(args) < E(params)` at each recursive call); the interpreter stops calls nested deeper than 200.
 - Bodies are guards plus `if`/`else` blocks (the prover forks a path per branch; paths grow as
   2^ifs per body) and bounded loops `for k from LO to HI` with `invariant` lines (a proposal, roadmap

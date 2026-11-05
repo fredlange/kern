@@ -290,7 +290,12 @@ pub fn main_with(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
             let mut interp = Interp::new(&defs);
             match interp.run(&name, &args, &mut world) {
                 Ok(outcome) => {
-                    let _ = writeln!(out, "{}", run_line(&outcome, &world));
+                    let mut line = run_line(&outcome, &world);
+                    // a definition with `-> Int` returned this: ('ok', 7)
+                    if let (Outcome::Ok, true, Some(v)) = (&outcome, defs.defs[&name].ret.is_some(), &interp.last_result) {
+                        line = line.replacen("('ok',)", &format!("('ok', {})", v.repr()), 1);
+                    }
+                    let _ = writeln!(out, "{}", line);
                     0
                 }
                 Err(e) => {
