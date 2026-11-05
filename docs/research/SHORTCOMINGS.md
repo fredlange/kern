@@ -118,7 +118,7 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 - **Kind:** code gap. **Weakens:** bet 1 at scale, and every result outside the ledger domain.
 - **Evidence:** CLAUDE.md, "Known limitations"; ROADMAP_RUN.md, P (the gap table for ordinary
   programs). The ledger, clock and audit handlers are built into the interpreter.
-  examples/random-portal shows joke ids, not jokes, because there is no text.
+  examples/random-portal showed joke ids, not jokes, because there was no text (it shows jokes since `e87651d`).
 - **Fixed when**, per feature (P = placeholder syntax). The last four rows joined the milestone on 2026-11-05
   (.party/DECISIONS.md, planner 22:45, on Fredrik's go-ahead); each needs its gap test written first:
 
@@ -319,7 +319,9 @@ to make decisions as long as they follow the fundamentals". Each one names the f
     5633e03d4adf29df (dump diff: one goal, `!` → ✗ with a replaying counterexample).
   - Under `KERN_Z3_FRESH=ctx`/`off` one text-loop mutant is killed by random tests, not the prover (a Z3 string
     quantifier near its step limit); the default is deterministic.
-  - examples/random-portal still shows joke ids; the change to Text there is still to make.
+  - ~~examples/random-portal still shows joke ids~~ it stores and shows joke text since `e87651d` (7/7 clean; tester:
+    difftest 0 divergences, host against a local stub stores quotes, é, 😀 and newlines, replay matches). Its Docker
+    `smoke.sh` hasn't been re-run since (Docker Hub timed out).
 
 ### S22. A full `check` of a loop writing a Text map and an Int map at a computed key didn't finish
 - **Kind:** code gap. **Closed** 2026-11-05 in `ed0cd62` (lang). Found by app (booking #4).
