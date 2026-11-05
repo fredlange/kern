@@ -23,7 +23,7 @@ When an entry closes, move it to "Closed" with the commit and the evidence. Don'
 
 **The gap tests** (`kern/tests/shortcomings.rs`) each assert the behaviour we want, with
 `#[should_panic(expected = "gap Sn …")]`, so an unrelated crash doesn't count as the gap. Some features
-have no syntax yet (`match`, `clock.tick`, events in `eg`).
+have no syntax yet ( `clock.tick`, events in `eg`).
 Their tests use a *placeholder* syntax. Whoever builds the feature must rewrite the test to the real
 syntax; otherwise it keeps panicking for the wrong reason. The other tests flip on their own.
 `every_test_and_path_the_register_names_exists` fails if this file names a test or a
@@ -125,10 +125,10 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   |---|---|
   | ~~records~~ first cut closed `b18367a` (Closed: "S5, records") | `s5_records_check` |
   | ~~text~~ closed `135dfca` (Closed: "S5, text") | `s5_text_checks` |
-  | `match` (P) | `s5_match_checks` |
+  | ~~`match`~~ closed `a8cee99` (Closed: "S5, match") | `s5_match_checks` |
   | recursion (rejected: no termination measures) | `s5_recursion_is_accepted` |
-  | nested loops | `s5_nested_loops_check` |
-  | variable × variable | `s5_variable_times_variable_checks` |
+  | ~~nested loops~~ closed `59c9e66` (Closed: "S5, nested loops and variable × variable") | `s5_nested_loops_check` |
+  | ~~variable × variable~~ closed `59c9e66` (same entry) | `s5_variable_times_variable_checks` |
   | ~~named constants~~ closed `0acdb54` (Closed: "S5, named constants") | `s5_named_constants_check` |
   | imports across packages (P: the `kern.pkg` dependency line) | `s5_import_across_packages_loads` |
   | effects that return values, Accounts as state values, iteration over accounts | not written yet |
@@ -246,6 +246,35 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S5, match (one row of S5)
+- **Kind:** code gap. **Closed** 2026-11-05 in `a8cee99`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
+  match). Generator `68f7e1f` (tester).
+- **Was:** a choice between several values was an `if`/`else` chain.
+- **Decided by** F4/F7 (one meaning): `match E` with arms `PAT -> STMT` (an integer, a constant, a Text literal
+  or `_`), desugared at parse time into the `if` chain, so every path sees ordinary code. n arms give n paths,
+  not 2^n (S16). The three-arm example is 27 tokens against 32 for the chain.
+- **Evidence:** `s5_match_checks`, its placeholder the chosen syntax, passes as an ordinary test. Tester: match
+  gives the same verdicts as its `if` chain on 300 generated programs; compiled `match` 0 divergences; fuzz
+  seeds 1–3 0 contradictions. examples/apps/shop uses it (`advance`, all proven).
+- **What remains (decided):** `match` as an expression, matching refusal outcomes, ranges or several values per
+  arm. Mutant and counterexample lines show the `if` chain, not the `match`.
+
+### S5, nested loops and variable × variable (two rows of S5; app's request #3)
+- **Kind:** code gap. **Closed** 2026-11-05 in `59c9e66`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
+  nested loops and v×v). Generator `68f7e1f` (tester).
+- **Was:** `nested loops are not supported yet`, and `*` needed a literal on one side, so a grid key
+  `row * width + col` couldn't be written.
+- **Decided by** F5 (no claim stronger than the check): `*` between variables goes to Z3 as a nonlinear term;
+  an unknown answer is `?`/◐, never ✔. Nested loops need no new syntax: each loop keeps its own invariants, and
+  the outer loop's inferred frame havocs whatever the inner one writes unless keyed by the outer variable
+  (sound, coarse; F4). 0 tokens. Linear code is unchanged.
+- **Evidence:** `s5_nested_loops_check` and `s5_variable_times_variable_checks` pass as ordinary tests;
+  `s5_nonlinear_verdicts_agree_with_the_interpreter`: 22 seeded claims, 14 ✔, 8 ✗ replayed, 0 undecided,
+  0 contradictions. Tester: generators for both, seeds 1–3 0 contradictions, a planted frame bug caught (3,827);
+  compiled nested loops 0 divergences. Digests unchanged. examples/apps/booking uses both (`clear_all`, `seat`).
+- **What remains:** the coarse outer frame means the prover pins few nested-loop mutants: booking's `clear_all`
+  is 10/22, the prover 1 (app's request #5). A computed key leaves a module invariant ○, as any computed key does.
 
 ### S5, text (one row of S5)
 - **Kind:** code gap. **Closed** 2026-11-05 in `135dfca`, under delegation (.party/DECISIONS.md, 2026-11-05, lang,
