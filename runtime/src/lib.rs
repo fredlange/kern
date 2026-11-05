@@ -397,6 +397,37 @@ impl<'a, E> Tx<'a, E> {
     pub fn record(&mut self, name: &'static str, args: &[Val], v: i64) {
         self.obs.push((name, args.to_vec(), v));
     }
+    /// The accounts this call wrote so far (balances and Account maps; a write of an unchanged value counts), each
+    /// once, in first-write order: where a module invariant over `Account` keys is checked.
+    pub fn written_accts(&self) -> Vec<Acct> {
+        let mut out: Vec<Acct> = Vec::new();
+        for u in self.undo.iter() {
+            let a = match u {
+                Undo::Bal(i, _) | Undo::A(_, i, _) => *i,
+                Undo::I(..) => continue,
+            };
+            if !out.iter().any(|x| x.0 == a) {
+                out.push(Acct(a));
+            }
+        }
+        out
+    }
+    /// The Int keys this call wrote so far (Int maps), each once, in first-write order.
+    pub fn written_ints(&self) -> Vec<i64> {
+        let mut out: Vec<i64> = Vec::new();
+        for u in self.undo.iter() {
+            if let Undo::I(_, k, _) = u {
+                if !out.contains(k) {
+                    out.push(*k);
+                }
+            }
+        }
+        out
+    }
+    /// An account's name (for a fault message).
+    pub fn acct_name(&self, a: Acct) -> &str {
+        self.w.name(a)
+    }
 }
 
 impl<E> Exec<E> {
@@ -518,6 +549,27 @@ mod tests {
         let ids: Vec<u32> = ["", "Å", "kärna", "日本"].iter().map(|s| n.push(s)).collect();
         assert_eq!(ids, vec![0, 1, 2, 3]);
         assert_eq!((n.find(""), n.find("kärna"), n.get(3)), (Some(0), Some(2), "日本"));
+    }
+
+    #[test]
+    fn written_keys_come_from_the_undo_log_once_each() {
+        let mut w = World::new(1, 1);
+        let a = w.open("A", 5, "u1");
+        let b = w.open("B", 7, "u2");
+        let mut exec: Exec<()> = Exec::default();
+        let mut prov = Replay::default();
+        let seen = exec.call(&mut w, &mut prov, |tx| -> Result<_, Stop<()>> {
+            assert!(tx.written_accts().is_empty() && tx.written_ints().is_empty());
+            tx.credit(b, 1)?;
+            tx.aset(0, a, 0); // an unchanged value is still a write
+            tx.debit(b, 1)?;
+            tx.iset(0, 7, 1);
+            tx.iset(0, -2, 0);
+            tx.iset(0, 7, 3);
+            let names: Vec<String> = tx.written_accts().iter().map(|x| tx.acct_name(*x).to_string()).collect();
+            Ok((names, tx.written_ints()))
+        });
+        assert_eq!(seen, Ok((vec!["B".to_string(), "A".to_string()], vec![7, -2])));
     }
 
     #[test]

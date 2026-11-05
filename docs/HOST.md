@@ -105,6 +105,15 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
 - **Soundness condition, now enforced:** `wf.invariant_problems` rejects any invariant that reads
   state anywhere but its own bound key. Rejected: `ledger.total`, `clock.now`, `hold.get 3`,
   `hold.get (o + 1)`. Every escrow invariant passes.
+- **The compiled program does the same check, where it isn't proven (2026-11-05).** `kern build` runs the
+  prover (no mutation testing) and, for each definition, compiles a check of every module invariant that has a
+  goal for it which isn't ✔ (○, ✗, ?, !), at the keys the call wrote (the runtime's undo log), after the body.
+  A broken one undoes the call as a fault. An invariant with no goal reads nothing the definition writes (the
+  inferred frame), and a ✔ one is proven, so neither is checked: a fully proven module compiles to the same
+  code as before. Unlike the host's default, which checks every definition unless `--skip-proven`. Like
+  `--skip-proven`, it relies on the starting world satisfying the invariants (the host audits it at startup; a
+  compiled program's `world` line isn't audited). Tests: `emit_rust::tests`, kern-rt's
+  `written_keys_come_from_the_undo_log_once_each`.
 
 **How H2 works:**
 - **Interpreter and prover:** `World.audit` and `Sym.audit` are unchanged; other channels live in
