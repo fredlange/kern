@@ -139,13 +139,17 @@ examples/         one standalone project per directory, each with a README and p
 
 tests/test_fundamentals.py  adversarial audit tests, one section per fundamental (being ported; front-end half
                           in toolchain/tests/fundamentals_front.rs)
-tests/test_fuzz.py        small fuzz run is clean and deterministic; an injected prover fault is found
 tests/probes/             small modules the tests and validation tools use
 toolchain/tests/          cargo tests of the Rust port (docs/research/RUST_PORT_PLAN.md): host.rs, mcp.rs,
                           package.rs, runtime.rs (compiled program vs interpreter), docs.rs (REFERENCE/GUIDE in step
                           with the code); *_oracle.rs compare each module with the Python oracle's JSON
-validation/tests/difftest.rs  random differential test: compiled program vs interpreter on every example
+validation/tests/         cargo tests of the validation tools: difftest.rs (compiled program vs interpreter on every
+                          example), fuzz.rs (port of test_fuzz.py: a small fuzz run is clean and deterministic; an
+                          injected prover fault is found), digest.rs (both digests at their recorded values),
+                          fuzz_generators.rs (the generators make exactly fuzz.py's programs)
 
+validation/src/           kern-validation, the Rust tools (binaries `fuzz`, `digest`, `difftest`; validation/README.md):
+                          fuzz.rs (the soundness fuzzer), digest.rs (results digests), difftest.rs, chains.rs
 validation/fuzz.py        soundness fuzzer: random loop/handler programs + template mutants, interpreter as oracle
 validation/digest.py      results digests (S2 and --loops): the floor for prover changes
 validation/difftest.py, fuzzdiff.py, sensitivity.py   Rust runtime vs run.py, and whether that test has teeth
