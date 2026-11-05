@@ -5,7 +5,7 @@ SEEDS = [0, 1, 7, -3, 1_000_004, 2**31, 2**32, 2**40 + 5, 2**70 + 3, -(2**65), "
 def ops(r, plan):
     out = []
     for i in range(400):
-        k = plan.randrange(9)
+        k = plan.randrange(10)
         if k == 0: out.append(["randint", -5, 500, r.randint(-5, 500)])
         elif k == 1: out.append(["randint", 0, 0, r.randint(0, 0)])
         elif k == 2: out.append(["randrange", 3, 1000, r.randrange(3, 1000)])
@@ -17,7 +17,10 @@ def ops(r, plan):
             x = list(range(plan.randrange(0, 12))); r.shuffle(x); out.append(["shuffle", len(x), x])
         elif k == 7:
             b = plan.choice([0, 1, 31, 32, 33, 63, 64, 65, 100, 128]); out.append(["getrandbits", b, str(r.getrandbits(b))])
-        else: out.append(["randint", -(2**62), 2**62, r.randint(-(2**62), 2**62)])
+        elif k == 8: out.append(["randint", -(2**62), 2**62, r.randint(-(2**62), 2**62)])
+        else:
+            n = plan.choice([1, 3, 6, 12, 21, 22, 40, 100]); kk = plan.randrange(0, min(n, 9) + 1)
+            out.append(["sample", n, kk, r.sample(range(n), kk)])
     return out
 plan = random.Random(12345)
 cases = [{"seed": s if isinstance(s, str) else str(s), "kind": "str" if isinstance(s, str) else "int", "ops": ops(random.Random(s), plan)} for s in SEEDS]

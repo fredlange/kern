@@ -28,6 +28,12 @@ fn every_call_matches_cpython() {
                     let want: Vec<i64> = o[2].as_array().unwrap().iter().map(|e| e.as_i64().unwrap()).collect();
                     assert_eq!(x, want, "{ctx}")
                 }
+                "sample" => {
+                    let pop: Vec<i64> = (0..i(1)).collect();
+                    let got = r.sample(&pop, i(2) as usize);
+                    let want: Vec<i64> = o[3].as_array().unwrap().iter().map(|e| e.as_i64().unwrap()).collect();
+                    assert_eq!(got, want, "{ctx}")
+                }
                 "getrandbits" => assert_eq!(r.getrandbits(i(1) as u32).to_string(), o[2].as_str().unwrap(), "{ctx}"),
                 other => panic!("unknown op {other}"),
             }

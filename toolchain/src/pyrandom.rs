@@ -165,6 +165,38 @@ impl Random {
         &seq[self.randbelow(seq.len() as u128) as usize]
     }
 
+    /// `sample(population, k)`: k distinct elements in selection order, by CPython 3.9's algorithm (a pool for small
+    /// populations, rejection against a set otherwise). Panics if k > len, as Python raises ValueError.
+    pub fn sample<T: Clone>(&mut self, population: &[T], k: usize) -> Vec<T> {
+        let n = population.len();
+        assert!(k <= n, "Sample larger than population or is negative");
+        let mut setsize = 21usize;
+        if k > 5 {
+            let e = ((k * 3) as f64).log(4.0).ceil() as u32;
+            setsize += 4usize.pow(e);
+        }
+        let mut out = Vec::with_capacity(k);
+        if n <= setsize {
+            let mut pool = population.to_vec();
+            for i in 0..k {
+                let j = self.randbelow((n - i) as u128) as usize;
+                out.push(pool[j].clone());
+                pool[j] = pool[n - i - 1].clone();
+            }
+        } else {
+            let mut selected = std::collections::BTreeSet::new();
+            for _ in 0..k {
+                let mut j = self.randbelow(n as u128) as usize;
+                while selected.contains(&j) {
+                    j = self.randbelow(n as u128) as usize;
+                }
+                selected.insert(j);
+                out.push(population[j].clone());
+            }
+        }
+        out
+    }
+
     /// `shuffle(x)` in place (Fisher-Yates from the end, as CPython).
     pub fn shuffle<T>(&mut self, x: &mut [T]) {
         for i in (1..x.len()).rev() {
