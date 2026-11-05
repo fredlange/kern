@@ -5,6 +5,8 @@ const slots 35
 state slot Int
 state holder Int -> Text
 
+invariant s:Int slot.get s >= 0
+
 record Booking room:Int day:Int guest:Int name:Text
 
 

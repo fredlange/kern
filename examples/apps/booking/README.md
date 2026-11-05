@@ -1,12 +1,11 @@
 # booking: rooms × days
 
 A booking board: 5 rooms × 7 days, stored flat in one `state slot Int` at key `room * days + day` (0 = free,
-else the guest id). Uses `const`, a `record Booking`, sums and a loop. Guests have an Int id and a `Text` name (`state holder Int -> Text`).
+else the guest id). Uses `const`, a `record Booking`, sums, loops and `invariant s:Int slot.get s >= 0` on the computed key. Guests have an Int id and a `Text` name (`state holder Int -> Text`).
 
 ```
 booking/
 ├── booking.k                         book, cancel, clear_day (slot and name), clear_all (nested loops), seat (variable width), nights_booked, guest_nights, busy_on
-├── probes/booking_with_invariant.k   the same plus `invariant s:Int slot.get s >= 0` (see below)
 └── proof-pages/booking.html
 ```
 
@@ -17,14 +16,14 @@ cargo run --release -p kern -- check examples/apps/booking/booking.k
 cargo run --release -p kern -- build examples/apps/booking/booking.k
 ```
 
-## What `check` says (recorded at ed0cd62, `--cache ''`)
+## What `check` says (recorded at 14e8e67 (clean tree), `--cache ''`)
 
 | definition | status | spec strength |
 |---|---|---|
 | `book` (record with a Text field) | All guarantees proven (slot and name set, every other slot unchanged) | 25/25; spec refusals 14/14 |
 | `cancel` | All guarantees proven | 22/24; spec refusals 12/12 |
-| `clear_day` (loop over rooms, clears slot and name) | All guarantees proven | 11/16: survivors are loop bounds |
-| `clear_all` (nested loops) | All guarantees proven | 10/22 (prover 1): bound and index mutants survive |
+| `clear_day` (loop over rooms, clears slot and name) | All guarantees proven | 14/16: survivors are loop bounds |
+| `clear_all` (nested loops) | All guarantees proven | 14/22 (prover 10): bound and index mutants survive |
 | `seat` (`room * width + day`, variable × variable) | All guarantees proven | 14/14; spec refusals 8/8 |
 | `nights_booked`, `guest_nights`, `busy_on` (sums) | All guarantees proven | 0/0, nothing to mutate |
 
@@ -35,8 +34,4 @@ cargo run --release -p kern -- build examples/apps/booking/booking.k
 
 ## What it can't do yet
 
-- **Module invariant on a computed key:** with `invariant s:Int slot.get s >= 0` (`probes/booking_with_invariant.k`),
-  at 4b44b2f `book`, `cancel` and `seat` prove, but `clear_all` (nested loop) can't discharge it (its loop-invariant
-  `for s from 0 to (r * days)` is only ◐) and, because the module invariant is then unproven, `clear_day` — whose own
-  goals are fine — shows `!` as well. `booking.k` has no invariant. Request in `.party/requests.md`.
 - No `mod`, no constant expressions (`slots` is `rooms * days` by hand).
