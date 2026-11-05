@@ -1411,6 +1411,53 @@ fn respond(req: tiny_http::Request, code: u16, body: &J) {
     let _ = req.respond(tiny_http::Response::from_string(data).with_status_code(code).with_header(header));
 }
 
+/// The call's arguments from a JSON body with exactly the definition's parameters. A record parameter (flattened at
+/// load time to `p.x`, `p.y`: syntax::flatten_records) is one object with exactly its fields: `{"p": {"x": 1, "y": 2}}`.
+pub fn http_args(params: &[(String, String)], body: &J) -> Result<Vec<Value>, String> {
+    // top-level name -> its fields (None for a plain parameter), in declaration order
+    let mut shape: IndexMap<&str, Option<Vec<&str>>> = IndexMap::new();
+    for (p, _) in params {
+        match p.split_once('.') {
+            Some((r, f)) => shape.entry(r).or_insert_with(|| Some(vec![])).get_or_insert_with(Vec::new).push(f),
+            None => {
+                shape.insert(p, None);
+            }
+        }
+    }
+    let same = |o: &Map<String, J>, want: &[&str]| {
+        let mut a: Vec<&str> = o.keys().map(|k| k.as_str()).collect();
+        let mut b = want.to_vec();
+        a.sort();
+        b.sort();
+        a == b
+    };
+    let names: Vec<&str> = shape.keys().copied().collect();
+    let ok = body.as_object().map_or(false, |o| {
+        same(o, &names)
+            && shape.iter().all(|(n, fs)| match fs {
+                Some(fs) => o[*n].as_object().map_or(false, |r| same(r, fs)),
+                None => true,
+            })
+    });
+    if !ok {
+        let list = |xs: &[&str]| format!("[{}]", xs.iter().map(|w| repr_str(w)).collect::<Vec<_>>().join(", "));
+        let mut msg = format!("want a JSON object with exactly {}", list(&names));
+        for (n, fs) in &shape {
+            if let Some(fs) = fs {
+                msg.push_str(&format!("; {} an object with exactly {}", repr_str(n), list(fs)));
+            }
+        }
+        return Err(msg);
+    }
+    Ok(params
+        .iter()
+        .map(|(p, _)| match p.split_once('.') {
+            Some((r, f)) => json_value(&body[r][f]),
+            None => json_value(&body[p.as_str()]),
+        })
+        .collect())
+}
+
 /// One HTTP request; Err only for a host fault outside a call.
 pub fn handle_http(host: &mut Host, mut req: tiny_http::Request) -> Result<(), HostError> {
     let path = req.url().to_string();
@@ -1448,20 +1495,13 @@ pub fn handle_http(host: &mut Host, mut req: tiny_http::Request) -> Result<(), H
             }
         }
     };
-    let want: Vec<String> = d.params.iter().map(|(p, _)| p.clone()).collect();
-    let ok_shape = body.as_object().map_or(false, |o| {
-        let mut a: Vec<&String> = o.keys().collect();
-        let mut b: Vec<&String> = want.iter().collect();
-        a.sort();
-        b.sort();
-        a == b
-    });
-    if !ok_shape {
-        let shown = format!("[{}]", want.iter().map(|w| repr_str(w)).collect::<Vec<_>>().join(", "));
-        respond(req, 400, &json!({"error": format!("want a JSON object with exactly {}", shown)}));
-        return Ok(());
-    }
-    let args: Vec<Value> = want.iter().map(|p| json_value(&body[p])).collect(); // types are checked by Interp::run
+    let args = match http_args(&d.params, &body) {
+        Ok(a) => a, // types are checked by Interp::run
+        Err(e) => {
+            respond(req, 400, &json!({"error": e}));
+            return Ok(());
+        }
+    };
     match host.call(&name, &args) {
         Err(HostError::Unproven(_)) => {
             respond(req, 403, &json!({"error": format!("{} is not proven clean; this host does not run it", name)}));
@@ -1900,6 +1940,54 @@ mod tests {
              accounts pending: {stuck_without} right after the run, {stuck} once every deadline has passed"
         );
         assert_eq!((stuck, faults, mismatches), (0, 0, 0));
+    }
+
+    #[test]
+    fn a_record_parameter_is_one_json_object() {
+        let params: Vec<(String, String)> =
+            [("who", "Account"), ("p.x", "Int"), ("p.y", "Int"), ("n", "Int")].iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
+        let got = http_args(&params, &json!({"n": 3, "p": {"y": 2, "x": 1}, "who": "A"})).unwrap();
+        assert_eq!(got, vec![Value::Str("A".into()), Value::Int(1), Value::Int(2), Value::Int(3)]);
+        let want = "want a JSON object with exactly ['who', 'p', 'n']; 'p' an object with exactly ['x', 'y']";
+        for bad in [
+            json!({"who": "A", "p.x": 1, "p.y": 2, "n": 3}), // the flattened names are not the interface
+            json!({"who": "A", "p": {"x": 1}, "n": 3}),
+            json!({"who": "A", "p": {"x": 1, "y": 2, "z": 0}, "n": 3}),
+            json!({"who": "A", "p": [1, 2], "n": 3}),
+            json!({"who": "A", "p": {"x": 1, "y": 2}}),
+        ] {
+            assert_eq!(http_args(&params, &bad).unwrap_err(), want, "{bad}");
+        }
+        // no records: the message as before
+        let plain = vec![("a".to_string(), "Account".to_string())];
+        assert_eq!(http_args(&plain, &json!({})).unwrap_err(), "want a JSON object with exactly ['a']");
+    }
+
+    #[test]
+    fn a_record_call_over_http() {
+        let src = "record Point x:Int y:Int\nstate at Int\n\nplace p:Point\n  need p.x >= 0 else Neg\n  ensure at.get' p.x = p.y\nbody\n  at.set p.x p.y\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let o = Options { sinks: Some(vec![]), gate: false, ..Default::default() };
+        let mut h = Host::new(&defs, IndexMap::new(), o).unwrap();
+        h.init("").unwrap();
+        let srv = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let base = format!("http://127.0.0.1:{}", srv.server_addr().to_ip().unwrap().port());
+        let client = std::thread::spawn(move || {
+            let post = |b: &str| match ureq::post(&format!("{base}/place")).send_string(b) {
+                Ok(r) => (r.status(), r.into_string().unwrap()),
+                Err(ureq::Error::Status(c, r)) => (c, r.into_string().unwrap()),
+                Err(e) => panic!("{e}"),
+            };
+            (post(r#"{"p": {"x": 4, "y": 9}}"#), post(r#"{"p": {"x": -1, "y": 9}}"#), post(r#"{"p.x": 4, "p.y": 9}"#))
+        });
+        for _ in 0..3 {
+            handle_http(&mut h, srv.recv().unwrap()).unwrap();
+        }
+        let (ok, refused, bad) = client.join().unwrap();
+        assert_eq!((ok.0, refused.0, bad.0), (200, 409, 400), "{ok:?} {refused:?} {bad:?}");
+        assert!(refused.1.contains("Neg"));
+        assert_eq!(h.load().unwrap().maps["at"][&Key::Int(4)], 9);
     }
 
     #[test]

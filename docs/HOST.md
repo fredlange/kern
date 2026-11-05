@@ -31,7 +31,9 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   runtime invariant check → write the diff, log entry, outbox rows → `commit`. A refusal or
   runtime error writes only the log entry. Calls are serialised with a lock (the proofs
   assume one top-level call at a time).
-- **HTTP:** `POST /NAME` with a JSON object of exactly the def's parameters. `ok` → 200
+- **HTTP:** `POST /NAME` with a JSON object of exactly the def's parameters; a record parameter `p:Point` is
+  one object with exactly its fields, `{"p": {"x": 1, "y": 2}}` (the host decodes it into the flattened
+  `p.x p.y`; `repl` and `.host` reply ARGS stay positional). `ok` → 200
   (with the emitted events), declared refusal → 409 `{"refused": Ctor, "args": [...]}`,
   bad call (wrong type, unknown account) → 400, not proven → 403, runtime invariant broken
   (only possible with `--no-gate`) → 500. The genesis world must satisfy the invariants. `GET /state`, `GET /manifest`.
@@ -69,7 +71,7 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
    channel `emit` and replies arrive as new calls; see [HOST_PLAN.md](research/HOST_PLAN.md).
 4. ~~**Effect labels have no resource.**~~ The manifest now lists every network endpoint, from the
    host config. File access still has no effect at all.
-5. **Int and Account only.** Real requests need Text and records. The plan is for the host to
+5. **Int and Account only.** Real requests need Text (records arrive as nested JSON objects since 2026-11-05). The plan is for the host to
    decode them against a declared schema at the boundary, the same way `run()` already
    type-checks arguments, so Kern never parses bytes.
 6. **No accounts created at runtime.** Accounts only come from the genesis world.
