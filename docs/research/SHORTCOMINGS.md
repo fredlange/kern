@@ -530,6 +530,10 @@ to make decisions as long as they follow the fundamentals". Each one names the f
 - **What remains:**
   - The ratchet (`kern baseline`) doesn't record spec refusals, so a drop in them isn't flagged.
   - A mutated spec that is still self-consistent remains S3's problem.
+  - *Note (2026-11-05, `8b85fc0`):* random worlds now satisfy the module invariants (repaired to defaults where one
+    fails, else skipped and counted). Some spec refusals were only "caught" in worlds no call can reach: escrow_s2/s3
+    go from 7/8 to 5/8 (`need hold.get id > 0` is unreachable after `need disputed …` under `disputed = 0 or hold > 0`)
+    and now show as unpinned. The "Found" counts above are from before that change.
 
 ### S18. The page showed a body need's source text even when it read post-write state
 - **Kind:** code gap (page wording). **Closed** 2026-11-05, under delegation.
