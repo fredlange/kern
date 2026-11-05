@@ -238,3 +238,31 @@ and expect the old layout. A rerun needs a checkout of `d521236` (the run's comm
   split, tip, purchase), against 2,267 for the whole of `escrow_s1.k`. An editor view carries the spec of
   each callee, and related definitions share callees, so the same specs are read more than once. On this
   10-definition module, reading through views cost about the same as the file in T1 and 1.7× the file in T3.
+
+**2026-11-05: other view designs, simulated (added after the run; nothing above is changed).** Computed by
+`view_cost.py`, section 6, from the 9 K-view transcripts; no agent was run. Every recorded view was regenerated
+with `kern mcp` on the run's module (all views came before any edit; the 35 regenerated editor views are identical
+to the recorded ones). Designs: **dedup**, where a callee spec already shown in the session, or the subject of an
+earlier view, becomes `<name> (spec shown above)`; **spec-first**, where every view is `spec` except views of the
+definitions the run then replaced (T1 added `settle` and replaced nothing, so all its views become `spec`; T2
+capture and purchase; T3 move and tip); and **both**. The saving is converted to the frozen metric at **1.65 real
+tokens per proxy token**, fitted on the runs' 29 read-only turns (cache_creation = 13 + 1.65 × proxy tokens of the
+tool results + 126 per tool call; largest residual 73). That is higher than the ~1.3 measured on REFERENCE's prose
+in the note above, because JSON-escaped code tokenizes worse.
+
+| task | TS median (0.7×) | recorded | dedup | spec-first | both | both, first view `editor` |
+|---|---|---|---|---|---|---|
+| view tokens (proxy), T1 / T2 / T3 | | 2,146 / 2,620 / 3,848 | 1,573 / 1,882 / 2,545 | 732 / 1,857 / 1,842 | 732 / 1,560 / 1,698 | 1,192 / 1,560 / 1,698 |
+| T1 total | 12,474 (8,732) | 12,840 (1.03×) | 11,725 (0.94×) | 10,510 (0.84×) | 10,510 (0.84×) | 11,268 (0.90×) |
+| T2 total | 13,209 (9,246) | 15,695 (1.19×) | 14,479 (1.10×) | 14,438 (1.09×) | 13,948 (1.06×) | 13,948 (1.06×) |
+| T3 total | 12,395 (8,676) | 16,429 (1.33×) | 14,282 (1.15×) | 13,123 (1.06×) | 12,886 (1.04×) | 12,886 (1.04×) |
+
+- **No design reaches 0.7× on any task.** The best (both) cuts view tokens by 40–66% and brings T3 from 1.33× to
+  1.04×, about level with TS, not under it.
+- **T1** stays 1,778 real tokens over 0.7×. The first request's REFERENCE + preamble difference is ~2,786, so
+  REFERENCE.md would have to shrink from 2,126 to at most ~770 proxy tokens (about a third), with views redesigned
+  too. **T2 and T3** stay over 0.7× (by 4,702 and 4,209) even with no REFERENCE at all: the rest of the session
+  (output, edits, list, checks) already costs more than 0.7× TS.
+- **Held fixed, and likely optimistic:** the agents' behaviour. Spec-first removes the bodies that T1's agents
+  read to model `settle` on (the column with the first view kept `editor` prices one such read: +460 proxy in T1), and an
+  agent shown less may ask for more; each extra call costs ~126 real tokens plus its result.

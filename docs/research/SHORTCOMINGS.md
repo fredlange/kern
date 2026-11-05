@@ -46,11 +46,21 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
     the first-request cache_read is the same in every run of an arm. The original write-up blamed
     them; that doesn't hold.
 - **Fixed when:** a new C2 run, with the same 0.7× threshold, passes.
+- **Simulated, 2026-11-05** (PROTOCOL.md, second dated note; `view_cost.py`, section 6). These are
+  other view designs replayed on the recorded runs' own view calls, with agent behaviour held fixed,
+  so they're optimistic:
+  - Combining two changes cuts view tokens by 40–66%: don't repeat a callee spec already shown, and
+    show `spec` everywhere except the definition being edited. K-view would then be 0.84 / 1.06 /
+    1.04× TS.
+  - **No view design reaches 0.7× on this module.** On T2 and T3, everything after the first
+    request already costs more than 0.7× TS, with no REFERENCE at all. On T1, REFERENCE.md would also
+    have to shrink from 2,126 to about 770 proxy tokens.
+  - So the frozen threshold can't be met on a 10-definition module through reading or the reference
+    alone. Whether views win at all is a question about larger programs.
 - **Next:**
-  - (a) Make reading cheaper. Don't repeat a callee spec the session has already seen, or show
-    callees as `spec` by default. Measure on the 27 recorded runs' view calls before any rerun.
-  - (b) Test the open hypothesis that the saving grows with the program, with a C2b on a larger
-    module (`escrow` s3 or `ledger-large`). At n=10 it lost on T3.
+  - (b) is now the main question: a pre-registered C2b on a larger module (`escrow` s3 or
+    `ledger-large`), with the two view changes built first. It needs Fredrik's approval (agent runs).
+  - (a), the two view changes, is worth building anyway: it's 40–66% fewer view tokens.
   - (c) REFERENCE.md's size is the language tax. Cutting it is Fredrik's call, since C2 froze it.
   - Not worth it: dropping the four tools the runs never called (`kern_why`, `kern_run`,
     `kern_replace`, `kern_remove`) saves about 330 proxy tokens, and 0 under the frozen metric.
