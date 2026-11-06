@@ -1,0 +1,294 @@
+$ kern check tests/probes/decimals.k   (exit 1)
+mul [56f6c430]  All guarantees proven
+  ✔ ensure result <= a * b
+  ✔ ensure result = a * b
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 0/2; together 2/2
+
+neg_half [ab0ba64e]  All guarantees proven
+  ✔ ensure result = 0 - 0.0001
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 2/2; together 2/2
+
+neg_half_bad [b0273558]  Broken guarantees
+  ✗ ensure result = 0
+      counterexample: eg  now:8 | neg_half_bad -> ok | 
+  examples 0/0   random tests 500/500 reached success, 3 violations
+
+third [5e00d616]  All guarantees proven
+  ✔ ensure result * 3 <= x
+  ✔ ensure x - result * 3 < 0.0003
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 0/2; together 2/2
+
+third_bad [ab3bd8e1]  Broken guarantees
+  ✗ ensure result * 3 = x
+      counterexample: eg  | third_bad 0.0001 -> ok | 
+  examples 0/0   random tests 500/500 reached success, 3 violations
+
+neg_third [98500351]  All guarantees proven
+  ✔ ensure result = 0 - 0.3334
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 4/4 (prover 4, random tests 4); examples 4/4; together 4/4
+
+promote [9d4cedcd]  All guarantees proven
+  ✔ ensure result = n
+  ✔ ensure result = n * 1.0
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 0/1 (prover 0, random tests 0); examples 0/1; together 0/1
+      survived: `+` → `-` in `result = n + 0.0`
+
+one_eq [9a5917ce]  All guarantees proven
+  ✔ ensure result = 1
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 4/5 (prover 4, random tests 4); examples 0/5; together 4/5
+      survived: `0` → `1` in `result = 0`
+
+exact [08afdd81]  All guarantees proven
+  ✔ ensure result = 0.25
+  ✔ ensure result != 0.2501
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 0/0 (prover 0, random tests 0); examples 0/0; together 0/0
+
+lossy [00793e2f]  Broken guarantees
+  ✗ ensure result = 1
+      counterexample: eg  now:8 | lossy -> ok | 
+  examples 0/0   random tests 500/500 reached success, 3 violations
+
+store [64602a13]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure price.get' k = p + price.get k
+  writes price.k
+  examples 2/2   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 2/2; together 2/2
+
+sq_nonneg [84356b9f]  All guarantees proven
+  ✔ ensure result >= 0
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 0/0 (prover 0, random tests 0); examples 0/0; together 0/0
+
+
+$ kern view tests/probes/decimals.k mul --as iface   (exit 0)
+mul a:Decimal b:Decimal -> Decimal
+  uses 
+
+$ kern view tests/probes/decimals.k mul --as spec   (exit 0)
+mul a:Decimal b:Decimal -> Decimal
+  uses 
+  ensure result <= a * b
+  ensure result = a * b
+  proof ok
+
+$ kern view tests/probes/decimals.k mul --as editor   (exit 0)
+mul a:Decimal b:Decimal -> Decimal
+  uses 
+  ensure result <= a * b
+  ensure result = a * b
+body
+  result = a * b
+
+$ kern view tests/probes/decimals.k neg_half --as iface   (exit 0)
+neg_half -> Decimal
+  uses 
+
+$ kern view tests/probes/decimals.k neg_half --as spec   (exit 0)
+neg_half -> Decimal
+  uses 
+  ensure result = 0 - 0.0001
+  proof ok
+
+$ kern view tests/probes/decimals.k neg_half --as editor   (exit 0)
+neg_half -> Decimal
+  uses 
+  ensure result = 0 - 0.0001
+  eg | neg_half -> ok -0.0001
+body
+  result = (0 - 0.0001) * 0.5
+
+$ kern view tests/probes/decimals.k neg_half_bad --as iface   (exit 0)
+neg_half_bad -> Decimal
+  uses 
+
+$ kern view tests/probes/decimals.k neg_half_bad --as spec   (exit 0)
+neg_half_bad -> Decimal
+  uses 
+  ensure result = 0
+  proof 1 open
+
+$ kern view tests/probes/decimals.k neg_half_bad --as editor   (exit 0)
+neg_half_bad -> Decimal
+  uses 
+  ensure result = 0
+body
+  result = (0 - 0.0001) * 0.5
+
+$ kern view tests/probes/decimals.k third --as iface   (exit 0)
+third x:Decimal -> Decimal
+  uses 
+
+$ kern view tests/probes/decimals.k third --as spec   (exit 0)
+third x:Decimal -> Decimal
+  uses 
+  ensure result * 3 <= x
+  ensure x - result * 3 < 0.0003
+  proof ok
+
+$ kern view tests/probes/decimals.k third --as editor   (exit 0)
+third x:Decimal -> Decimal
+  uses 
+  ensure result * 3 <= x
+  ensure x - result * 3 < 0.0003
+body
+  result = x / 3
+
+$ kern view tests/probes/decimals.k third_bad --as iface   (exit 0)
+third_bad x:Decimal -> Decimal
+  uses 
+
+$ kern view tests/probes/decimals.k third_bad --as spec   (exit 0)
+third_bad x:Decimal -> Decimal
+  uses 
+  ensure result * 3 = x
+  proof 1 open
+
+$ kern view tests/probes/decimals.k third_bad --as editor   (exit 0)
+third_bad x:Decimal -> Decimal
+  uses 
+  ensure result * 3 = x
+body
+  result = x / 3
+
+$ kern view tests/probes/decimals.k neg_third --as iface   (exit 0)
+neg_third -> Decimal
+  uses 
+
+$ kern view tests/probes/decimals.k neg_third --as spec   (exit 0)
+neg_third -> Decimal
+  uses 
+  ensure result = 0 - 0.3334
+  proof ok
+
+$ kern view tests/probes/decimals.k neg_third --as editor   (exit 0)
+neg_third -> Decimal
+  uses 
+  ensure result = 0 - 0.3334
+  eg | neg_third -> ok -0.3334
+body
+  result = (0 - 1.0) / 3
+
+$ kern view tests/probes/decimals.k promote --as iface   (exit 0)
+promote n:Int -> Decimal
+  uses 
+
+$ kern view tests/probes/decimals.k promote --as spec   (exit 0)
+promote n:Int -> Decimal
+  uses 
+  ensure result = n
+  ensure result = n * 1.0
+  proof ok
+
+$ kern view tests/probes/decimals.k promote --as editor   (exit 0)
+promote n:Int -> Decimal
+  uses 
+  ensure result = n
+  ensure result = n * 1.0
+  eg | promote 3 -> ok 3
+body
+  result = n + 0.0
+
+$ kern view tests/probes/decimals.k one_eq --as iface   (exit 0)
+one_eq -> Int
+  uses 
+
+$ kern view tests/probes/decimals.k one_eq --as spec   (exit 0)
+one_eq -> Int
+  uses 
+  ensure result = 1
+  proof ok
+
+$ kern view tests/probes/decimals.k one_eq --as editor   (exit 0)
+one_eq -> Int
+  uses 
+  ensure result = 1
+body
+  if 1 = 1.0
+    result = 1
+  else
+    result = 0
+
+$ kern view tests/probes/decimals.k exact --as iface   (exit 0)
+exact -> Decimal
+  uses 
+
+$ kern view tests/probes/decimals.k exact --as spec   (exit 0)
+exact -> Decimal
+  uses 
+  ensure result = 0.25
+  ensure result != 0.2501
+  proof ok
+
+$ kern view tests/probes/decimals.k exact --as editor   (exit 0)
+exact -> Decimal
+  uses 
+  ensure result = 0.25
+  ensure result != 0.2501
+body
+  result = 0.5 * 0.5
+
+$ kern view tests/probes/decimals.k lossy --as iface   (exit 0)
+lossy -> Decimal
+  uses 
+
+$ kern view tests/probes/decimals.k lossy --as spec   (exit 0)
+lossy -> Decimal
+  uses 
+  ensure result = 1
+  proof 1 open
+
+$ kern view tests/probes/decimals.k lossy --as editor   (exit 0)
+lossy -> Decimal
+  uses 
+  ensure result = 1
+body
+  result = 0.3333 * 3.0
+
+$ kern view tests/probes/decimals.k store --as iface   (exit 0)
+store k:Int p:Decimal
+  uses price.write
+  writes price.k
+
+$ kern view tests/probes/decimals.k store --as spec   (exit 0)
+store k:Int p:Decimal
+  uses price.write
+  writes price.k
+  ok otherwise
+  ensure price.get' k = p + price.get k
+  proof ok
+
+$ kern view tests/probes/decimals.k store --as editor   (exit 0)
+store k:Int p:Decimal
+  uses price.write
+  writes price.k
+  ok otherwise
+  ensure price.get' k = p + price.get k
+  eg price.4:2.5 | store 4 1.25 -> ok | price.4:3.75
+  eg | store 4 2 -> ok | price.4:2
+body
+  price.set k (p + price.get k)
+
+$ kern view tests/probes/decimals.k sq_nonneg --as iface   (exit 0)
+sq_nonneg a:Decimal -> Decimal
+  uses 
+
+$ kern view tests/probes/decimals.k sq_nonneg --as spec   (exit 0)
+sq_nonneg a:Decimal -> Decimal
+  uses 
+  ensure result >= 0
+  proof ok
+
+$ kern view tests/probes/decimals.k sq_nonneg --as editor   (exit 0)
+sq_nonneg a:Decimal -> Decimal
+  uses 
+  ensure result >= 0
+body
+  result = a * a
