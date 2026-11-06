@@ -405,7 +405,7 @@ fn a_small_account_state_fuzz_run_is_clean() {
 }
 
 #[test]
-fn a_small_list_fuzz_run_has_only_the_known_never_succeeds_contradiction() {
+fn a_small_list_fuzz_run_is_clean() {
     // gen_list (792389e): appends to a list state, reads near both ends (guarded or not), totals, equality. An `at`
     // outside the list counts against the page only if every "is inside the list" goal is proven. Teeth (2026-11-06):
     // the goal's `index < length` planted as `<=` -> 1,972 contradictions in 9 of 100, all on that goal.
@@ -415,11 +415,7 @@ fn a_small_list_fuzz_run_has_only_the_known_never_succeeds_contradiction() {
     let s = summarise(&results);
     assert_eq!(s["list_well_formed"], "30/30");
     assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
-    for r in &results {
-        for f in &r.found {
-            assert_eq!(f["kind"], "vacuous", "{}: {f}", r.label);
-        }
-    }
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]); // since f3af834 (was: a known ∅ label)
     let p = &s["tiers"]["pre"];
     assert!(p["proven"].as_u64().unwrap_or(0) > 3 && p["refuted"].as_u64().unwrap_or(0) > 3, "{p}");
 }

@@ -1561,8 +1561,10 @@ pub fn oracle(defs: &Module, reports: &IndexMap<String, Report>, rnd: Rnd, runs:
                         // an `at` outside the list (792389e): contradicts the page only if every "is inside the list"
                         // goal of this definition is claimed
                         let pres: Vec<&kern::report::Guarantee> =
-                            r.guarantees.iter().filter(|g| g.kind == "pre" && g.clause.contains("is inside the list")).collect();
-                        if !pres.is_empty() && pres.iter().all(|g| claimed(g.status)) {
+                            r.guarantees.iter().filter(|g| g.kind == "pre" && g.clause.contains("is inside the list") && !g.clause.ends_with("(in the spec)")).collect();
+                        // since f3af834 a ✔ `ok otherwise` rests on these conditions too, so the fault contradicts it
+                        let ok_claimed = r.guarantees.iter().any(|g| g.kind == "ok" && claimed(g.status));
+                        if (!pres.is_empty() && pres.iter().all(|g| claimed(g.status))) || ok_claimed {
                             let mut e = ev.clone();
                             e["def"] = json!(name);
                             e["kind"] = json!("pre");
@@ -1578,8 +1580,10 @@ pub fn oracle(defs: &Module, reports: &IndexMap<String, Report>, rnd: Rnd, runs:
                         // none used as an account (4a9d41d): contradicts the page only if every "is an account, not
                         // none" goal of this definition is claimed
                         let pres: Vec<&kern::report::Guarantee> =
-                            r.guarantees.iter().filter(|g| g.kind == "pre" && g.clause.contains("not none")).collect();
-                        if !pres.is_empty() && pres.iter().all(|g| claimed(g.status)) {
+                            r.guarantees.iter().filter(|g| g.kind == "pre" && g.clause.contains("not none") && !g.clause.ends_with("(in the spec)")).collect();
+                        // since f3af834 a ✔ `ok otherwise` rests on these conditions too, so the fault contradicts it
+                        let ok_claimed = r.guarantees.iter().any(|g| g.kind == "ok" && claimed(g.status));
+                        if (!pres.is_empty() && pres.iter().all(|g| claimed(g.status))) || ok_claimed {
                             let mut e = ev.clone();
                             e["def"] = json!(name);
                             e["kind"] = json!("pre");
@@ -1901,9 +1905,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(lit_jobs(num("seed", 1) as i128, num("lits", 100) as usize, num("runs", 300)));
     js.extend(ret_jobs(num("seed", 1) as i128, num("rets", 100) as usize, num("runs", 300)));
     js.extend(acct_jobs(num("seed", 1) as i128, num("accts", 100) as usize, num("runs", 300)));
-    // default 0 until #Y4TVGF6C7A's 'Never succeeds' label is fixed: a spec-only out-of-range `at` (the total
-    // shape) shows ∅ while every run succeeds, 3,300 contradictions in 11 of 100 (2026-11-06). Run with --lists 100.
-    js.extend(list_jobs(num("seed", 1) as i128, num("lists", 0) as usize, num("runs", 300)));
+    js.extend(list_jobs(num("seed", 1) as i128, num("lists", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));
