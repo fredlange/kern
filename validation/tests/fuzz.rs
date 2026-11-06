@@ -419,3 +419,17 @@ fn a_small_list_fuzz_run_is_clean() {
     let p = &s["tiers"]["pre"];
     assert!(p["proven"].as_u64().unwrap_or(0) > 3 && p["refuted"].as_u64().unwrap_or(0) > 3, "{p}");
 }
+
+#[test]
+fn a_small_decimal_fuzz_run_is_clean() {
+    // gen_dec (1bdc8b2: Decimal, scale 4, floor): products and quotients of literals (negatives too) against their
+    // floor value or a near miss, plus symbolic shapes. Teeth (2026-11-06): Decimal × Decimal planted to round half up
+    // -> 3,000 contradictions in 10 of 100 (only the literal ground-truth claims see it).
+    let results: Vec<_> = kern_validation::fuzz::dec_jobs(5, 40, 60).iter().map(check_program).collect();
+    let s = summarise(&results);
+    assert_eq!(s["dec_well_formed"], "40/40");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    let e = &s["tiers"]["ensure"];
+    assert!(e["proven"].as_u64().unwrap_or(0) > 10 && e["refuted"].as_u64().unwrap_or(0) > 5, "{e}");
+}

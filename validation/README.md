@@ -55,6 +55,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 | `--rets N` | returning procedures (`gen_ret`, default 100, own stream): an allocator `alloc -> Int` (spec exact or loose), its id used as a key, two calls chained, calls in a loop, a returning procedure that refuses; claims right, off by one, or true only if the value were 0 |
 | `--accts N` | Accounts as state values (`gen_acct`, default 100, own stream): join, pay through a stored member with the `!= none` guard sometimes dropped, move, leave, a boss chain. The oracle draws Account-valued entries from the world's accounts and `none`; a 'none is not an account' run contradicts the page only if every "is an account, not none" goal of the definition is proven |
 | `--lists N` | lists (`gen_list`, default 100; was 0 until f3af834 fixed a "Never succeeds" label): appends to a list state, reads near both ends guarded or not, totals by `sum`, equality. An `at` outside the list contradicts the page only if every "is inside the list" goal is proven |
+| `--decs N` | decimals (`gen_dec`, default 100, own stream): products and quotients of literals (negatives too) claimed equal to their floor value or to a near miss (toward zero, ceiling, half up), an accumulating Decimal state, Int promotion, a floor bound on `x / n` |
 | `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`), a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`) a package variant (`agg` in a package `lib` the program's package `use`s), a nested-record variant (`Span` inside `record Wrap s:Span tag:Int`, `w.s` passed whole) and a record-state variant (`hold`/`flag` as the fields of `state cell Int -> Cell`). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (fatal since 7d011af fixed the record counterexamples) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
@@ -135,4 +136,8 @@ definition whose none goal is refuted still shows `✔ ok otherwise`; the oracle
 `index <= length` (prove.rs, not committed) gives 1,972 contradictions in 9 of 100. Clean run: 3,300 contradictions
 in 11 of 100, every one a "Never succeeds" (∅) on a definition whose only bad `at` is in its spec while every run
 succeeds: the label bug sent to lang, fixed in f3af834 (0 contradictions since; default back to 100). The oracle now also counts a none or out-of-list fault against a ✔ `ok otherwise`: undoing f3af834's downgrade (report.rs, planted) gives 1,585 contradictions in 18 of 200 account and list programs.
+
+**2026-11-06, decimals** (1bdc8b2; `--decs`). Teeth: Decimal × Decimal planted to round half up (prove.rs, not
+committed) gives 3,000 contradictions in 10 of 100; claims written with `*` alone agree with any consistent rounding,
+so the generator computes each literal product's floor value itself. Host and compiled decimals: not yet (runtime).
 

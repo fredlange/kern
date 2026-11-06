@@ -1231,6 +1231,81 @@ pub fn list_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         .collect()
 }
 
+// ---------------------------------------------------------------- decimals (1bdc8b2)
+
+/// A Decimal literal for an exact count of 0.0001s (negative written `(0 - x)`, as there is no unary minus).
+fn dec_lit(units: i128) -> String {
+    let a = units.abs();
+    let t = format!("{}.{:04}", a / 10_000, a % 10_000);
+    if units < 0 { format!("(0 - {t})") } else { t }
+}
+
+fn floor_div(a: i128, b: i128) -> i128 {
+    let q = a / b;
+    if (a % b != 0) && ((a < 0) != (b < 0)) { q - 1 } else { q }
+}
+
+/// A Decimal program with ground truth: a product or quotient of literals (negatives included) claimed equal to its
+/// floor value or to a near miss (toward zero, ceiling, half up), so a prover that rounds another way can't agree
+/// with every claim; or symbolic shapes (an accumulating Decimal state, Int promotion, a floor bound on `x / n`).
+/// Own stream (`dec_jobs`).
+pub fn gen_dec(rnd: &mut Random) -> String {
+    let small = |rnd: &mut Random| -> i128 { *rnd.choice(&[1i128, 3, 5000, 7, 12345, 9999, 2500, 33333, 20000, 10001]) * if rnd.random() < 0.4 { -1 } else { 1 } };
+    let mut lines: Vec<String> = vec!["state price Int -> Decimal".into(), String::new()];
+    match choice_str(rnd, &["mul", "mul", "div", "acc", "promote", "bound"]) {
+        "mul" | "div" if true => {
+            let is_mul = rnd.random() < 0.6;
+            let (a, b) = (small(rnd), small(rnd));
+            let n = *rnd.choice(&[2i128, 3, 7]);
+            // exact values in units of 0.0001
+            let (exact_num, exact_den) = if is_mul { (a * b, 10_000i128) } else { (a, n) };
+            let floor = floor_div(exact_num, exact_den);
+            let trunc = exact_num / exact_den;
+            let ceil = -floor_div(-exact_num, exact_den);
+            let half_up = floor_div(2 * exact_num + exact_den, 2 * exact_den);
+            let claimed = match rnd.randbelow(5) {
+                0 | 1 => floor,
+                2 => trunc,
+                3 => ceil,
+                _ => half_up,
+            };
+            let expr = if is_mul { format!("{} * {}", dec_lit(a), dec_lit(b)) } else { format!("{} / {n}", dec_lit(a)) };
+            lines.extend(["f -> Decimal".to_string(), format!("  ensure result = {}", dec_lit(claimed)), "body".into(), format!("  result = {expr}")]);
+        }
+        "acc" => {
+            let wrong = rnd.random() < 0.4;
+            lines.extend(["f k:Int p:Decimal".to_string(), "  ok otherwise".into()]);
+            lines.push(if wrong { "  ensure price.get' k = price.get k + p + 0.0001".into() } else { "  ensure price.get' k = price.get k + p".into() });
+            lines.extend(["body".to_string(), "  price.set k (price.get k + p)".into()]);
+        }
+        "promote" => {
+            let wrong = rnd.random() < 0.4;
+            lines.extend(["f n:Int -> Decimal".to_string()]);
+            lines.push(if wrong { "  ensure result = n + 0.0001".into() } else { "  ensure result = n".into() });
+            lines.extend(["body".to_string(), "  result = n * 1.0".into()]);
+        }
+        _ => {
+            let n = *rnd.choice(&[2i128, 3, 7]);
+            let wrong = rnd.random() < 0.4;
+            lines.extend(["f x:Decimal -> Decimal".to_string(), format!("  ensure result * {n} <= x")]);
+            lines.push(if wrong { format!("  ensure result * {n} = x") } else { format!("  ensure x - result * {n} < {}", dec_lit(n)) });
+            lines.extend(["body".to_string(), format!("  result = x / {n}")]);
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `n` Decimal programs from their own stream, labelled `dec#i`.
+pub fn dec_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 18);
+    (0..n)
+        .map(|i| {
+            let src = gen_dec(&mut rnd);
+            Job { label: format!("dec#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -1459,6 +1534,10 @@ fn world(defs: &Module, d: &kern::syntax::Def, rnd: &mut Random) -> (World, Vec<
                 Value::Str(rnd.choice(&accts).to_string())
             } else if t == "Text" {
                 Value::Str(rnd.choice(&TEXTS).to_string())
+            } else if t == "Decimal" {
+                // scaled units: small, fractional and negative amounts (only where a Decimal parameter exists)
+                let opts = [rnd.randint(-30_000, 30_000), rnd.randint(0, 200_000), 1, -1];
+                kern::run::decimal(*rnd.choice(&opts) as kern::Int)
             } else if t == "List" {
                 let n = rnd.randint(0, 4);
                 Value::Ctor(kern::run::LIST.into(), (0..n).map(|_| Value::Int(rnd.randint(-3, 9) as kern::Int)).collect())
@@ -1848,7 +1927,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
         "nested_record_variant_well_formed": fam("sumn#"), "state_record_variant_well_formed": fam("sums#"),
         "frame_record_well_formed": fam("framer#"), "ret_record_well_formed": fam("retr#"),
-        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"), "acct_well_formed": fam("acct#"), "list_well_formed": fam("list#"),
+        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"), "acct_well_formed": fam("acct#"), "list_well_formed": fam("list#"), "dec_well_formed": fam("dec#"),
         "variant_mismatches": variant_mismatches(results),
     })
 }
@@ -1861,12 +1940,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--rets" | "--accts" | "--lists" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--rets" | "--accts" | "--lists" | "--decs" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--rets N] [--accts N] [--lists N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--rets N] [--accts N] [--lists N] [--decs N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -1906,6 +1985,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(ret_jobs(num("seed", 1) as i128, num("rets", 100) as usize, num("runs", 300)));
     js.extend(acct_jobs(num("seed", 1) as i128, num("accts", 100) as usize, num("runs", 300)));
     js.extend(list_jobs(num("seed", 1) as i128, num("lists", 100) as usize, num("runs", 300)));
+    js.extend(dec_jobs(num("seed", 1) as i128, num("decs", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));
