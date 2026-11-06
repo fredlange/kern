@@ -1,6 +1,6 @@
 const rooms 5
 const days 7
-const slots 35
+const slots rooms * days
 
 record Booking room:Int day:Int guest:Int name:Text
 
@@ -84,7 +84,7 @@ clear_day day:Int
   ok otherwise
   ensure stay.guest.get' (r * days + day) = 0 for r from 0 to rooms
   ensure stay.name.get' (r * days + day) = "" for r from 0 to rooms
-  ensure stay.guest.get' s = stay.guest.get s when s - (s / days) * days != day for s from 0 to slots
+  ensure stay.guest.get' s = stay.guest.get s when s % days != day for s from 0 to slots
   eg stay.guest.3:4 stay.guest.10:5 stay.guest.11:6 stay.name.3:"a" stay.name.10:"b" stay.name.11:"c" | clear_day 3 -> ok | stay.guest.3:0 stay.guest.10:0 stay.guest.11:6 stay.name.3:"" stay.name.10:"" stay.name.11:"c"
   eg stay.guest.0:4 stay.guest.7:5 stay.guest.1:6 | clear_day 0 -> ok | stay.guest.0:0 stay.guest.7:0 stay.guest.1:6
   eg | clear_day -1 -> NoSuchDay
@@ -93,7 +93,7 @@ body
   for r from 0 to rooms
     invariant stay.guest.get' (q * days + day) = 0 for q from 0 to r
     invariant stay.name.get' (q * days + day) = "" for q from 0 to r
-    invariant stay.guest.get' s = stay.guest.get s when s - (s / days) * days != day or s / days >= r for s from 0 to slots
+    invariant stay.guest.get' s = stay.guest.get s when s % days != day or s / days >= r for s from 0 to slots
     stay.name.set (r * days + day) ""
     stay.guest.set (r * days + day) 0
 
