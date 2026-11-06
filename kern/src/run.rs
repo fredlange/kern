@@ -217,6 +217,8 @@ pub struct World {
     pub out: IndexMap<String, Vec<Value>>,
     /// declared Text state -> {key: text}; missing keys are ""
     pub texts: IndexMap<String, IndexMap<Key, String>>,
+    /// declared List state -> {key: its Ints}; missing keys are []
+    pub lists: IndexMap<String, IndexMap<Key, Vec<Int>>>,
     pub backing: Option<Backing>,
 }
 
@@ -243,6 +245,16 @@ impl World {
     /// The world with these Text state entries (an `eg` world's `title.1:"…"` items).
     pub fn with_texts(mut self, texts: &crate::syntax::Texts) -> World {
         self.texts = texts.clone();
+        self
+    }
+
+    /// An `eg` line's world (accounts, time, Int/Text/Account/List states).
+    pub fn of_example(ex: &crate::syntax::Example) -> World {
+        World::from_example(&ex.world, ex.now, &ex.maps).with_texts(&ex.texts).with_lists(&ex.list_maps)
+    }
+
+    pub fn with_lists(mut self, lists: &IndexMap<String, IndexMap<Key, Vec<Int>>>) -> World {
+        self.lists = lists.clone();
         self
     }
 
@@ -384,6 +396,25 @@ pub fn handler(name: &str) -> Option<(usize, &'static str)> {
 }
 
 /// `X.get` / `X.set` for a module's `state X Key` declaration: (X, op, key type).
+/// A list value: a constructor value of this name holding its Ints (DECISIONS.md, lists).
+pub const LIST: &str = "List";
+
+/// An `eg` line's call arguments as values (a list literal `[1 2]` as a list).
+pub fn example_args(ex: &crate::syntax::Example) -> Vec<Value> {
+    ex.call
+        .1
+        .iter()
+        .enumerate()
+        .map(|(i, k)| match (ex.lists.get(&i), k) {
+            (Some(xs), _) => Value::Ctor(LIST.into(), xs.iter().map(|x| Value::Int(*x)).collect()),
+            (None, Key::Int(n)) => Value::Int(*n),
+            (None, Key::Str(s)) => Value::Str(s.clone()),
+        })
+        .collect()
+}
+/// The interpreter's error for `at xs i` outside the list; the prover rules it out (a call-site goal).
+pub const AT_OUTSIDE: &str = "index outside the list";
+
 /// What an unset entry of an Account-valued state (`state member Int -> Account`) holds.
 pub const NONE: &str = "none";
 /// The interpreter's error when `none` is used as an account; the prover rules it out (a call-site goal).
@@ -636,6 +667,9 @@ impl<'m, 'p> Interp<'m, 'p> {
                 if n == NONE {
                     return Ok(Value::Str(NONE.into()));
                 }
+                if n == "[]" {
+                    return Ok(Value::Ctor(LIST.into(), vec![]));
+                }
                 // `p.x` where p holds a record value (a constructor value, its leaves in order)
                 let mut at = n.len();
                 while let Some(i) = n[..at].rfind('.') {
@@ -763,6 +797,19 @@ impl<'m, 'p> Interp<'m, 'p> {
             let key = first.as_key().ok_or_else(|| RunError::Type(format!("unhashable type: '{}'", first.type_name())))?;
             let text = defs.text_states.iter().any(|t| t == x);
             let account = defs.account_states.iter().any(|t| t == x);
+            if defs.list_states.iter().any(|t| t == x) {
+                if op == "get" {
+                    let xs = world.lists.get(x).and_then(|m| m.get(&key)).cloned().unwrap_or_default();
+                    return Ok(Value::Ctor(LIST.into(), xs.into_iter().map(Value::Int).collect()));
+                }
+                let Some(Value::Ctor(c, xs)) = args.get(1).filter(|v| matches!(v, Value::Ctor(c, _) if c == LIST)) else {
+                    return Err(RunError::Type(format!("state {} holds lists, got {:?}", x, args.get(1))).into());
+                };
+                let _ = c;
+                let ints: Vec<Int> = xs.iter().filter_map(Value::num).collect();
+                world.lists.entry(x.to_string()).or_default().insert(key, ints);
+                return Ok(Value::None);
+            }
             if op == "get" && account {
                 // kept with the Text entries, as a name; unset = none
                 let v = world.texts.get(x).and_then(|m| m.get(&key)).cloned();
@@ -790,8 +837,29 @@ impl<'m, 'p> Interp<'m, 'p> {
         if name.chars().next().map_or(false, |c| c.is_uppercase()) {
             return Ok(Value::Ctor(name.to_string(), args)); // constructor value
         }
+        if name == "at" {
+            // the i-th element from 0; outside the list a run-time error (the prover's goal rules it out)
+            return match (args.first(), args.get(1)) {
+                (Some(Value::Ctor(c, xs)), Some(Value::Int(i))) if c == LIST => match usize::try_from(*i).ok().and_then(|i| xs.get(i)) {
+                    Some(v) => Ok(v.clone()),
+                    None => Err(RunError::Kern(format!("{AT_OUTSIDE}: at {} in a list of {}", i, xs.len())).into()),
+                },
+                _ => Err(RunError::Type(format!("at of {:?}", args)).into()),
+            };
+        }
+        if name == "append" {
+            return match (args.first(), args.get(1)) {
+                (Some(Value::Ctor(c, xs)), Some(v @ Value::Int(_))) if c == LIST => {
+                    let mut ys = xs.clone();
+                    ys.push(v.clone());
+                    Ok(Value::Ctor(LIST.into(), ys))
+                }
+                _ => Err(RunError::Type(format!("append of {:?}", args)).into()),
+            };
+        }
         if name == "length" {
             return match args.first() {
+                Some(Value::Ctor(c, xs)) if c == LIST => Ok(Value::Int(xs.len() as Int)),
                 Some(Value::Str(t)) => Ok(Value::Int(t.chars().count() as Int)),
                 other => Err(RunError::Type(format!("length of {}", other.map(Value::repr).unwrap_or_default())).into()),
             };
@@ -977,6 +1045,9 @@ impl<'m, 'p> Interp<'m, 'p> {
             if t == "Text" && !matches!(a, Value::Str(_)) {
                 return kern(format!("bad call: `{}` must be a Text, got {}", p, a.repr()));
             }
+            if t == "List" && !matches!(a, Value::Ctor(c, xs) if c == LIST && xs.iter().all(|x| matches!(x, Value::Int(_)))) {
+                return kern(format!("bad call: `{}` must be a List, got {}", p, a.repr()));
+            }
         }
         for x in &defs.account_states {
             for (k, v) in world.texts.get(x).into_iter().flatten() {
@@ -1013,9 +1084,9 @@ impl<'m, 'p> Interp<'m, 'p> {
             env.insert("result".into(), self.last_result.clone().unwrap_or(Value::None));
         }
         let mut bad = vec![];
-        // a clause that uses `none` as an account can't be evaluated: the run broke it (the prover's goal that the
-        // account isn't none says the same)
-        let none_used = |e: &RunError| matches!(e, RunError::Kern(m) if m.starts_with(NONE_USED));
+        // a clause that uses `none` as an account, or reads a list outside it, can't be evaluated: the run broke it
+        // (the prover's call-site goal says the same)
+        let none_used = |e: &RunError| matches!(e, RunError::Kern(m) if m.starts_with(NONE_USED) || m.starts_with(AT_OUTSIDE));
         for c in &d.keeps {
             let ab = self.ev(c, &env, pre, None).map_err(stop_err).and_then(|a| Ok((a, self.ev(c, &env, post, None).map_err(stop_err)?)));
             match ab {

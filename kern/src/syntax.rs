@@ -101,6 +101,11 @@ pub struct Example {
     pub events: Option<Vec<(String, String, Vec<Key>)>>,
     /// `-> ok N` (`-> Int`) or `-> ok N M …` (a record's Int leaves in order): the value returned
     pub result: Option<Vec<Int>>,
+    /// List arguments, `[1 2 3]`, by position (the call's key there is a placeholder)
+    pub lists: IndexMap<usize, Vec<Int>>,
+    /// List state entries (`cart.4:[1 2]`), before and after
+    pub list_maps: IndexMap<String, IndexMap<Key, Vec<Int>>>,
+    pub after_lists: IndexMap<String, IndexMap<Key, Vec<Int>>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -155,6 +160,8 @@ pub struct Module {
     pub record_states: IndexMap<String, String>,
     /// declared states whose values are Accounts (`state NAME KEY -> Account`); an unset entry is `none`
     pub account_states: Vec<String>,
+    /// declared states whose values are lists of Ints (`state NAME KEY -> List`); an unset entry is `[]`
+    pub list_states: Vec<String>,
     /// set by the package loader (kern/package.py's `defs.package`)
     pub package: Option<crate::package::Package>,
 }
@@ -424,6 +431,10 @@ pub fn lex(s: &str, line: Option<usize>) -> PResult<Vec<Tok>> {
                 .filter(|n| in_range(*n))
                 .ok_or_else(|| ParseError::at(out_of_range(&text), line))?;
             toks.push(Tok::Int(n));
+        } else if c == '[' && chars.get(p + 1) == Some(&']') {
+            // the empty list
+            toks.push(Tok::Name("[]".into()));
+            p += 2;
         } else if is_name_start(c) {
             let start = p;
             while p < chars.len() && is_name_char(chars[p]) {
@@ -457,6 +468,12 @@ pub fn lex(s: &str, line: Option<usize>) -> PResult<Vec<Tok>> {
 
 /// Marks a lifted text literal inside a line: HOLE index HOLE (a character no source line contains).
 const HOLE: char = '\u{1}';
+/// Marks a list literal an `eg` line's parser took out (`[1 2 3]`).
+const LIST_HOLE: char = '\u{2}';
+fn list_lit() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    re(&R, r"\[([^\]]*)\]")
+}
 
 thread_local! {
     /// The text literals lift_texts took out of the lines of the module being parsed, by index.
@@ -982,13 +999,54 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
     let mark = LIFTED.with(|l| l.borrow().len());
     let lifted_src = lift_texts(src, line)?;
     let src_text = restore(&lifted_src);
+    // list literals `[1 2 3]` out too, so their spaces don't split arguments: each becomes LIST_HOLE n LIST_HOLE
+    let mut found: Vec<Vec<Int>> = vec![];
+    let mut bad = None;
+    let lifted_src = list_lit().replace_all(&lifted_src, |c: &regex::Captures| {
+        let xs: Result<Vec<Int>, _> = c[1].split_whitespace().map(|x| x.parse::<Int>()).collect();
+        match xs {
+            Ok(xs) if xs.iter().all(|n| in_range(*n)) => {
+                found.push(xs);
+                format!("{LIST_HOLE}{}{LIST_HOLE}", found.len() - 1)
+            }
+            _ => {
+                bad = Some(c[0].to_string());
+                String::new()
+            }
+        }
+    });
+    if let Some(b) = bad {
+        return Err(ParseError::at(format!("bad list {} (Ints, separated by spaces)", b), line));
+    }
+    let list_of = |a: &str| -> Option<Vec<Int>> {
+        a.strip_prefix(LIST_HOLE).and_then(|x| x.strip_suffix(LIST_HOLE)).and_then(|i| i.parse::<usize>().ok()).and_then(|i| found.get(i).cloned())
+    };
+    let split_lists = |src: &str| -> (String, IndexMap<String, IndexMap<Key, Vec<Int>>>) {
+        let (mut items, mut out): (Vec<&str>, IndexMap<String, IndexMap<Key, Vec<Int>>>) = (vec![], IndexMap::new());
+        for item in src.split_whitespace() {
+            let entry = item.rsplit_once(':').and_then(|(name, v)| list_of(v).map(|xs| (name, xs)));
+            match entry.and_then(|(name, xs)| name.rsplit_once('.').map(|(x, k)| (x, k, xs))) {
+                Some((x, k, xs)) => {
+                    let key = if k.chars().next().is_some_and(|c| c.is_alphabetic()) {
+                        Key::Str(k.into())
+                    } else {
+                        Key::Int(k.parse().unwrap_or(0))
+                    };
+                    out.entry(x.to_string()).or_default().insert(key, xs);
+                }
+                None => items.push(item),
+            }
+        }
+        (items.join(" "), out)
+    };
     let parts: Vec<&str> = lifted_src.split('|').map(str::trim).collect();
     if !(2..=4).contains(&parts.len()) || !parts[1].contains("->") {
         return Err(usage());
     }
     // split_now / split_maps are line-free (the host parses worlds too): put the eg's line on their errors
     let at = |e: ParseError| ParseError::at(e.0, line);
-    let (world_src, texts) = split_texts(parts[0], line)?;
+    let (world_src, list_maps) = split_lists(parts[0]);
+    let (world_src, texts) = split_texts(&world_src, line)?;
     let (world_src, now) = split_now(&world_src).map_err(at)?;
     let (world_src, maps) = split_maps(&world_src).map_err(at)?;
     let world = parse_world(&world_src, line)?;
@@ -1001,7 +1059,13 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
         return Err(usage());
     }
     let mut args = Vec::new();
+    let mut lists = IndexMap::new();
     for a in &call[1..] {
+        if let Some(xs) = list_of(a) {
+            lists.insert(args.len(), xs);
+            args.push(Key::Int(0));
+            continue;
+        }
         if let Some(t) = lifted(a) {
             args.push(Key::Str(t));
             continue;
@@ -1044,7 +1108,8 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
         }
         Outcome::Fail(ctor.to_string(), vals.map_err(|_| usage())?)
     };
-    let (after_src, after_texts) = if parts.len() >= 3 { split_texts(parts[2], line)? } else { (String::new(), Texts::new()) };
+    let (after_src, after_lists) = if parts.len() >= 3 { split_lists(parts[2]) } else { (String::new(), IndexMap::new()) };
+    let (after_src, after_texts) = if parts.len() >= 3 { split_texts(&after_src, line)? } else { (String::new(), Texts::new()) };
     let (after_src, after_maps) = if parts.len() >= 3 { split_maps(&after_src).map_err(at)? } else { (String::new(), Maps::new()) };
     let events = if parts.len() == 4 { Some(parse_eg_events(parts[3], line)?) } else { None };
     let after = parse_balances(&after_src, line)?;
@@ -1063,6 +1128,9 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
         after_texts,
         events,
         result,
+        lists,
+        list_maps,
+        after_lists,
     })
 }
 
@@ -1256,6 +1324,7 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
                     match m.get(3).map(|v| v.as_str()) {
                         Some("Text") => defs.text_states.push(m[1].to_string()),
                         Some("Account") => defs.account_states.push(m[1].to_string()),
+                        Some("List") => defs.list_states.push(m[1].to_string()),
                         Some("Int") | None => {}
                         // a record: one state per field, made by flatten_records
                         Some(r) => {
@@ -1418,10 +1487,10 @@ pub fn subst(e: &Expr, m: &IndexMap<String, Expr>) -> Expr {
 }
 
 /// Words that can't name a constant: they are keywords, or a constant would hide them.
-const RESERVED: [&str; 33] = [
+const RESERVED: [&str; 35] = [
     "and", "or", "else", "when", "as", "result", "body", "need", "keep", "ensure", "emit", "eg", "ok", "if", "for",
     "from", "to", "distinct", "sum", "of", "where", "const", "import", "state", "record", "channel", "invariant",
-    "handler", "ledger", "clock", "audit", "length", "none",
+    "handler", "ledger", "clock", "audit", "length", "none", "at", "append",
 ];
 
 /// Substitutes named constants into a definition, collecting what it used.
@@ -1977,7 +2046,7 @@ pub fn flatten_records(defs: &mut Module) -> PResult<IndexMap<String, Vec<String
         return Ok(IndexMap::new());
     }
     for (r, fields) in &defs.records {
-        if ["Int", "Account", "Owner", "Bool", "Event", "Unit", "Text"].contains(&r.as_str()) {
+        if ["Int", "Account", "Owner", "Bool", "Event", "Unit", "Text", "List"].contains(&r.as_str()) {
             return Err(ParseError(format!("record {} has the name of a built-in type", r)));
         }
         for (i, (f, t)) in fields.iter().enumerate() {

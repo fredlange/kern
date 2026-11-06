@@ -14,7 +14,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::rc::Rc;
 
 use indexmap::IndexMap;
-use z3::ast::{Array, Bool, Dynamic, Int as ZInt, String as ZStr};
+use z3::ast::{Seq, Array, Bool, Dynamic, Int as ZInt, String as ZStr};
 use z3::Model;
 
 use crate::infer::{callees, fails, ledger_writes, lifted, names, relevant_states, state_writes, uses, writes, ANY_ACCOUNT};
@@ -119,6 +119,8 @@ enum SV {
     B(Bool),
     /// a Text
     S(ZStr),
+    /// a List (a sequence of Int)
+    Q(Seq),
     Ev(String, Vec<SV>),
     Unit,
 }
@@ -142,12 +144,19 @@ impl SV {
             other => panic!("prover: expected a Text term, got {other:?}"),
         }
     }
+    fn q(&self) -> &Seq {
+        match self {
+            SV::Q(x) => x,
+            other => panic!("prover: expected a List term, got {other:?}"),
+        }
+    }
     /// As a function argument, whatever its sort.
     fn dynamic(&self) -> Dynamic {
         match self {
             SV::I(x) => Dynamic::from(x.clone()),
             SV::B(x) => Dynamic::from(x.clone()),
             SV::S(x) => Dynamic::from(x.clone()),
+            SV::Q(x) => Dynamic::from(x.clone()),
             other => panic!("prover: {other:?} is not a value"),
         }
     }
@@ -203,6 +212,7 @@ fn ev_eq(x: &SV, y: &SV) -> Bool {
         (SV::I(a), SV::I(b)) => zz::eq_int(a, b),
         (SV::B(a), SV::B(b)) => zz::eq_bool(a, b),
         (SV::S(a), SV::S(b)) => zz::eq_text(a, b),
+        (SV::Q(a), SV::Q(b)) => zz::eq_list(a, b),
         _ => panic!("prover: can't compare {x:?} and {y:?}"),
     }
 }
@@ -312,6 +322,12 @@ pub struct Prover<'m> {
     text_params: IndexMap<String, ZStr>,
     /// the Account parameters of the definition being proved (never `none`)
     acct_params: BTreeSet<String>,
+    /// List parameters (a model gives them as sequences)
+    list_params: IndexMap<String, Seq>,
+    /// the `for j …` / `sum j …` ranges being evaluated, innermost last: a goal raised inside holds for each j
+    ranges: Vec<(ZInt, ZInt, ZInt)>,
+    /// > 0 while a sum's recursive function is built: no goals then
+    quiet: u32,
     /// while its body runs: the definition being proved and its measure at its own parameters (`decreases`)
     measuring: Option<(String, Option<ZInt>)>,
     /// scoring a mutant: how many more solver calls may come back unknown before the proof stops (each one spends
@@ -319,6 +335,14 @@ pub struct Prover<'m> {
     unknowns_left: Option<u32>,
     /// the body called itself (directly): its proofs used its own spec, licensed only by its measure
     self_called: bool,
+}
+
+/// Whether evaluating `e` can raise a call-site goal: an `at`, or (in a module with Account-valued states) any call.
+/// Coarse, and false for every module without lists or such states, so their proofs are as before.
+fn raises_goals(defs: &Module, e: &Expr) -> bool {
+    crate::infer::walk(e)
+        .iter()
+        .any(|n| matches!(n, Expr::App(h, _, _) if h == "at" || !defs.account_states.is_empty()))
 }
 
 /// `none` (an unset entry of an Account-valued state) in the prover, where accounts are Ints; every Account
@@ -427,8 +451,7 @@ fn state_args(s: &Sym) -> Vec<Dynamic> {
 
 /// Whether a state map's array holds Text.
 fn is_text_array(a: &Array) -> bool {
-    use z3::ast::Ast;
-    a.get_sort().array_range().is_some_and(|r| r.kind() == z3::SortKind::Seq)
+    zz::holds_text(a)
 }
 
 /// A state of fresh constants named after `p`, with `s`'s maps.
@@ -439,7 +462,7 @@ fn formal_state(s: &Sym, p: &str) -> Sym {
         total: zz::int(&format!("{p}_total")),
         audit: vec![],
         now: zz::int(&format!("{p}_now")),
-        maps: s.maps.iter().map(|(x, a)| (x.clone(), zz::map_array(&format!("{p}_map_{x}"), is_text_array(a)))).collect(),
+        maps: s.maps.iter().map(|(x, a)| (x.clone(), zz::array_like(&format!("{p}_map_{x}"), a))).collect(),
         out: IndexMap::new(),
     }
 }
@@ -469,6 +492,9 @@ impl<'m> Prover<'m> {
             sums: IndexMap::new(),
             text_params: IndexMap::new(),
             acct_params: BTreeSet::new(),
+            list_params: IndexMap::new(),
+            ranges: vec![],
+            quiet: 0,
             measuring: None,
             unknowns_left: None,
             self_called: false,
@@ -500,7 +526,10 @@ impl<'m> Prover<'m> {
                     }
                 }
                 let j = zz::int(&format!("{}_{}", v, fresh()));
+                // a goal raised inside (an `at`) holds for every j in the range
+                self.ranges.push((j.clone(), lo.i().clone(), hi.i().clone()));
                 let inner = self.sev(body, &env_with(env, v, SV::I(j.clone())), cur, post);
+                self.ranges.pop();
                 let range = zz::and(&[zz::le(lo.i(), &j), zz::lt(&j, hi.i())]);
                 SV::B(zz::forall(&[&j], &zz::implies(&range, inner.b())))
             }
@@ -521,11 +550,33 @@ impl<'m> Prover<'m> {
             Expr::Sum(j, a, b, body, cond) => {
                 let lo = self.sev(a, env, cur, post).i().clone();
                 let hi = self.sev(b, env, cur, post).i().clone();
-                SV::I(self.sum_term(j, body, cond.as_deref(), env, cur, post, &lo, &hi))
+                // the recursive function is built over formal constants: no goal can be stated there ...
+                self.quiet += 1;
+                let t = self.sum_term(j, body, cond.as_deref(), env, cur, post, &lo, &hi);
+                self.quiet -= 1;
+                // ... so a body that raises one (an `at`) is gone over again for every j in the range
+                if [&**body].into_iter().chain(cond.as_deref()).any(|e| raises_goals(self.defs, e)) {
+                    let jv = zz::int(&format!("{}_{}", j, fresh()));
+                    self.ranges.push((jv.clone(), lo.clone(), hi.clone()));
+                    let e2 = env_with(env, j, SV::I(jv));
+                    if let Some(c) = cond {
+                        self.sev(c, &e2, cur, post);
+                    }
+                    self.sev(body, &e2, cur, post);
+                    self.ranges.pop();
+                }
+                SV::I(t)
             }
             Expr::Bin(op, l, r) => {
                 let l = self.sev(l, env, cur, post);
                 let r = self.sev(r, env, cur, post);
+                if let (SV::Q(a), SV::Q(b)) = (&l, &r) {
+                    match *op {
+                        "=" => return SV::B(zz::eq_list(a, b)),
+                        "!=" => return SV::B(zz::not(&zz::eq_list(a, b))),
+                        other => panic!("prover: {other} on List"),
+                    }
+                }
                 if let (SV::S(a), SV::S(b)) = (&l, &r) {
                     match *op {
                         "+" => return SV::S(zz::text_join(a, b)),
@@ -564,6 +615,9 @@ impl<'m> Prover<'m> {
                 if n == crate::run::NONE {
                     return SV::I(zz::val(NONE_ID));
                 }
+                if n == "[]" {
+                    return SV::Q(zz::list_empty());
+                }
                 if let Some(v) = self.field_of(env, n) {
                     return v;
                 }
@@ -573,6 +627,13 @@ impl<'m> Prover<'m> {
             Expr::App(name, primed, args) => {
                 let vals: Vec<SV> = args.iter().map(|a| self.sev(a, env, cur, post)).collect();
                 self.accounts_used(name, args, &vals);
+                if name == "at" {
+                    // outside the list the interpreter stops: a call-site goal, the index in [0, length)
+                    let (xs, i) = (vals[0].q(), vals[1].i());
+                    let inside = zz::and(&[zz::ge(i, &zz::val(0)), zz::lt(i, &zz::list_len(xs))]);
+                    let text = format!("{} is inside the list (0 <= index < length)", code(e));
+                    self.call_site_goal("at", inside, &text);
+                }
                 let s = if *primed { post.expect("a primed read needs a post-state") } else { cur };
                 self.scall_read(name, vals, s)
             }
@@ -614,6 +675,7 @@ impl<'m> Prover<'m> {
                     let f = match &env[v] {
                         SV::B(_) => SV::B(Bool::new_const(name)),
                         SV::S(_) => SV::S(zz::text_const(&name)),
+                        SV::Q(_) => SV::Q(zz::list_const(&name)),
                         _ => SV::I(zz::int(&name)),
                     };
                     (v.clone(), f)
@@ -693,6 +755,31 @@ impl<'m> Prover<'m> {
         self.scall_write(name, vals, s)
     }
 
+    /// A goal at this point of the path (its premise: the path so far), assumed afterwards: one per text, a case per
+    /// place it is reached.
+    fn call_site_goal(&mut self, site: &str, c: Bool, text: &str) {
+        if self.quiet > 0 {
+            return;
+        }
+        let mut c = c;
+        for (j, lo, hi) in self.ranges.iter().rev() {
+            let inside = zz::and(&[zz::le(lo, j), zz::lt(j, hi)]);
+            c = zz::forall(&[j], &zz::implies(&inside, &c));
+        }
+        let premise = snapshot(&self.pc);
+        let case = Case { goal: c.clone(), pc: premise, draws: None };
+        match self.loop_goals.iter_mut().find(|g| g.kind == "pre" && g.text == text) {
+            Some(g) => g.cases.push(case),
+            None => self.loop_goals.push(Goal {
+                kind: "pre".into(),
+                expr: GoalExpr::Pre(site.to_string(), Expr::Name(text.to_string(), false)),
+                text: text.to_string(),
+                cases: vec![case],
+            }),
+        }
+        self.pc.borrow_mut().push(c);
+    }
+
     /// In a module with Account-valued states, each Account a call uses as an account (a ledger op, an
     /// Account-keyed state, an Account parameter) that isn't one of this definition's parameters is a call-site
     /// goal: it isn't `none`, which the interpreter refuses to use (DECISIONS.md, Accounts as state values).
@@ -714,22 +801,9 @@ impl<'m> Prover<'m> {
             if matches!(a, Expr::Name(p, false) if self.acct_params.contains(p)) {
                 continue;
             }
-            let cond = Expr::Bin("!=", Box::new(a.clone()), Box::new(Expr::Name(crate::run::NONE.into(), false)));
             let c = zz::ne_int(v, &zz::val(NONE_ID));
-            let premise = snapshot(&self.pc);
             let text = format!("{} is an account, not none (where it is used as one)", code(a));
-            let case = Case { goal: c.clone(), pc: premise, draws: None };
-            // one goal per account expression, every place it is used a case
-            match self.loop_goals.iter_mut().find(|g| g.kind == "pre" && g.text == text) {
-                Some(g) => g.cases.push(case),
-                None => self.loop_goals.push(Goal {
-                    kind: "pre".into(),
-                    expr: GoalExpr::Pre(name.to_string(), cond.clone()),
-                    text,
-                    cases: vec![case],
-                }),
-            }
-            self.pc.borrow_mut().push(c);
+            self.call_site_goal(name, c, &text);
         }
     }
 
@@ -772,7 +846,14 @@ impl<'m> Prover<'m> {
             "ledger.owner" => return SV::I(zz::select(&s.own, a[0].i())),
             "ledger.total" => return SV::I(s.total.clone()),
             "clock.now" => return SV::I(s.now.clone()),
-            "length" => return SV::I(zz::text_len(a[0].s())),
+            "length" => {
+                return SV::I(match &a[0] {
+                    SV::Q(xs) => zz::list_len(xs),
+                    t => zz::text_len(t.s()),
+                })
+            }
+            "append" => return SV::Q(zz::list_append(a[0].q(), a[1].i())),
+            "at" => return SV::I(zz::list_at(a[0].q(), a[1].i())),
             _ => {}
         }
         if let Some(h) = assumed_op(self.defs, name) {
@@ -782,6 +863,9 @@ impl<'m> Prover<'m> {
             assert_eq!(op, "get", "prover: a state write in an expression");
             if is_text_array(&s.maps[x]) {
                 return SV::S(zz::select_text(&s.maps[x], a[0].i()));
+            }
+            if zz::holds_list(&s.maps[x]) {
+                return SV::Q(zz::select_list(&s.maps[x], a[0].i()));
             }
             return SV::I(zz::select(&s.maps[x], a[0].i()));
         }
@@ -833,6 +917,7 @@ impl<'m> Prover<'m> {
         if let Some((x, "set", _)) = state_op(self.defs, name) {
             let m = match &a[1] {
                 SV::S(t) => zz::store_text(&s.maps[x], a[0].i(), t),
+                SV::Q(xs) => s.maps[x].store(a[0].i(), xs),
                 v => zz::store(&s.maps[x], a[0].i(), v.i()),
             };
             s.maps.insert(x.to_string(), m);
@@ -916,8 +1001,8 @@ impl<'m> Prover<'m> {
         sw.sort();
         for (x, ps) in sw {
             if ps.contains(ANY_ACCOUNT) {
-                let text = is_text_array(&s.maps[&x]);
-                s.maps.insert(x.clone(), zz::map_array(&format!("{}{}", x, fresh()), text));
+                let fresh_map = zz::array_like(&format!("{}{}", x, fresh()), &s.maps[&x]);
+                s.maps.insert(x.clone(), fresh_map);
                 continue;
             }
             for p in &ps {
@@ -935,7 +1020,7 @@ impl<'m> Prover<'m> {
                     let (lo, hi) = (bound(lo_s), bound(hi_s));
                     let old = s.maps[&x].clone();
                     let j = zz::int(&format!("j_{}", fresh()));
-                    let new = zz::map_array(&format!("{}_call{}", x, fresh()), is_text_array(&old));
+                    let new = zz::array_like(&format!("{}_call{}", x, fresh()), &old);
                     s.maps.insert(x.clone(), new.clone());
                     let outside = zz::or(&[zz::lt(&j, &lo), zz::ge(&j, &hi)]);
                     let same = zz::same_at(&new, &old, &j);
@@ -950,6 +1035,9 @@ impl<'m> Prover<'m> {
                 let m = if is_text_array(&s.maps[&x]) {
                     let v = zz::text_const(&format!("{x}_{p}_{}", fresh()));
                     zz::store_text(&s.maps[&x], env[p.as_str()].i(), &v)
+                } else if zz::holds_list(&s.maps[&x]) {
+                    let v = zz::list_const(&format!("{x}_{p}_{}", fresh()));
+                    s.maps[&x].store(env[p.as_str()].i(), &v)
                 } else {
                     let v = fresh_int(&format!("{x}_{p}_"));
                     zz::store(&s.maps[&x], env[p.as_str()].i(), &v)
@@ -1405,7 +1493,7 @@ impl<'m> Prover<'m> {
         let mut xs: BTreeSet<String> = ranged.keys().cloned().collect();
         xs.extend(full.iter().cloned());
         for x in &xs {
-            let arr = zz::map_array(&format!("{}_loop{}", x, fresh()), is_text_array(&s.maps[x.as_str()]));
+            let arr = zz::array_like(&format!("{}_loop{}", x, fresh()), &s.maps[x.as_str()]);
             h.maps.insert(x.clone(), arr.clone());
             if let Some(c) = ranged.get(x) {
                 let j = zz::int(&format!("j_{}", fresh()));
@@ -1587,19 +1675,36 @@ impl<'m> Prover<'m> {
             .defs
             .states
             .keys()
-            .map(|x| (x.clone(), zz::map_array(&format!("map_{x}"), self.defs.text_states.contains(x))))
+            .map(|x| {
+                let name = format!("map_{x}");
+                let arr = if self.defs.list_states.contains(x) {
+                    zz::list_array(&name)
+                } else {
+                    zz::map_array(&name, self.defs.text_states.contains(x))
+                };
+                (x.clone(), arr)
+            })
             .collect();
         let pre = Sym { bal, own, total, audit: vec![], now: zz::int("now"), maps, out: IndexMap::new() };
         let env: Env = d
             .params
             .iter()
-            .map(|(p, t)| (p.clone(), if t == "Text" { SV::S(zz::text_const(p)) } else { SV::I(zz::int(p)) }))
+            .map(|(p, t)| {
+                let v = match t.as_str() {
+                    "Text" => SV::S(zz::text_const(p)),
+                    "List" => SV::Q(zz::list_const(p)),
+                    _ => SV::I(zz::int(p)),
+                };
+                (p.clone(), v)
+            })
             .collect();
         // Int and Account parameters; Text ones are kept apart (a model gives them as strings)
         let params: IndexMap<String, ZInt> =
             env.iter().filter_map(|(p, v)| if let SV::I(x) = v { Some((p.clone(), x.clone())) } else { None }).collect();
         self.text_params =
             env.iter().filter_map(|(p, v)| if let SV::S(x) = v { Some((p.clone(), x.clone())) } else { None }).collect();
+        self.list_params =
+            env.iter().filter_map(|(p, v)| if let SV::Q(x) = v { Some((p.clone(), x.clone())) } else { None }).collect();
         let mut start = Path {
             pc: shared(vec![]),
             s: pre.clone(),
@@ -1820,6 +1925,11 @@ impl<'m> Prover<'m> {
             nice.assert(&zz::ge_n(&pre.now, 0));
             nice.assert(&zz::le_n(&pre.now, 1000));
             for (p, t) in &d.params {
+                if t == "List" {
+                    // a short list reads best
+                    nice.assert(&zz::le_n(&zz::list_len(&self.list_params[p.as_str()]), 4));
+                    continue;
+                }
                 if t == "Text" {
                     continue;
                 }
@@ -1838,7 +1948,7 @@ impl<'m> Prover<'m> {
                     nice.assert(&zz::le_n(&zz::select(&pre.own, v), 1));
                 }
                 for (x, arr) in &pre.maps {
-                    if self.defs.states[x.as_str()] == *t && !is_text_array(arr) {
+                    if self.defs.states[x.as_str()] == *t && !is_text_array(arr) && !zz::holds_list(arr) {
                         nice.assert(&zz::ge_n(&zz::select(arr, v), 0));
                         nice.assert(&zz::le_n(&zz::select(arr, v), 1000));
                     }
@@ -1929,7 +2039,7 @@ impl<'m> Prover<'m> {
                 } else {
                     opt.maximize(&b);
                 }
-            } else if t != "Text" {
+            } else if t != "Text" && t != "List" {
                 opt.minimize(&params[p.as_str()]);
             }
         }
@@ -1980,6 +2090,11 @@ impl<'m> Prover<'m> {
                 args.push(Value::Str(zz::text_value(m, &self.text_params[p.as_str()]).unwrap_or_default()));
                 continue;
             }
+            if t == "List" {
+                let xs = zz::list_value(m, &self.list_params[p.as_str()], 50).unwrap_or_default();
+                args.push(Value::Ctor(crate::run::LIST.into(), xs.into_iter().map(Value::Int).collect()));
+                continue;
+            }
             let v = long(&params[p.as_str()]);
             if t == "Account" {
                 if !letters.contains_key(&v) {
@@ -2001,12 +2116,25 @@ impl<'m> Prover<'m> {
         let mut keys: Vec<(String, Key)> = vec![];
         let mut texts: crate::syntax::Texts = IndexMap::new();
         let mut text_keys: Vec<(String, Key)> = vec![];
+        let mut list_maps: IndexMap<String, IndexMap<Key, Vec<Int>>> = IndexMap::new();
         // an invariant may read states the definition never touches (`hold <= cap + 100`): show them all then
         let shown = if kind == "invariant" { self.defs.states.clone() } else { relevant_states(self.defs, d) };
         for (x, arr) in &pre.maps {
             // an Account-valued state: every entry shown (0 is an account there, an unset entry is none)
             let acct_state = self.defs.account_states.contains(x);
             if !shown.contains_key(x) {
+                continue;
+            }
+            if zz::holds_list(arr) {
+                // a List state: its entries at the parameters' keys
+                let st = &self.defs.states[x.as_str()];
+                for (p, t) in d.params.iter().filter(|(_, t)| t == st) {
+                    let zk = long(&params[p.as_str()]);
+                    let key = if t == "Account" { Key::Str(letters[&zk].clone()) } else { Key::Int(zk) };
+                    if let Some(xs) = zz::list_value(m, &zz::select_list(arr, &params[p.as_str()]), 50).filter(|xs| !xs.is_empty()) {
+                        list_maps.entry(x.clone()).or_default().insert(key, xs.into_iter().map(|v| v as Int).collect());
+                    }
+                }
                 continue;
             }
             if is_text_array(arr) {
@@ -2127,12 +2255,19 @@ impl<'m> Prover<'m> {
             }
         }
         // a Text argument is quoted (an account name isn't): the line must parse back to the same call
+        let list_text = |xs: &[Int]| format!("[{}]", xs.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(" "));
+        for (x, kv) in &list_maps {
+            for (k, xs) in kv {
+                world_src += &format!(" {}.{}:{}", x, key_text(k), list_text(xs));
+            }
+        }
         let shown_args = args.iter().zip(&d.params).map(|(a, (_, t))| match a {
             Value::Str(v) if t == "Text" => crate::syntax::quote(v),
+            Value::Ctor(_, xs) if t == "List" => list_text(&xs.iter().filter_map(Value::num).collect::<Vec<_>>()),
             a => a.str(),
         });
         let call = std::iter::once(d.name.clone()).chain(shown_args).collect::<Vec<_>>().join(" ");
-        let mut w = World::from_example(&world, now, &maps).with_texts(&texts);
+        let mut w = World::from_example(&world, now, &maps).with_texts(&texts).with_lists(&list_maps);
         let draws: VecDeque<Int> = self.replay_draws.iter().map(|(_, t)| long(t)).collect();
         let drawn: Vec<Int> = draws.iter().copied().collect();
         let queue = Rc::new(RefCell::new(draws));
@@ -2164,7 +2299,8 @@ impl<'m> Prover<'m> {
                     eg,
                     emitted: "nothing".into(),
                     // a measure that doesn't decrease: the replay recursing past the depth limit is the evidence
-                    confirmed_by_interpreter: (kind == "pre" && (e.contains("need of") || e.contains(crate::run::NONE_USED)))
+                    confirmed_by_interpreter: (kind == "pre"
+                        && (e.contains("need of") || e.contains(crate::run::NONE_USED) || e.contains(crate::run::AT_OUTSIDE)))
                         || (kind == "measure" && e.starts_with(crate::run::TOO_DEEP)),
                 };
             }

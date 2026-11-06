@@ -13,7 +13,7 @@ use crate::infer::{called_names, callees, calls_procedure, is_function, uses, wa
 use crate::run::{assumed_op, channel_op, is_handler, state_op};
 use crate::syntax::{code, Def, Emit, Expr, Module, Need, ParseError, Stmt};
 
-pub const PARAM_TYPES: [&str; 3] = ["Int", "Account", "Text"];
+pub const PARAM_TYPES: [&str; 4] = ["Int", "Account", "Text", "List"];
 const ANY: &str = "Any";
 
 /// handler -> (argument types, result type)
@@ -117,6 +117,9 @@ impl<'a> Checker<'a> {
                 // the Account an unset entry of an Account-valued state holds
                 if name == "none" && !scope.contains_key(name) {
                     return "Account".into();
+                }
+                if name == "[]" {
+                    return "List".into();
                 }
                 self.apply(name, *primed, &[], scope, place, spec, primed_ok)
             }
@@ -230,6 +233,8 @@ impl<'a> Checker<'a> {
                     "Text"
                 } else if defs.account_states.iter().any(|t| Some(t.as_str()) == x) {
                     "Account"
+                } else if defs.list_states.iter().any(|t| Some(t.as_str()) == x) {
+                    "List"
                 } else {
                     "Int"
                 };
@@ -259,8 +264,17 @@ impl<'a> Checker<'a> {
             return self.check_args(place, name, &want, &arg_types, if fn_ { "Int" } else { "Unit" });
         }
         if name == "length" {
-            // `length t`: the number of characters of a Text
-            return self.check_args(place, name, &["Text".to_string()], &arg_types, "Int");
+            // `length t`: the number of characters of a Text, or the number of elements of a List
+            let want = if arg_types.first().map(String::as_str) == Some("List") { "List" } else { "Text" };
+            return self.check_args(place, name, &[want.to_string()], &arg_types, "Int");
+        }
+        if name == "at" {
+            // `at xs i`: the i-th element, from 0 (a call-site goal says i is in range)
+            return self.check_args(place, name, &["List".to_string(), "Int".to_string()], &arg_types, "Int");
+        }
+        if name == "append" {
+            // `append xs v`: xs with v at the end
+            return self.check_args(place, name, &["List".to_string(), "Int".to_string()], &arg_types, "List");
         }
         if name == "distinct" {
             // `distinct a b c`: pairwise different
@@ -307,7 +321,7 @@ impl<'a> Checker<'a> {
         let mut params = Scope::new();
         for (p, t) in &d.params {
             if !PARAM_TYPES.contains(&t.as_str()) {
-                self.err("header", &format!("parameter type `{}` is not supported (Int, Account, Text)", t));
+                self.err("header", &format!("parameter type `{}` is not supported (Int, Account, Text, List)", t));
             }
             if params.contains_key(p) {
                 self.err("header", &format!("parameter `{}` appears twice", p));
@@ -357,8 +371,9 @@ impl<'a> Checker<'a> {
             let t = self.ty(c, &params, &place, true, false, false);
             self.expect(&place, &t, "Bool");
             for a in args {
-                if self.ty(a, &params, &place, true, false, false) == "Text" {
-                    self.err(&place, &format!("failure payload `{}` is Text; payloads are Int or Account", code(a)));
+                let t = self.ty(a, &params, &place, true, false, false);
+                if t == "Text" || t == "List" {
+                    self.err(&place, &format!("failure payload `{}` is {}; payloads are Int or Account", code(a), t));
                 }
             }
         }
@@ -537,8 +552,8 @@ impl<'a> Checker<'a> {
                         if t == "Unit" {
                             self.err(&place, &format!("failure payload `{}` has no value (Unit)", code(a)));
                         }
-                        if t == "Text" {
-                            self.err(&place, &format!("failure payload `{}` is Text; payloads are Int or Account", code(a)));
+                        if t == "Text" || t == "List" {
+                            self.err(&place, &format!("failure payload `{}` is {}; payloads are Int or Account", code(a), t));
                         }
                     }
                 }

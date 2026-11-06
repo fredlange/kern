@@ -192,7 +192,8 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   the right. Int is i64 at run time
   (host store, `kern build`); a literal, `const` or `eg` value outside i64 is a parse error (S20). The interpreter
   computes in i128 and the prover over unbounded integers, so an i64 overflow in the middle of a call is a run-time fault.
-- Types: `Int`, `Account`, `Text` and record parameters (plus internal Owner/Bool/Event/Unit). Text: literals,
+- Types: `Int`, `Account`, `Text`, `List` (of Ints: `[]`, `append`, `at` with an in-range goal per use, `length`;
+  Z3 sequences; not yet a result, record field or event argument) and records (plus internal Owner/Bool/Event/Unit). Text: literals,
   `=`/`!=`, `length`, `+` (join), `state NAME KEY -> Text` maps; Z3 strings in the prover; no substring, search,
   ordering or conversion yet, and no Text in refusal payloads. `-> Int` returns a value
   (set `result`; `eg … -> ok N` asserts it). A total, read-only one is a function: specs may call it (modularly:
@@ -263,7 +264,7 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
 - Packages (a proposal, roadmap run P): `import a.b` brings a module's names in unqualified; names are unique
   per package; `use ../other` in kern.pkg brings in a sibling package as `other.<module>` (S5; examples
   share examples/money). Missing for
-  ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): lists and decimals (open tasks). A collection
+  ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): decimals (an open task). A collection
   of accounts is an Int-indexed Account map iterated with `for`/`sum` (no loop over the world's accounts,
   DECISIONS 2026-11-06); "count = 0 means no element matches" is not provable yet (task FPCP2UCC36). Accounts as state values: `state member Int -> Account`, an unset entry is `none` (-1 in the
   prover, every Account parameter assumed another); each use of a non-parameter Account as an account is a

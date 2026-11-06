@@ -9,7 +9,7 @@
 
 use std::ffi::CString;
 
-use z3::ast::{Array, Ast, Bool, Dynamic, Int as ZInt, String as ZStr};
+use z3::ast::{Array, Ast, Bool, Dynamic, Int as ZInt, Seq, String as ZStr};
 use z3::{Context, FuncDecl, Model, Optimize, Params, RecFuncDecl, SatResult, Solver, Sort};
 
 /// Python's `RLIMIT` (kern/prove.py): Z3 steps per check.
@@ -98,6 +98,73 @@ pub fn map_array(name: &str, text: bool) -> Array {
     } else {
         array(name)
     }
+}
+
+// ---- lists: sequences of Int (DECISIONS.md, lists)
+
+pub fn list_sort() -> Sort {
+    Sort::seq(&Sort::int())
+}
+
+pub fn list_const(name: &str) -> Seq {
+    Seq::new_const(name, &Sort::int())
+}
+
+pub fn list_empty() -> Seq {
+    Seq::empty(&Sort::int())
+}
+
+pub fn list_len(xs: &Seq) -> ZInt {
+    xs.length()
+}
+
+pub fn list_at(xs: &Seq, i: &ZInt) -> ZInt {
+    xs.nth(i.clone()).as_int().expect("a list of Int")
+}
+
+pub fn list_append(xs: &Seq, v: &ZInt) -> Seq {
+    Seq::concat(&[xs, &Seq::unit(v)])
+}
+
+pub fn eq_list(a: &Seq, b: &Seq) -> Bool {
+    a.eq(b)
+}
+
+/// An array from keys to lists (a `state NAME KEY -> List`).
+pub fn list_array(name: &str) -> Array {
+    Array::new_const(name, &Sort::int(), &list_sort())
+}
+
+pub fn select_list(a: &Array, i: &ZInt) -> Seq {
+    a.select(i).as_seq().expect("an Int -> List array")
+}
+
+/// Whether an array holds Text (the string sort; a list is a sequence of Int, not of characters).
+pub fn holds_text(a: &Array) -> bool {
+    a.get_sort().array_range().is_some_and(|r| r == Sort::string())
+}
+
+pub fn holds_list(a: &Array) -> bool {
+    a.get_sort().array_range().is_some_and(|r| r == list_sort())
+}
+
+/// A fresh array with `a`'s sorts.
+pub fn array_like(name: &str, a: &Array) -> Array {
+    Array::new_const(name, &Sort::int(), &a.get_sort().array_range().expect("an array"))
+}
+
+/// A fresh value of the sort `a` holds.
+pub fn value_like(name: &str, a: &Array) -> Dynamic {
+    Dynamic::new_const(name, &a.get_sort().array_range().expect("an array"))
+}
+
+/// A list's Ints in a model (None if its length isn't a numeral, or it is longer than `limit`).
+pub fn list_value(m: &Model, xs: &Seq, limit: i128) -> Option<Vec<i128>> {
+    let n = eval_long(m, &xs.length())?;
+    if !(0..=limit).contains(&n) {
+        return None;
+    }
+    (0..n).map(|i| eval_long(m, &list_at(xs, &val(i)))).collect()
 }
 
 pub fn select_text(a: &Array, i: &ZInt) -> ZStr {

@@ -31,12 +31,6 @@ fn crash(e: RunError) -> Crash {
     }
 }
 
-fn key_value(k: &Key) -> Value {
-    match k {
-        Key::Int(n) => Value::Int(*n),
-        Key::Str(s) => Value::Str(s.clone()),
-    }
-}
 
 fn key_text(k: &Key) -> String {
     match k {
@@ -51,8 +45,8 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
     let mut interp = Interp::new(defs);
     let mut out = vec![];
     for ex in &d.examples {
-        let mut w = World::from_example(&ex.world, ex.now, &ex.maps).with_texts(&ex.texts);
-        let args: Vec<Value> = ex.call.1.iter().map(key_value).collect();
+        let mut w = World::of_example(ex);
+        let args: Vec<Value> = crate::run::example_args(ex);
         let res = interp.run(&ex.call.0, &args, &mut w);
         let outcome = match res {
             Ok(o) => o,
@@ -105,7 +99,8 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
         }
         ok = ok
             && ex.after_maps.iter().all(|(x, kv)| kv.iter().all(|(k, v)| w.maps.get(x).and_then(|m| m.get(k)).copied().unwrap_or(0) == *v))
-            && ex.after_texts.iter().all(|(x, kv)| kv.iter().all(|(k, v)| text_or_account(defs, &w, x, k) == *v));
+            && ex.after_texts.iter().all(|(x, kv)| kv.iter().all(|(k, v)| text_or_account(defs, &w, x, k) == *v))
+            && ex.after_lists.iter().all(|(x, kv)| kv.iter().all(|(k, v)| w.lists.get(x).and_then(|m| m.get(k)).cloned().unwrap_or_default() == *v));
         // the events section: the exact sequence on audit, and on each channel it names
         if ok {
             if let Some(evs) = &ex.events {
@@ -221,6 +216,11 @@ fn rand_args(d: &Def, accts: &[&str], rnd: &mut Random) -> Vec<Value> {
             args.push(Value::Str(rnd.choice(accts).to_string()));
         } else if t == "Text" {
             args.push(Value::Str(rnd.choice(&TEXT_POOL).to_string()));
+        } else if t == "List" {
+            // 0 to 4 small Ints
+            let n = rnd.randint(0, 4);
+            let xs: Vec<Value> = (0..n).map(|_| Value::Int(rnd.randint(-3, 20) as Int)).collect();
+            args.push(Value::Ctor(crate::run::LIST.into(), xs));
         } else {
             let opts = [rnd.randint(-5, 5), rnd.randint(0, 200), rnd.randint(0, 1200)];
             args.push(Value::Int(*rnd.choice(&opts) as Int));
@@ -288,6 +288,12 @@ pub fn proptest(defs: &Module, d: &Def, n: u64, seed: i128) -> Result<Props, Cra
             if defs.text_states.contains(x) {
                 let m: IndexMap<Key, String> = keys.into_iter().map(|k| (k, r.choice(&TEXT_POOL).to_string())).collect();
                 w.texts.insert(x.clone(), m);
+                continue;
+            }
+            if defs.list_states.contains(x) {
+                let m: IndexMap<Key, Vec<Int>> =
+                    keys.into_iter().map(|k| (k, (0..r.randint(0, 3)).map(|_| r.randint(-3, 20) as Int).collect())).collect();
+                w.lists.insert(x.clone(), m);
                 continue;
             }
             if defs.account_states.contains(x) {

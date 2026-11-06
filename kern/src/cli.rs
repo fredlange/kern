@@ -173,6 +173,11 @@ pub fn run_line(outcome: &Outcome, after: &World) -> String {
         let texts = dict_repr(after.texts.iter(), |x| repr_str(x), |kv| dict_repr(kv.iter(), |k| key_repr(k), |v| repr_str(v)));
         line.push_str(&format!(" text: {}", texts));
     }
+    if !after.lists.is_empty() {
+        let list = |xs: &&Vec<crate::Int>| format!("[{}]", xs.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", "));
+        let lists = dict_repr(after.lists.iter(), |x| repr_str(x), |kv| dict_repr(kv.iter(), |k| key_repr(k), list));
+        line.push_str(&format!(" list: {}", lists));
+    }
     line
 }
 
@@ -251,12 +256,12 @@ pub fn main_with(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
             };
             let call = a.name.clone().unwrap_or_default();
             // Text in the call or the world: parse both as an `eg` line does (quote-aware)
-            let (mut world, name, args): (World, String, Vec<Value>) = if call.contains('"') || world.contains('"') || !defs.account_states.is_empty() {
+            let (mut world, name, args): (World, String, Vec<Value>) = if call.contains('"') || world.contains('"') || call.contains('[') || world.contains('[') || !defs.account_states.is_empty() {
                 match crate::syntax::parse_call(world, &call) {
                     Ok(ex) => (
-                        World::from_example(&ex.world, ex.now, &ex.maps).with_texts(&ex.texts),
+                        World::of_example(&ex),
                         ex.call.0.clone(),
-                        ex.call.1.iter().map(key_value).collect(),
+                        crate::run::example_args(&ex),
                     ),
                     Err(e) => {
                         let _ = writeln!(err, "error: {}", e);
@@ -430,9 +435,3 @@ pub fn main(argv: &[String]) -> i32 {
     main_with(argv, &mut out, &mut err)
 }
 
-fn key_value(k: &Key) -> Value {
-    match k {
-        Key::Int(n) => Value::Int(*n),
-        Key::Str(s) => Value::Str(s.clone()),
-    }
-}

@@ -12,7 +12,7 @@ body
   STATEMENTS                     how; callers never read this
 ```
 
-- **Parameter types:** `Int`, `Account`, `Text` and declared records. A record parameter `p:Point` is read by field,
+- **Parameter types:** `Int`, `Account`, `Text`, `List` (of Ints) and declared records. A record parameter `p:Point` is read by field,
   `p.x`, or passed whole to a definition taking a Point (`move p`); build one, `Point a b`, where a whole one
   goes: a call argument `move (Point a b)`, `q = Point a b`, `result = …`, either side of `=`, `order.set k …`. In `eg` lines its fields are separate arguments, in order. A field may be a record
   (`record Line a:Point b:Point`): read `l.a.x`, pass `l.a` as a Point. `p = q` and `p != q` compare every field.
@@ -44,6 +44,8 @@ body
   variables is allowed, but the prover may give no answer (`?`) where it is nonlinear.
 - **Comparisons:** `= != < <= > >=` (Text: only `=` and `!=`).
 - **Text:** `length t` is its number of characters; `a + b` joins two Texts.
+- **List:** `[]`, `append xs v`, `at xs i` (from 0; each `at` is a goal that i is inside), `length xs`, `=`.
+  Walk one with `for i from 0 to (length xs)` or `sum i from 0 to (length xs) of at xs i`.
 - **Logic:** `and` binds tighter than `or`; `distinct a b c`.
 - **Sums:** `sum j from A to B of E [where C]` adds E for each j in [A, B) where C holds (bounds are
   atoms; E can't call definitions; no sum inside a sum). E runs to the next comparison; `where C` runs to the
@@ -66,6 +68,7 @@ body
 |---|---|
 | `state NAME Int` or `state NAME Account` | a map to Int (default 0): `NAME.get k` (specs may read it), `NAME.set k v` |
 | `state NAME Int -> Text` (or `Account -> Text`) | a map to Text (default `""`) |
+| `state NAME Int -> List` | a map to Lists (default `[]`) |
 | `state NAME Int -> Account` | a map to Accounts; an unset entry is `none` (`= none`, `!= none`, `NAME.set k none`). Using `none` as an account is an error the prover rules out (a goal at each use) |
 | `state NAME Int -> R` (R a record of Int and Text fields) | one map per field, `NAME.f`: `NAME.f.get k`, `NAME.f.set k v`. Whole: `NAME.get k` where an R goes (an argument, `=`), `NAME.set k r` (a statement), `keep NAME`; a record field likewise (`seg.b.get k`), and `keep NAME.f` frames one field |
 | `invariant x:Type COND` | COND holds for every key, before and after every call. It may read state only at `x` |
@@ -107,7 +110,7 @@ A refusal undoes the whole call, so guarantees only have to hold on success. Eff
 
 - **WORLD:** `A:500@u1` (account, balance, owner), `now:5`, and state such as `hold.7:100`,
   `limit.A:300`, `title.1:"a b"`, `member.4:M` (or `member.4:none`) or a stored record's field, `order.qty.7:2`.
-- **ARGS:** integers, account names and Text literals.
+- **ARGS:** integers, account names, Text literals and lists `[1 2 3]` (also in worlds: `cart.4:[1 2]`).
 - **OUTCOME:** `ok`, `ok N …` (also asserts the returned value; a record's Int fields in order), or `Ctor ints`
   (for example `Insufficient 50`).
 - **AFTER:** only the items listed are compared, such as `A:400 hold.7:0`.

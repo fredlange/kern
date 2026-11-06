@@ -446,6 +446,81 @@ body
     assert!(all.iter().all(|g| g.status == Status::Proven || (g.kind == "ok" && g.status == Status::Unknown)), "{all:?}");
 }
 
+#[test]
+fn s5_lists_check() {
+    // closed (S5, lists, DECISIONS.md 2026-11-06): `List` of Ints as a parameter, a local and a state value;
+    // `[]`, `append xs v`, `at xs i`, `length xs`, `=`; totals with `sum`; `eg` lists `[1 2 3]`
+    must_check("gap S5 lists", "state cart Int -> List
+state paid Int
+
+total xs:List -> Int
+  ensure result = sum i from 0 to (length xs) of at xs i
+  eg | total [1 2 3] -> ok 6
+body
+  result = sum i from 0 to (length xs) of at xs i
+
+first xs:List -> Int
+  need length xs > 0 else Empty
+  ok otherwise
+  ensure result = at xs 0
+  eg | first [4 5] -> ok 4
+  eg | first [] -> Empty
+body
+  result = at xs 0
+
+add k:Int item:Int
+  need item > 0 else BadItem
+  ok otherwise
+  ensure cart.get' k = append (cart.get k) item
+  ensure length (cart.get' k) = length (cart.get k) + 1
+  eg cart.4:[7] | add 4 2 -> ok | cart.4:[7 2]
+body
+  cart.set k (append (cart.get k) item)
+
+clear k:Int
+  ok otherwise
+  ensure cart.get' k = []
+body
+  cart.set k []
+
+checkout k:Int
+  need length (cart.get k) > 0 else EmptyCart
+  ok otherwise
+  ensure paid.get' k = sum i from 0 to (length (cart.get k)) of at (cart.get k) i
+  ensure cart.get' k = []
+body
+  paid.set k (sum i from 0 to (length (cart.get k)) of at (cart.get k) i)
+  cart.set k []
+
+last_of xs:List v:Int -> Int
+  ensure result = v
+  ensure length (append xs v) = length xs + 1
+body
+  ys = append xs v
+  result = at ys (length xs)
+");
+}
+
+#[test]
+fn s5_reading_a_list_outside_it_is_refuted_with_a_run_that_replays() {
+    use kern::report::Status;
+    let reps = reports(&parse("last xs:List -> Int\nbody\n  result = at xs (length xs)\n"));
+    let g = reps["last"].guarantees.iter().find(|g| g.kind == "pre").unwrap();
+    assert_eq!(g.status, Status::Refuted);
+    let cex = g.counterexample.as_ref().unwrap();
+    assert!(cex.confirmed_by_interpreter && cex.eg.contains("last []"), "{}", cex.eg);
+    // inside a sum the goal holds for every index of the range
+    let reps = reports(&parse("total xs:List -> Int\nbody\n  result = sum i from 0 to (length xs) of at xs i\n"));
+    assert!(reps["total"].clean, "{:?}", reps["total"].guarantees);
+    let reps = reports(&parse("over xs:List -> Int\nbody\n  result = sum i from 0 to (length xs + 1) of at xs i\n"));
+    let g = reps["over"].guarantees.iter().find(|g| g.kind == "pre").unwrap();
+    assert_eq!(g.status, Status::Refuted, "{g:?}");
+    // a list isn't a failure payload; `List` isn't a record name
+    let e = analyse(&parse("f xs:List\n  need length xs > 0 else Empty xs\nbody\n  need 1 = 1 else No\n"), false, None, None).unwrap_err();
+    assert!(e.message().contains("payloads are Int or Account"), "{}", e.message());
+    assert!(parse_module("record List a:Int\n", true).unwrap_err().0.contains("built-in type"));
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int

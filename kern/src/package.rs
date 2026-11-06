@@ -340,6 +340,7 @@ pub fn load(path: &str, overrides: &IndexMap<String, String>) -> Result<Module, 
         merged.states.extend(defs.states.iter().map(|(a, b)| (a.clone(), b.clone())));
         merged.record_states.extend(defs.record_states.iter().map(|(a, b)| (a.clone(), b.clone())));
         merged.account_states.extend(defs.account_states.iter().cloned());
+        merged.list_states.extend(defs.list_states.iter().cloned());
         merged.channels.extend(defs.channels.iter().cloned());
         merged.invariants.extend(defs.invariants.iter().cloned());
         for d in defs.defs.values_mut().chain(defs.handlers.values_mut()) {
