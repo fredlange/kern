@@ -70,18 +70,20 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 0/0 deliberate bugs (100%)</span></h3><p>Caught by the prover: 0; by random tests checking the guarantees: 0. The examples alone catch 0/0; everything together 0/0.</p>
 </section>
-<section class="card"><header><h2><code>cart_value</code><span class="muted"> in cart</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build dd657b28</span></header>
+<section class="card"><header><h2><code>cart_value</code><span class="muted"> in cart</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 514f9461</span></header>
 <h3>Can touch</h3><p>state <code>cart</code> (read only), state <code>price</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
 <h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div><code>result</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result &gt;= 0</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div><em>when</em> <code>length cart of <code>c</code> <em>before</em></code> = 0: <code>result</code> = 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result = 0 when length (cart.get c) = 0</code></div></div></li>
 <li class='proven'><span class='ic'>✔</span><div><div>None</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>pre at (cart.get c) i is inside the list (0 &lt;= index &lt; length)</code></div></div></li>
 </ul>
-<h3>Examples <span class='muted'>2/2 pass, executed against build dd657b28</span></h3><ul class='ex'>
+<h3>Examples <span class='muted'>2/2 pass, executed against build 514f9461</span></h3><ul class='ex'>
 <li><code>cart.2:[] | cart_value 2 -&gt; ok</code> <span class='okc'>✔</span></li>
 <li><code>price.3:100 price.4:50 cart.1:[3 4 3] | cart_value 1 -&gt; ok</code> <span class='okc'>✔</span></li>
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 0/0 deliberate bugs (100%)</span></h3><p>Caught by the prover: 0; by random tests checking the guarantees: 0. The examples alone catch 0/0; everything together 0/0.</p>
+<h3>Relies on</h3><p><code>invariant on cart</code>, <code>invariant on item_of</code>, <code>invariant on phase</code>, <code>invariant on price</code>, <code>invariant on qty_of</code>, <code>invariant on stock</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>line_item</code><span class="muted"> in cart</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build d95f98b2</span></header>
 <h3>Can touch</h3><p>state <code>cart</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>

@@ -19,7 +19,7 @@ cargo run --release -p kern -- check examples/apps/shop
 cargo run --release -p kern -- build examples/apps/shop
 ```
 
-## What `check` says (recorded at 9e0c650, built from a clean checkout of that commit, `--cache ''`)
+## What `check` says (recorded at df05911, built from a clean checkout of that commit, `--cache ''`)
 
 | definition | status | spec strength |
 |---|---|---|
@@ -31,14 +31,13 @@ cargo run --release -p kern -- build examples/apps/shop
 | `parcels` (recursive) | All guarantees proven, incl. `measure decreases weight` and the closed form `(weight + 4) / 5` | 11/12; the survivor `<=` → `<` is equivalent (weight 5 gives 1 either way) |
 | `shipping` | All guarantees proven | 2/2 |
 | `add_line` (`cart.get' c = append (cart.get c) item`, length +1, last element), `empty_cart` | All guarantees proven | 4/4, 1/1; spec refusals 8/8, 2/2 |
-| `lines`, `cart_value` (`sum i … of price.get (at (cart.get c) i)`) | All guarantees proven | 0/0 |
+| `lines`, `cart_value` (`sum i … of price.get (at (cart.get c) i)`, `result >= 0` from the price invariant) | All guarantees proven | 0/0 |
 | `line_item` (guarded `at`, in-range case in the spec) | All guarantees proven | 10/10 |
 
 `kern build` compiles the package. What the app found:
 - Lists (792389e) fit order lines: `invariant c:Int length (cart.get c) <= max_lines` is proven for `add_line`, which
-  appends and refuses a full cart; sums over `at xs i` work. Two gaps: `cart_value` cannot prove `result >= 0` although
-  `price.get k >= 0` is an invariant (counterexample has price -1: the invariant isn't assumed at the computed key
-  `at xs i` inside a sum), and the `when`-guarded `at` in `line_item` was `?` until 9e0c650, which now proves it.
+  appends and refuses a full cart; sums over `at xs i` work. Two gaps, both closed by lang: `cart_value` could not prove `result >= 0` although
+  `price.get k >= 0` is an invariant (the invariant wasn't assumed at the computed key `at xs i` inside a sum; df05911 does), and the `when`-guarded `at` in `line_item` was `?` until 9e0c650, which now proves it.
 - `cancel`'s spec first omitted that it calls `restock`, so its `emit` was wrong (✗, replayed): the exact event
   sequence is `Restocked …, Cancelled …`.
 - `place` accepted item 0 until a cross-map invariant made the prover refute it.

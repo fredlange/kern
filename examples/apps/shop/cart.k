@@ -42,6 +42,7 @@ body
   result = length (cart.get c)
 
 cart_value c:Int -> Int
+  ensure result >= 0
   ensure result = 0 when length (cart.get c) = 0
   eg cart.2:[] | cart_value 2 -> ok
   eg price.3:100 price.4:50 cart.1:[3 4 3] | cart_value 1 -> ok
