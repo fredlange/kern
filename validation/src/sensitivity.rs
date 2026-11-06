@@ -23,7 +23,7 @@ const LIB: &str = "runtime/src/lib.rs";
 const GEN: &str = "kern/src/emit_rust.rs";
 
 /// (what, file, text, planted text)
-pub const PLANTS: [(&str, &str, &str, &str); 19] = [
+pub const PLANTS: [(&str, &str, &str, &str); 20] = [
     ("refusal does not tick the clock", LIB, "if !matches!(out, Err(Stop::Fault(_))) {", "if out.is_ok() {"),
     ("refusal keeps its events", LIB, "            self.events.clear();\n        }\n        if !matches", "        }\n        if !matches"),
     ("division truncates toward zero", LIB, "a.div_euclid(b)", "a / b"),
@@ -49,6 +49,7 @@ pub const PLANTS: [(&str, &str, &str, &str); 19] = [
     ("sum includes its upper bound", GEN, "while __j < __hi {{", "while __j <= __hi {{"),
     ("Text length counts bytes", LIB, "t.chars().count() as i64", "t.len() as i64"),
     ("Decimal product truncates toward zero", LIB, "(a as i128 * b as i128).div_euclid(DEC_UNIT as i128)", "(a as i128 * b as i128) / (DEC_UNIT as i128)"),
+    ("% truncates (remainder of truncating division)", LIB, "    a.rem_euclid(b)\n", "    a % b\n"),
     ("else branch dropped", GEN, "if !o.is_empty() {\n                        out.push(format!(\"{}}} else {{\", ind));",
      "if false && !o.is_empty() {\n                        out.push(format!(\"{}}} else {{\", ind));"),
 ];

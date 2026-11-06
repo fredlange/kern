@@ -1263,7 +1263,18 @@ fn floor_div(a: i128, b: i128) -> i128 {
 pub fn gen_dec(rnd: &mut Random) -> String {
     let small = |rnd: &mut Random| -> i128 { *rnd.choice(&[1i128, 3, 5000, 7, 12345, 9999, 2500, 33333, 20000, 10001]) * if rnd.random() < 0.4 { -1 } else { 1 } };
     let mut lines: Vec<String> = vec!["state price Int -> Decimal".into(), String::new()];
-    match choice_str(rnd, &["mul", "mul", "div", "acc", "promote", "bound"]) {
+    match choice_str(rnd, &["mul", "mul", "div", "acc", "promote", "bound", "rem", "rem"]) {
+        "rem" => {
+            // `%` (a884adb): the floor remainder; claimed right, or as truncation would give it (negatives differ)
+            let a: i128 = *rnd.choice(&[-8i128, -1, -15, 0, 7, 13, -7, 22]);
+            let n: i128 = *rnd.choice(&[2i128, 3, 7]);
+            let floor_rem = a.rem_euclid(n);
+            let trunc_rem = a % n;
+            let claimed = if rnd.random() < 0.5 { floor_rem } else { trunc_rem };
+            let lit = |x: i128| if x < 0 { format!("(0 - {})", -x) } else { x.to_string() };
+            lines.clear();
+            lines.extend(["f -> Int".to_string(), format!("  ensure result = {}", lit(claimed)), "body".into(), format!("  result = {} % {n}", lit(a))]);
+        }
         "mul" | "div" if true => {
             let is_mul = rnd.random() < 0.6;
             let (a, b) = (small(rnd), small(rnd));

@@ -1,7 +1,7 @@
 //! Differential test (port of validation/difftest.py): a compiled Kern module against the reference interpreter.
 //!
 //! ```text
-//! difftest [--per-def N] [--seed S] [MODULE.k ...]   (default: every example + tests/probes/{runtime,invcheck,sums,texts,decimals}.k)
+//! difftest [--per-def N] [--seed S] [MODULE.k ...]   (default: every example + tests/probes/{runtime,invcheck,sums,texts,decimals,remainder}.k)
 //! ```
 //!
 //! Scorecard C1 and C2 of docs/research/RUNTIME_PLAN.md:
@@ -712,6 +712,7 @@ pub fn main(argv: &[String]) -> i32 {
         mods.push(format!("{ROOT}/tests/probes/sums.k")); // sums and state-reading functions
         mods.push(format!("{ROOT}/tests/probes/texts.k")); // Text: lengths, joins, comparisons, Account-keyed Text
         mods.push(format!("{ROOT}/tests/probes/decimals.k")); // Decimals: floor on negatives, promotion, a Decimal state
+        mods.push(format!("{ROOT}/tests/probes/remainder.k")); // `%` on negatives, constant expressions, Decimal sums
     }
     let (mut calls, mut divs, mut eg_fail, mut egs, mut failed) = (0, 0, 0, 0, 0usize);
     for m in &mods {
