@@ -691,6 +691,18 @@ fn remainder_and_constant_expressions() {
     assert!(e.message().contains("`%` needs a positive number on the right"), "{}", e.message());
 }
 
+#[test]
+fn random_tests_start_near_the_eg_lines_when_few_random_ones_succeed() {
+    // #TF7CM2E7H3 (app's shop advance: 0/500 random successes after invariant repair). Below 50 successes, n more
+    // runs start near the eg lines that succeed; a definition that already succeeds keeps its runs exactly
+    let src = "state phase Int\nstate qty_of Int\ninvariant o:Int phase.get o >= 0\ninvariant o:Int phase.get o = 0 or qty_of.get o > 0\n\nadvance order:Int\n  need phase.get order = 7 or phase.get order = 8 else CannotAdvance\n  ok otherwise\n  ensure phase.get' order = phase.get order + 1\n  eg phase.1:7 qty_of.1:2 | advance 1 -> ok | phase.1:8\nbody\n  phase.set order (phase.get order + 1)\n\nfree k:Int\n  ok otherwise\nbody\n  qty_of.set k 1\n";
+    let reps = reports(&parse(src));
+    let p = &reps["advance"].props;
+    assert_eq!((p.runs, p.seeded), (1000, 500), "{p:?}");
+    assert!(p.succeeded >= 50, "{p:?}");
+    assert_eq!((reps["free"].props.runs, reps["free"].props.seeded), (500, 0));
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int

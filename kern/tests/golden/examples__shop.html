@@ -128,7 +128,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>A:10@u1 S:0@u2 price.7:30 stock.7:2 | buy A S 7 -&gt; Insufficient 20</code> <span class='okc'>✔</span></li>
 <li><code>A:100@u1 S:0@u2 price.7:30 | buy A S 7 -&gt; OutOfStock</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 31 succeeded and were checked against every guarantee; refused: OutOfStock 415, BadAmount 39, SameAccount 14, Insufficient 1.</p>
+<h3>Random tests</h3><p>1000 random worlds and inputs (500 of them near the eg lines, because few random ones succeeded): 121 succeeded and were checked against every guarantee; refused: OutOfStock 794, BadAmount 70, SameAccount 14, Insufficient 1.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 9/9 deliberate bugs (100%)</span></h3><p>Caught by the prover: 9; by random tests checking the guarantees: 9. The examples alone catch 6/9; everything together 9/9.</p>
 <p>Refusals in the spec: 7/8 changes caught, by examples 3, by guarantees 4. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p><p>Nothing catches these changes to the spec's refusals. An example at the refusal's boundary would:</p><ul class='ex'><li><code>need ledger.balance buyer &gt;= price.get item else Insufficient</code>: <code>&gt;=</code> → <code>&gt;</code></li></ul>
 <h3>Relies on</h3><p><code>transfer</code> — through their specs only, not their code.</p>

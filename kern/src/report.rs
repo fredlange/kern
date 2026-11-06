@@ -177,6 +177,8 @@ pub struct Props {
     /// refusal constructor -> count, in first-seen order
     pub failures: IndexMap<String, u64>,
     pub violations: Vec<Violation>,
+    /// of the runs, how many started near an `eg` line (too few plain random runs succeeded)
+    pub seeded: u64,
 }
 
 /// A random run that broke a guarantee, or crashed the interpreter.
@@ -521,6 +523,9 @@ pub fn props_json(p: &Props) -> J {
     if p.skipped > 0 {
         j["skipped"] = json!(p.skipped); // only then, so every dump without skips is as before
     }
+    if p.seeded > 0 {
+        j["seeded"] = json!(p.seeded);
+    }
     j
 }
 
@@ -529,6 +534,7 @@ fn props_from(j: &J) -> Option<Props> {
         runs: j["runs"].as_u64()?,
         succeeded: j["succeeded"].as_u64()?,
         skipped: j["skipped"].as_u64().unwrap_or(0),
+        seeded: j["seeded"].as_u64().unwrap_or(0),
         failures: j["failures"].as_object()?.iter().map(|(k, v)| (k.clone(), v.as_u64().unwrap_or(0))).collect(),
         violations: j["violations"]
             .as_array()?

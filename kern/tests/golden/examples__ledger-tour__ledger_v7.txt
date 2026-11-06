@@ -19,7 +19,7 @@ payout [9fc4efd1]  All guarantees proven
   ✔ ensure ledger.balance' from = ledger.balance from - amount - fee
   ✔ emit TransferDone from to amount clock.now, then TransferDone from house fee clock.now
   writes from to house   (no guarantee about the new balance of to, house)
-  examples 1/1   random tests 29/500 reached success, 0 violations
+  examples 1/1   random tests 310/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 12/12 (prover 12, random tests 12); examples 12/12; together 12/12
   spec refusals: 4/5 changes caught (examples 0, guarantees 4)
       unpinned: need ledger.balance from >= amount + fee else Insufficient (`>=` → `>`)

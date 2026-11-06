@@ -39,7 +39,7 @@ pay_fine [2b6f5aa0]  All guarantees proven
   ✔ invariant l:Int fine.get l >= 0
   ✔ emit Moved member library (fine.get loan) clock.now
   writes member library fine.loan   (no guarantee about the new balance of library)
-  examples 2/2   random tests 48/500 reached success, 0 violations
+  examples 2/2   random tests 135/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 5/5 (prover 5, random tests 5); examples 5/5; together 5/5
   spec refusals: 5/8 changes caught (examples 3, guarantees 2)
       unpinned: need fine.get loan > 0 else BadAmount (dropped, `>` → `>=`)
@@ -69,8 +69,8 @@ give_back [f1ab4b2e]  All guarantees proven
   ✔ invariant l:Int due.get l >= 0
   ✔ emit Returned loan book clock.now
   writes copies.book due.loan
-  examples 2/2   random tests 1/500 reached success, 0 violations
-  spec strength: guarantees 12/12 (prover 12, random tests 0); examples 7/12; together 12/12
+  examples 2/2   random tests 41/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 12/12 (prover 12, random tests 12); examples 7/12; together 12/12
   spec refusals: 2/4 changes caught (examples 2, guarantees 0)
       unpinned: need due.get loan > 0 else NoLoan (dropped, `>` → `>=`)
 

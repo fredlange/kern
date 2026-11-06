@@ -20,7 +20,7 @@ payout [c87360bc]  All guarantees proven
   ✔ ensure ledger.balance' from = ledger.balance from - amount - fee
   ✔ emit TransferDone from to amount _, then TransferDone from house fee _
   writes from to house   (no guarantee about the new balance of to, house)
-  examples 1/1   random tests 29/500 reached success, 0 violations
+  examples 1/1   random tests 310/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 12/12 (prover 12, random tests 8); examples 12/12; together 12/12
   spec refusals: 0/2 changes caught (examples 0, guarantees 0)
       unpinned: need fee >= 0 else BadAmount (dropped, `>=` → `>`)
@@ -30,8 +30,8 @@ settle [459060be]  All guarantees proven
   ✔ ensure ledger.balance' from = ledger.balance from - amount - fee
   ✔ emit TransferDone from to amount _, then TransferDone from house fee _, then Settled from to _
   writes from to house   (no guarantee about the new balance of to, house)
-  examples 2/2   random tests 17/500 reached success, 0 violations
-  spec strength: guarantees 14/15 (prover 14, random tests 9); examples 9/15; together 14/15
+  examples 2/2   random tests 297/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 14/15 (prover 14, random tests 10); examples 9/15; together 14/15
       survived: `clock.now` → `0` in `audit.emit (Settled from to clock.now)`
   spec refusals: 1/2 changes caught (examples 1, guarantees 0)
       unpinned: need fee <= amount else FeeTooLarge (`<=` → `<`)
@@ -72,7 +72,7 @@ month_end [6d447468]  All guarantees proven
   ✔ ensure ledger.balance' from = ledger.balance from - amount - fee
   ✔ emit TransferDone from to amount _, then TransferDone from house fee _, then Settled from to _
   writes from to house   (no guarantee about the new balance of to, house)
-  examples 1/1   random tests 17/500 reached success, 0 violations
+  examples 1/1   random tests 297/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 9/9 (prover 9, random tests 5); examples 9/9; together 9/9
 
 

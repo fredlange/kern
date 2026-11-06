@@ -275,13 +275,44 @@ fn repair(defs: &Module, interp: &mut Interp, w: &mut World) -> Result<bool, Cra
     Ok(false)
 }
 
+/// Near an `eg` world that breaks an invariant (`phase.1:1` where `phase = 0 or qty_of > 0`), first try the
+/// gentle fix: the Int entries the broken invariant reads that are unset (0) at its key become 1. What still
+/// breaks one, `repair` resets as for any random world.
+fn nudge(defs: &Module, interp: &mut Interp, w: &mut World) -> Result<(), Crash> {
+    for _ in 0..4 {
+        let broken = interp.broken_invariants(w, None).map_err(crash)?;
+        if broken.is_empty() {
+            return Ok(());
+        }
+        let mut changed = false;
+        for (text, key) in broken {
+            let Some((_, _, cond)) = defs.invariants.iter().find(|(v, t, c)| format!("{}:{} {}", v, t, code(c)) == text) else {
+                continue;
+            };
+            let Some(k) = key.as_key() else { continue };
+            for n in crate::infer::names(cond) {
+                let Some(x) = n.strip_suffix(".get") else { continue };
+                let plain = !defs.text_states.iter().chain(&defs.list_states).chain(&defs.account_states).any(|t| t == x);
+                if plain && w.map_get(x, &k) == 0 {
+                    w.map_set(x, k.clone(), 1);
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
 /// Random worlds and arguments; every success is checked against d's guarantees and the module invariants.
 pub fn proptest(defs: &Module, d: &Def, n: u64, seed: i128) -> Result<Props, Crash> {
     let mut rnd = Random::from_int(seed);
     let mut interp = Interp::new(defs);
     let mut times = Random::from_int(seed + 1_000_003);
     let mut per_state: IndexMap<String, Random> = IndexMap::new();
-    let mut stats = Props { runs: n, succeeded: 0, skipped: 0, failures: IndexMap::new(), violations: vec![] };
+    let mut stats = Props { runs: n, succeeded: 0, skipped: 0, failures: IndexMap::new(), violations: vec![], seeded: 0 };
     let touched = uses(defs, d);
     let states_used = relevant_states(defs, d);
     let checks_invariants = touched.iter().any(|e| e.ends_with(".write") || e == "ledger.write");
@@ -324,80 +355,182 @@ pub fn proptest(defs: &Module, d: &Def, n: u64, seed: i128) -> Result<Props, Cra
             w.maps.insert(x.clone(), m);
         }
         let args = rand_args(d, &accts, &mut rnd);
-        // a world that breaks a module invariant can't be reached by any call, and the prover assumes they hold:
-        // repair it (each failing key's entries back to their defaults), or skip the run if that doesn't do it
-        // (the draws above happen regardless, so the streams stay as they were)
-        if !defs.invariants.is_empty() && !repair(defs, &mut interp, &mut w)? {
-            stats.skipped += 1;
-            continue;
+        run_once(defs, d, &mut interp, &mut stats, w, args, checks_invariants)?;
+    }
+    // too few successes to say anything (fewer than ◐ needs): as many runs again, near the definition's `eg` lines
+    // that succeed (their worlds and arguments, each Int changed with probability 1/2 to a nearby or typical value),
+    // in their own stream, so the first runs stay what they were
+    let seeds: Vec<&crate::syntax::Example> = d.examples.iter().filter(|e| e.outcome == Outcome::Ok).collect();
+    if stats.succeeded < SEEDED_BELOW && !seeds.is_empty() {
+        let mut r = Random::from_int(seed + 7_000_003);
+        let pool = typical_ints(d);
+        for _ in 0..n {
+            let ex = seeds[r.randrange(0, seeds.len() as i64) as usize];
+            let mut w = World::of_example(ex);
+            let mut args: Vec<Value> = crate::run::example_args(ex);
+            // each Int changes with probability 1/2; at least one does, so no run is the `eg` line itself
+            let ints: usize = w.maps.values().map(|kv| kv.len()).sum::<usize>()
+                + args.iter().zip(&d.params).filter(|(a, (_, t))| t == "Int" && matches!(a, Value::Int(_))).count();
+            let forced = if ints > 0 { r.randrange(0, ints as i64) as usize } else { usize::MAX };
+            let mut i = 0;
+            for kv in w.maps.values_mut() {
+                for v in kv.values_mut() {
+                    *v = if i == forced { changed(&mut r, *v, &pool) } else { nearby(&mut r, *v, &pool) };
+                    i += 1;
+                }
+            }
+            for (a, (_, t)) in args.iter_mut().zip(&d.params) {
+                if let (Value::Int(n), "Int") = (&*a, t.as_str()) {
+                    let n = *n;
+                    *a = Value::Int(if i == forced { changed(&mut r, n, &pool) } else { nearby(&mut r, n, &pool) });
+                    i += 1;
+                }
+            }
+            if !defs.invariants.is_empty() {
+                nudge(defs, &mut interp, &mut w)?;
+            }
+            stats.runs += 1;
+            stats.seeded += 1;
+            run_once(defs, d, &mut interp, &mut stats, w, args, checks_invariants)?;
         }
-        let before = w.clone();
-        let outcome = match interp.run(&d.name, &args, &mut w) {
-            Ok(o) => o,
-            // a run past the interpreter's call depth is a resource limit, not a broken guarantee: not counted
-            Err(RunError::Kern(m)) if m.starts_with(crate::run::TOO_DEEP) => continue,
-            Err(e) if caught(&e) => {
-                stats.violations.push(Violation::Error { error: e.to_string(), args: args.iter().map(value_py).collect() });
-                continue;
+    }
+    Ok(stats)
+}
+
+/// Below this many random successes, random tests also run near the `eg` lines (◐ needs 50).
+const SEEDED_BELOW: u64 = 50;
+
+/// Ints typical of a definition: its literals (constants are literals by now), each ±1, and 0, 1.
+fn typical_ints(d: &Def) -> Vec<Int> {
+    let mut out: Vec<Int> = vec![0, 1];
+    let mut lits: Vec<Int> = vec![];
+    let exprs: Vec<&Expr> = d
+        .ensures
+        .iter()
+        .chain(&d.keeps)
+        .chain(d.needs.iter().filter_map(|n| if let crate::syntax::Need::Need(c, _, _) = n { Some(c) } else { None }))
+        .collect();
+    let body: Vec<&Expr> = crate::syntax::flat(&d.body)
+        .into_iter()
+        .flat_map(|s| match s {
+            crate::syntax::Stmt::Let(_, e) | crate::syntax::Stmt::Do(e) | crate::syntax::Stmt::If(e, _, _) => vec![e],
+            crate::syntax::Stmt::Need(c, _, _) => vec![c],
+            crate::syntax::Stmt::For(_, a, b, _, _) => vec![a, b],
+            crate::syntax::Stmt::Inv(_) => vec![],
+        })
+        .collect();
+    for e in exprs.into_iter().chain(body) {
+        for x in crate::infer::walk(e) {
+            if let Expr::Int(n) = x {
+                lits.push(*n);
             }
-            Err(e) => return Err(crash(e)),
-        };
-        let mut after = w;
-        match &outcome {
-            RunOutcome::Ok => {
-                stats.succeeded += 1;
-                let mut broken = vec![];
-                if checks_invariants {
-                    let mut b = before.clone();
-                    if interp.broken_invariants(&mut b, None).map_err(crash)?.is_empty() {
-                        broken = interp
-                            .broken_invariants(&mut after, None)
-                            .map_err(crash)?
-                            .into_iter()
-                            .map(|(text, _)| ("invariant".to_string(), text))
-                            .collect();
-                    }
+        }
+    }
+    for n in lits {
+        out.extend([n - 1, n, n + 1]);
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Another value than `v`: v ± 1, or a typical Int other than v.
+fn changed(r: &mut Random, v: Int, pool: &[Int]) -> Int {
+    let others: Vec<Int> = pool.iter().copied().filter(|x| *x != v).collect();
+    if others.is_empty() || r.randrange(0, 2) == 0 {
+        v + if r.randrange(0, 2) == 0 { 1 } else { -1 }
+    } else {
+        others[r.randrange(0, others.len() as i64) as usize]
+    }
+}
+
+/// With probability 1/2 keep `v`; else v ± 1, or a typical Int.
+fn nearby(r: &mut Random, v: Int, pool: &[Int]) -> Int {
+    match r.randrange(0, 4) {
+        0 | 1 => v,
+        2 => v + if r.randrange(0, 2) == 0 { 1 } else { -1 },
+        _ => pool[r.randrange(0, pool.len() as i64) as usize],
+    }
+}
+
+/// One random run: invariants repaired (or skipped), the call, and what it broke, counted into `stats`.
+fn run_once(defs: &Module, d: &Def, interp: &mut Interp, stats: &mut Props, mut w: World, args: Vec<Value>, checks_invariants: bool)
+    -> Result<(), Crash> {
+    let accts: Vec<String> = w.bal.keys().cloned().collect();
+    let accts: Vec<&str> = accts.iter().map(String::as_str).collect();
+    // a world that breaks a module invariant can't be reached by any call, and the prover assumes they hold:
+    // repair it (each failing key's entries back to their defaults), or skip the run if that doesn't do it
+    // (the draws above happen regardless, so the streams stay as they were)
+    if !defs.invariants.is_empty() && !repair(defs, interp, &mut w)? {
+        stats.skipped += 1;
+        return Ok(());
+    }
+    let before = w.clone();
+    let outcome = match interp.run(&d.name, &args, &mut w) {
+        Ok(o) => o,
+        // a run past the interpreter's call depth is a resource limit, not a broken guarantee: not counted
+        Err(RunError::Kern(m)) if m.starts_with(crate::run::TOO_DEEP) => return Ok(()),
+        Err(e) if caught(&e) => {
+            stats.violations.push(Violation::Error { error: e.to_string(), args: args.iter().map(value_py).collect() });
+            return Ok(());
+        }
+        Err(e) => return Err(crash(e)),
+    };
+    let mut after = w;
+    match &outcome {
+        RunOutcome::Ok => {
+            stats.succeeded += 1;
+            let mut broken = vec![];
+            if checks_invariants {
+                let mut b = before.clone();
+                if interp.broken_invariants(&mut b, None).map_err(crash)?.is_empty() {
+                    broken = interp
+                        .broken_invariants(&mut after, None)
+                        .map_err(crash)?
+                        .into_iter()
+                        .map(|(text, _)| ("invariant".to_string(), text))
+                        .collect();
                 }
-                let mut pre = before.clone();
-                let mut held = interp.holds(d, &args, &mut pre, &mut after).map_err(crash)?;
-                held.extend(broken);
-                for (kind, c) in held {
-                    if stats.violations.len() < 3 {
-                        let mut world = world_text(&before, &accts);
-                        for (x, kv) in &before.maps {
-                            for (k, v) in kv {
-                                if *v != 0 {
-                                    world += &format!(" {}.{}:{}", x, key_text(k), v);
-                                }
+            }
+            let mut pre = before.clone();
+            let mut held = interp.holds(d, &args, &mut pre, &mut after).map_err(crash)?;
+            held.extend(broken);
+            for (kind, c) in held {
+                if stats.violations.len() < 3 {
+                    let mut world = world_text(&before, &accts);
+                    for (x, kv) in &before.maps {
+                        for (k, v) in kv {
+                            if *v != 0 {
+                                world += &format!(" {}.{}:{}", x, key_text(k), v);
                             }
                         }
-                        for (x, kv) in &before.texts {
-                            for (k, v) in kv {
-                                if !v.is_empty() {
-                                    world += &format!(" {}.{}:{}", x, key_text(k), crate::syntax::quote(v));
-                                }
+                    }
+                    for (x, kv) in &before.texts {
+                        for (k, v) in kv {
+                            if !v.is_empty() {
+                                world += &format!(" {}.{}:{}", x, key_text(k), crate::syntax::quote(v));
                             }
                         }
-                        stats.violations.push(Violation::Clause {
-                            clause: format!("{kind} {c}"),
-                            eg: format!("eg {} | {} {}", world, d.name, call_text(d, &args)),
-                        });
                     }
-                }
-            }
-            RunOutcome::Fail(ctor, _) => {
-                *stats.failures.entry(ctor.clone()).or_insert(0) += 1;
-                if interp.unstated_refusal(d, &args, &before, &outcome).map_err(crash)? && stats.violations.len() < 3 {
-                    let world = world_text(&before, &accts);
                     stats.violations.push(Violation::Clause {
-                        clause: "ok otherwise".into(),
-                        eg: format!("eg {} | {} {} -> {}", world, d.name, call_text(d, &args), outcome.text()),
+                        clause: format!("{kind} {c}"),
+                        eg: format!("eg {} | {} {}", world, d.name, call_text(d, &args)),
                     });
                 }
             }
         }
+        RunOutcome::Fail(ctor, _) => {
+            *stats.failures.entry(ctor.clone()).or_insert(0) += 1;
+            if interp.unstated_refusal(d, &args, &before, &outcome).map_err(crash)? && stats.violations.len() < 3 {
+                let world = world_text(&before, &accts);
+                stats.violations.push(Violation::Clause {
+                    clause: "ok otherwise".into(),
+                    eg: format!("eg {} | {} {} -> {}", world, d.name, call_text(d, &args), outcome.text()),
+                });
+            }
+        }
     }
-    Ok(stats)
+    Ok(())
 }
 
 fn value_py(v: &Value) -> Py {

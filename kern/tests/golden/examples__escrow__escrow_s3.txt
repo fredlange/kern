@@ -107,7 +107,7 @@ purchase [f15444ee]  All guarantees proven
   ✔ invariant a:Account ledger.balance a >= 0
   ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now
   writes buyer escrow seller house   (no guarantee about the new balance of seller, house)
-  examples 1/1   random tests 36/500 reached success, 0 violations
+  examples 1/1   random tests 382/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 17/17 (prover 17, random tests 17); examples 17/17; together 17/17
   spec refusals: 6/7 changes caught (examples 1, guarantees 5)
       unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
@@ -131,8 +131,8 @@ refund [1e4ab4c6]  All guarantees proven
   ✔ invariant a:Account ledger.balance a >= 0
   ✔ emit Moved escrow buyer amount clock.now when part = amount, then Released buyer amount clock.now when part = amount, then Moved escrow buyer part clock.now when part < amount, then Moved escrow seller (amount - part) clock.now when part < amount and fee_for (amount - part) = 0, then Moved escrow seller (amount - part - fee_for (amount - part)) clock.now when part < amount and fee_for (amount - part) > 0, then Moved escrow house (fee_for (amount - part)) clock.now when part < amount and fee_for (amount - part) > 0, then Captured seller (amount - part) clock.now when part < amount
   writes escrow buyer seller house   (no guarantee about the new balance of seller, house)
-  examples 2/2   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 33/34 (prover 33, random tests 0); examples 33/34; together 33/34
+  examples 2/2   random tests 120/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 33/34 (prover 33, random tests 33); examples 33/34; together 33/34
       survived: `amount` → `part` in `release escrow buyer amount`
   spec refusals: 4/4 changes caught (examples 1, guarantees 3)
 
@@ -145,7 +145,7 @@ split [e0a17086]  All guarantees proven
   ✔ invariant a:Account ledger.balance a >= 0
   ✔ emit Moved escrow a part clock.now when part > 0, then Moved escrow b (amount - part) clock.now when amount - part > 0
   writes escrow a b
-  examples 2/2   random tests 24/500 reached success, 0 violations
+  examples 2/2   random tests 201/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 14/14 (prover 14, random tests 14); examples 14/14; together 14/14
   spec refusals: 4/4 changes caught (examples 1, guarantees 3)
 
@@ -190,7 +190,7 @@ capture_order [52085654]  All guarantees proven
   ✔ invariant o:Int captured.get o >= 0
   ✔ emit Moved escrow seller (hold.get id) clock.now when fee_for (hold.get id) = 0, then Moved escrow seller (hold.get id - fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0, then Moved escrow house (fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0, then Captured seller (hold.get id) clock.now
   writes escrow seller house captured.id hold.id   (no guarantee about the new balance of house)
-  examples 3/3   random tests 7/500 reached success, 0 violations
+  examples 3/3   random tests 94/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 10/10; together 10/10
   spec refusals: 6/9 changes caught (examples 4, guarantees 2)
       unpinned: need hold.get id > 0 else BadAmount (dropped, `>` → `>=`)
@@ -206,7 +206,7 @@ cancel_order [0e853947]  All guarantees proven
   ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
   ✔ emit Moved escrow buyer (hold.get id) clock.now, then Released buyer (hold.get id) clock.now, then Cancelled buyer clock.now
   writes escrow buyer hold.id   (no guarantee about the new balance of escrow)
-  examples 1/1   random tests 24/500 reached success, 0 violations
+  examples 1/1   random tests 75/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 5/5 (prover 5, random tests 5); examples 5/5; together 5/5
   spec refusals: 6/10 changes caught (examples 3, guarantees 3)
       unpinned: need hold.get id > 0 else NoOrder (dropped, `>` → `>=`)
@@ -222,8 +222,8 @@ refund_order [8347fea4]  All guarantees proven
   ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
   ✔ emit Moved escrow buyer (hold.get id) clock.now when part = hold.get id, then Released buyer (hold.get id) clock.now when part = hold.get id, then Moved escrow buyer part clock.now when part < hold.get id, then Moved escrow seller (hold.get id - part) clock.now when part < hold.get id and fee_for (hold.get id - part) = 0, then Moved escrow seller (hold.get id - part - fee_for (hold.get id - part)) clock.now when part < hold.get id and fee_for (hold.get id - part) > 0, then Moved escrow house (fee_for (hold.get id - part)) clock.now when part < hold.get id and fee_for (hold.get id - part) > 0, then Captured seller (hold.get id - part) clock.now when part < hold.get id
   writes escrow buyer seller house hold.id   (no guarantee about the new balance of escrow, seller, house)
-  examples 1/1   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 18/18 (prover 18, random tests 0); examples 18/18; together 18/18
+  examples 1/1   random tests 51/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 18/18 (prover 18, random tests 18); examples 18/18; together 18/18
   spec refusals: 6/8 changes caught (examples 2, guarantees 4)
       unpinned: need hold.get id > 0 else NoOrder (dropped, `>` → `>=`)
 
@@ -235,7 +235,7 @@ open_dispute [c9390920]  All guarantees proven
   ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
   ✔ emit DisputeOpened id clock.now
   writes disputed.id
-  examples 2/2   random tests 35/500 reached success, 0 violations
+  examples 2/2   random tests 133/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 4/4 (prover 4, random tests 4); examples 2/4; together 4/4
   spec refusals: 3/4 changes caught (examples 3, guarantees 0)
       unpinned: need disputed.get id = 0 else Disputed (dropped)
@@ -251,7 +251,7 @@ resolve_for_buyer [d5cfabae]  All guarantees proven
   ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
   ✔ emit Moved escrow buyer (hold.get id) clock.now, then Released buyer (hold.get id) clock.now, then Resolved id clock.now
   writes escrow buyer disputed.id hold.id   (no guarantee about the new balance of escrow)
-  examples 1/1   random tests 13/500 reached success, 0 violations
+  examples 1/1   random tests 44/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 9/9 (prover 9, random tests 9); examples 7/9; together 9/9
   spec refusals: 5/8 changes caught (examples 3, guarantees 2)
       unpinned: need disputed.get id = 1 else NotDisputed (dropped)
@@ -268,7 +268,7 @@ resolve_for_seller [9a3b6892]  All guarantees proven
   ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
   ✔ emit Moved escrow seller (hold.get id) clock.now when fee_for (hold.get id) = 0, then Moved escrow seller (hold.get id - fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0, then Moved escrow house (fee_for (hold.get id)) clock.now when fee_for (hold.get id) > 0, then Captured seller (hold.get id) clock.now, then Resolved id clock.now
   writes escrow seller house disputed.id hold.id   (no guarantee about the new balance of seller, house)
-  examples 1/1   random tests 6/500 reached success, 0 violations
+  examples 1/1   random tests 50/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 13/13 (prover 13, random tests 13); examples 9/13; together 13/13
   spec refusals: 3/7 changes caught (examples 1, guarantees 2)
       unpinned: need disputed.get id = 1 else NotDisputed (dropped)
@@ -287,8 +287,8 @@ resolve_split [dcd599c7]  All guarantees proven
   ✔ invariant o:Int disputed.get o = 0 or hold.get o > 0
   ✔ emit Moved escrow buyer part clock.now when part > 0, then Moved escrow seller (hold.get id - part) clock.now when hold.get id - part > 0, then Resolved id clock.now
   writes escrow buyer seller disputed.id hold.id   (no guarantee about the new balance of escrow)
-  examples 1/1   random tests 1/500 reached success, 0 violations
-  spec strength: guarantees 18/18 (prover 18, random tests 0); examples 12/18; together 18/18
+  examples 1/1   random tests 36/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 18/18 (prover 18, random tests 17); examples 12/18; together 18/18
   spec refusals: 5/6 changes caught (examples 2, guarantees 3)
       unpinned: need disputed.get id = 1 else NotDisputed (dropped)
 
@@ -329,7 +329,7 @@ withdraw [20495466]  All guarantees proven
   ✔ invariant a:Account ledger.balance a >= 0
   ✔ emit Moved a bank amount clock.now
   writes a bank spent.a
-  examples 3/3   random tests 7/500 reached success, 0 violations
+  examples 3/3   random tests 99/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 7/7 (prover 7, random tests 7); examples 6/7; together 7/7
   spec refusals: 9/12 changes caught (examples 5, guarantees 4)
       unpinned: need frozen.get a = 0 else Frozen (dropped)
@@ -352,7 +352,7 @@ payout_seller [5af1ba5e]  All guarantees proven
   ✔ invariant a:Account ledger.balance a >= 0
   ✔ emit Moved seller bank amount clock.now, then PaidOut seller amount clock.now
   writes seller bank spent.seller   (no guarantee about the new balance of bank)
-  examples 1/1   random tests 7/500 reached success, 0 violations
+  examples 1/1   random tests 99/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 3/6; together 6/6
   spec refusals: 10/12 changes caught (examples 3, guarantees 7)
       unpinned: need spent.get seller + amount <= limit.get seller else OverLimit (`<=` → `<`)
@@ -382,7 +382,7 @@ purchase_order [05a3f601]  All guarantees proven
   ✔ invariant o:Int captured.get o >= 0
   ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Opened id amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now
   writes buyer escrow seller house captured.id hold.id   (no guarantee about the new balance of seller, house, captured.id)
-  examples 1/1   random tests 21/500 reached success, 0 violations
+  examples 1/1   random tests 389/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 20/20 (prover 20, random tests 20); examples 20/20; together 20/20
   spec refusals: 11/13 changes caught (examples 4, guarantees 7)
       unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
@@ -424,7 +424,7 @@ redeem_points [8dab20bc]  All guarantees proven
   ✔ invariant a:Account points.get a >= 0
   ✔ emit Moved house a n clock.now, then Redeemed a n clock.now
   writes a house points.a   (no guarantee about the new balance of house)
-  examples 2/2   random tests 45/500 reached success, 0 violations
+  examples 2/2   random tests 286/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 10/10 (prover 10, random tests 10); examples 7/10; together 10/10
   spec refusals: 6/8 changes caught (examples 2, guarantees 4)
       unpinned: need points.get a >= n else NotEnoughPoints (`>=` → `>`)
@@ -446,7 +446,7 @@ transfer_points [e04aa6a5]  All guarantees proven
   ✔ ensure points.get' b = points.get b + n
   ✔ invariant a:Account points.get a >= 0
   writes points.a points.b
-  examples 1/1   random tests 45/500 reached success, 0 violations
+  examples 1/1   random tests 286/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 8/8 (prover 8, random tests 8); examples 8/8; together 8/8
   spec refusals: 4/6 changes caught (examples 1, guarantees 3)
       unpinned: need n > 0 else BadAmount (`>` → `>=`)
@@ -461,7 +461,7 @@ purchase_earning [5e54f141]  All guarantees proven
   ✔ invariant a:Account points.get a >= 0
   ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now
   writes buyer escrow seller house points.buyer   (no guarantee about the new balance of buyer, seller, house)
-  examples 1/1   random tests 36/500 reached success, 0 violations
+  examples 1/1   random tests 382/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 17/17 (prover 17, random tests 17); examples 17/17; together 17/17
   spec refusals: 6/7 changes caught (examples 1, guarantees 5)
       unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
@@ -511,7 +511,7 @@ pause_sub [5051c15e]  All guarantees proven
   ✔ keep ledger.total
   ✔ ensure paused.get' id = 1
   writes paused.id
-  examples 1/1   random tests 40/500 reached success, 0 violations
+  examples 1/1   random tests 150/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 2/2 (prover 2, random tests 2); examples 2/2; together 2/2
   spec refusals: 1/4 changes caught (examples 1, guarantees 0)
       unpinned: need sub_amount.get id > 0 else NoSub (dropped, `>` → `>=`)
@@ -523,7 +523,7 @@ resume_sub [5e36b178]  All guarantees proven
   ✔ ensure paused.get' id = 0
   ✔ ensure sub_due.get' id = clock.now + 30
   writes paused.id sub_due.id
-  examples 1/1   random tests 40/500 reached success, 0 violations
+  examples 1/1   random tests 92/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 6/6; together 6/6
   spec refusals: 1/2 changes caught (examples 1, guarantees 0)
       unpinned: need paused.get id = 1 else NotPaused (dropped)
@@ -536,8 +536,8 @@ charge_sub [5d66877b]  All guarantees proven
   ✔ invariant a:Account ledger.balance a >= 0
   ✔ emit Moved buyer escrow (sub_amount.get id) clock.now, then Reserved buyer (sub_amount.get id) clock.now, then Moved escrow seller (sub_amount.get id) clock.now when fee_for (sub_amount.get id) = 0, then Moved escrow seller (sub_amount.get id - fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0, then Moved escrow house (fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0, then Captured seller (sub_amount.get id) clock.now, then Charged id clock.now
   writes buyer escrow seller house sub_due.id   (no guarantee about the new balance of buyer, seller, house)
-  examples 2/2   random tests 7/500 reached success, 0 violations
-  spec strength: guarantees 18/18 (prover 18, random tests 16); examples 16/18; together 18/18
+  examples 2/2   random tests 154/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 18/18 (prover 18, random tests 18); examples 16/18; together 18/18
   spec refusals: 6/13 changes caught (examples 3, guarantees 3)
       unpinned: need sub_amount.get id > 0 else NoSub (dropped, `>` → `>=`)
       unpinned: need paused.get id = 0 else Paused (dropped)
@@ -554,8 +554,8 @@ charge_sub_with_points [ffd520e2]  All guarantees proven
   ✔ invariant a:Account points.get a >= 0
   ✔ emit Moved buyer escrow (sub_amount.get id) clock.now, then Reserved buyer (sub_amount.get id) clock.now, then Moved escrow seller (sub_amount.get id) clock.now when fee_for (sub_amount.get id) = 0, then Moved escrow seller (sub_amount.get id - fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0, then Moved escrow house (fee_for (sub_amount.get id)) clock.now when fee_for (sub_amount.get id) > 0, then Captured seller (sub_amount.get id) clock.now, then Charged id clock.now
   writes buyer escrow seller house points.buyer sub_due.id   (no guarantee about the new balance of buyer, escrow, seller, house)
-  examples 1/1   random tests 7/500 reached success, 0 violations
-  spec strength: guarantees 17/17 (prover 17, random tests 11); examples 17/17; together 17/17
+  examples 1/1   random tests 154/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 17/17 (prover 17, random tests 17); examples 17/17; together 17/17
   spec refusals: 7/13 changes caught (examples 2, guarantees 5)
       unpinned: need sub_amount.get id > 0 else NoSub (dropped, `>` → `>=`)
       unpinned: need clock.now >= sub_due.get id else NotDue (`>=` → `>`)
@@ -599,8 +599,8 @@ payout_holdback [5b499501]  All guarantees proven
   ✔ invariant a:Account ledger.balance a >= 0
   ✔ emit Moved seller reserve (holdback_for amount) clock.now when holdback_for amount > 0, then Moved seller bank (amount - holdback_for amount) clock.now, then Held seller (holdback_for amount) clock.now
   writes seller reserve bank spent.seller   (no guarantee about the new balance of bank)
-  examples 1/1   random tests 4/500 reached success, 0 violations
-  spec strength: guarantees 15/15 (prover 15, random tests 9); examples 11/15; together 15/15
+  examples 1/1   random tests 96/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 15/15 (prover 15, random tests 15); examples 11/15; together 15/15
   spec refusals: 8/17 changes caught (examples 3, guarantees 5)
       unpinned: need amount > 0 else BadAmount (dropped, `>` → `>=`)
       unpinned: need ledger.balance seller >= amount else Insufficient (`>=` → `>`)
@@ -631,8 +631,8 @@ checkout2 [61b9acc3]  All guarantees proven
   ✔ invariant o:Int captured.get o >= 0
   ✔ emit Moved buyer escrow a1 clock.now, then Reserved buyer a1 clock.now, then Opened id1 a1 clock.now, then Moved escrow seller1 a1 clock.now when fee_for a1 = 0, then Moved escrow seller1 (a1 - fee_for a1) clock.now when fee_for a1 > 0, then Moved escrow house (fee_for a1) clock.now when fee_for a1 > 0, then Captured seller1 a1 clock.now, then Moved buyer escrow a2 clock.now, then Reserved buyer a2 clock.now, then Opened id2 a2 clock.now, then Moved escrow seller2 a2 clock.now when fee_for a2 = 0, then Moved escrow seller2 (a2 - fee_for a2) clock.now when fee_for a2 > 0, then Moved escrow house (fee_for a2) clock.now when fee_for a2 > 0, then Captured seller2 a2 clock.now, then CheckedOut buyer (a1 + a2) clock.now
   writes buyer escrow seller1 seller2 house captured.id1 captured.id2 hold.id1 hold.id2   (no guarantee about the new balance of seller1, seller2, house, captured.id1, captured.id2, hold.id1, hold.id2)
-  examples 2/2   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 59/59 (prover 59, random tests 0); examples 38/59; together 59/59
+  examples 2/2   random tests 236/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 59/59 (prover 59, random tests 58); examples 38/59; together 59/59
   spec refusals: 17/31 changes caught (examples 9, guarantees 8)
       unpinned: need id1 != id2 else SameOrder (dropped)
       unpinned: need frozen.get buyer = 0 else Frozen (dropped, dropped)
@@ -656,8 +656,8 @@ checkout_vat [1fd2f4ea]  All guarantees proven
   ✔ invariant o:Int captured.get o >= 0
   ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Opened id amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now, then Moved buyer tax (vat_of amount) clock.now when vat_of amount > 0
   writes buyer escrow seller house tax captured.id hold.id   (no guarantee about the new balance of escrow, seller, house, captured.id, hold.id)
-  examples 1/1   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 29/29 (prover 29, random tests 0); examples 27/29; together 29/29
+  examples 1/1   random tests 382/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 29/29 (prover 29, random tests 29); examples 27/29; together 29/29
   spec refusals: 10/16 changes caught (examples 4, guarantees 6)
       unpinned: need buyer != escrow else SameAccount (dropped)
       unpinned: need ledger.balance buyer >= amount else Insufficient (dropped, `>=` → `>`)
@@ -675,8 +675,8 @@ checkout_tip [713f9ad9]  All guarantees proven
   ✔ invariant o:Int captured.get o >= 0
   ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Opened id amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now, then Moved buyer seller extra clock.now when extra > 0, then Tipped seller extra clock.now
   writes buyer escrow seller house captured.id hold.id   (no guarantee about the new balance of escrow, seller, house, captured.id, hold.id)
-  examples 1/1   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 26/26 (prover 26, random tests 0); examples 24/26; together 26/26
+  examples 1/1   random tests 341/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 26/26 (prover 26, random tests 26); examples 24/26; together 26/26
   spec refusals: 11/18 changes caught (examples 4, guarantees 7)
       unpinned: need buyer != escrow else SameAccount (dropped)
       unpinned: need ledger.balance buyer >= amount else Insufficient (dropped, `>=` → `>`)
@@ -697,8 +697,8 @@ checkout_points [f8f61c99]  All guarantees proven
   ✔ invariant a:Account points.get a >= 0
   ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Opened id amount clock.now, then Moved escrow seller amount clock.now when fee_for amount = 0, then Moved escrow seller (amount - fee_for amount) clock.now when fee_for amount > 0, then Moved escrow house (fee_for amount) clock.now when fee_for amount > 0, then Captured seller amount clock.now
   writes buyer escrow seller house captured.id hold.id points.buyer   (no guarantee about the new balance of escrow, seller, house, captured.id, hold.id)
-  examples 1/1   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 20/20 (prover 20, random tests 0); examples 19/20; together 20/20
+  examples 1/1   random tests 382/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 20/20 (prover 20, random tests 20); examples 19/20; together 20/20
   spec refusals: 10/14 changes caught (examples 4, guarantees 6)
       unpinned: need buyer != escrow else SameAccount (dropped)
       unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
@@ -712,7 +712,7 @@ close_account [4535776a]  All guarantees proven
   ✔ ensure verified.get' a = 0
   ✔ emit Closed a clock.now
   writes frozen.a verified.a
-  examples 2/2   random tests 1/500 reached success, 0 violations
+  examples 2/2   random tests 501/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 6/6 (prover 6, random tests 6); examples 4/6; together 6/6
   spec refusals: 2/2 changes caught (examples 2, guarantees 0)
 

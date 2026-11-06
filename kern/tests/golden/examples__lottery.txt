@@ -9,14 +9,12 @@ draw [12db448c]  Proven, assuming rand.below
   ✔ pre rand.below: need n > 0 (at a call)
   ⊙ emit Moved pot _ amount clock.now, then Won _ amount clock.now   (assuming rand.below)
   writes pot a b c   (no guarantee about the new balance of a, b, c)
-  examples 2/2   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 19/45 (prover 19, random tests 0); examples 7/45; together 19/45
+  examples 2/2   random tests 431/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 23/45 (prover 19, random tests 20); examples 7/45; together 23/45
       survived: `3` → `4` in `r = rand.below 3`
       survived: `=` → `!=` in `if r = 0`
       survived: `0` → `1` in `if r = 0`
       survived: swap the branches of `if r = 0`
-      survived: `pot` → `a` in `transfer pot a amount`
-      survived: `a` → `pot` in `transfer pot a amount`
       survived: `a` → `b` in `transfer pot a amount`
       survived: `a` → `c` in `transfer pot a amount`
       survived: `a` → `pot` in `audit.emit (Won a amount clock.now)`
@@ -30,8 +28,6 @@ draw [12db448c]  Proven, assuming rand.below
       survived: `b` → `pot` in `audit.emit (Won b amount clock.now)`
       survived: `b` → `a` in `audit.emit (Won b amount clock.now)`
       survived: `b` → `c` in `audit.emit (Won b amount clock.now)`
-      survived: `pot` → `c` in `transfer pot c amount`
-      survived: `c` → `pot` in `transfer pot c amount`
       survived: `c` → `a` in `transfer pot c amount`
       survived: `c` → `b` in `transfer pot c amount`
       survived: `c` → `pot` in `audit.emit (Won c amount clock.now)`

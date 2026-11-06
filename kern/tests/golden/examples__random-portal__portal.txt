@@ -9,7 +9,7 @@ request [1337b802]  All guarantees proven
   ✔ invariant s:Int pending.get s = 0 or pending.get s = 1
   ✔ emit net FetchJoke src (next.get 0 + 1) when src = 1, then FetchPun src (next.get 0 + 1) when src = 2
   writes deadline.src last.src next.* pending.src want.src   (no guarantee about the new value of next.*)
-  examples 6/6   random tests 18/500 reached success, 0 violations
+  examples 6/6   random tests 210/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 20/20 (prover 20, random tests 20); examples 10/20; together 20/20
   spec refusals: 5/5 changes caught (examples 5, guarantees 0)
   why 3
@@ -25,8 +25,8 @@ store [e63ad320]  All guarantees proven
   ✔ invariant i:Int ref.get i >= 0
   ✔ emit Stored slot src id clock.now
   writes body.slot pending.src ref.slot source.slot
-  examples 5/5   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 25/25 (prover 25, random tests 0); examples 17/25; together 25/25
+  examples 5/5   random tests 6/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 25/25 (prover 25, random tests 24); examples 17/25; together 25/25
   spec refusals: 8/11 changes caught (examples 8, guarantees 0)
       unpinned: need src = 1 or src = 2 else UnknownSource (dropped)
       unpinned: need length text <= 500 else TooLong (dropped, `<=` → `<`)
@@ -40,8 +40,8 @@ store_joke [6adec879]  All guarantees proven
   ✔ invariant i:Int ref.get i >= 0
   ✔ emit Stored slot src id clock.now
   writes body.slot pending.src ref.slot source.slot   (no guarantee about the new value of pending.src, ref.slot, source.slot)
-  examples 1/1   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 9/9 (prover 9, random tests 0); examples 7/9; together 9/9
+  examples 1/1   random tests 6/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 9/9 (prover 9, random tests 9); examples 7/9; together 9/9
   spec refusals: 7/11 changes caught (examples 2, guarantees 5)
       unpinned: need length (setup + " " + punchline) > 0 else Empty (dropped, `>` → `>=`)
       unpinned: need length (setup + " " + punchline) <= 500 else TooLong (dropped, `<=` → `<`)
@@ -53,8 +53,8 @@ store_pun [d9a74ed5]  All guarantees proven
   ✔ invariant i:Int ref.get i >= 0
   ✔ emit Stored slot src id clock.now
   writes body.slot pending.src ref.slot source.slot   (no guarantee about the new value of pending.src, ref.slot, source.slot)
-  examples 1/1   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 7/7 (prover 7, random tests 0); examples 5/7; together 7/7
+  examples 1/1   random tests 7/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 7/7 (prover 7, random tests 7); examples 5/7; together 7/7
   spec refusals: 9/11 changes caught (examples 2, guarantees 7)
       unpinned: need length joke <= 500 else TooLong (dropped, `<=` → `<`)
 
@@ -66,8 +66,8 @@ fetch_failed [f802a9f5]  All guarantees proven
   ✔ invariant s:Int pending.get s = 0 or pending.get s = 1
   ✔ emit FetchFailed src slot clock.now
   writes pending.src
-  examples 2/2   random tests 0/500 reached success, 0 violations
-  spec strength: guarantees 7/7 (prover 7, random tests 0); examples 3/7; together 7/7
+  examples 2/2   random tests 8/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 7/7 (prover 7, random tests 6); examples 3/7; together 7/7
   spec refusals: 3/5 changes caught (examples 3, guarantees 0)
       unpinned: need src = 1 or src = 2 else UnknownSource (dropped)
       unpinned: need pending.get src = 1 else Stale (dropped)
@@ -79,7 +79,7 @@ give_up [6d01d70b]  All guarantees proven
   ✔ invariant s:Int pending.get s = 0 or pending.get s = 1
   ✔ emit GaveUp src (want.get src) clock.now
   writes pending.src
-  examples 2/2   random tests 7/500 reached success, 0 violations
+  examples 2/2   random tests 75/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 4/4 (prover 4, random tests 4); examples 2/4; together 4/4
   spec refusals: 2/5 changes caught (examples 2, guarantees 0)
       unpinned: need src = 1 or src = 2 else UnknownSource (dropped)

@@ -429,8 +429,15 @@ pub fn card(r: &Report, defs: &Module, why: &Status) -> String {
         "<h3>Random tests</h3><p>{} random worlds and inputs{}: {} succeeded and were checked against every guarantee; \
          refused: {}.</p>",
         p.runs,
-        if p.skipped > 0 {
-            format!(" ({} broke a module invariant, so no call could start there: skipped)", p.skipped)
+        if p.skipped > 0 || p.seeded > 0 {
+            let mut notes = vec![];
+            if p.seeded > 0 {
+                notes.push(format!("{} of them near the eg lines, because few random ones succeeded", p.seeded));
+            }
+            if p.skipped > 0 {
+                notes.push(format!("{} broke a module invariant, so no call could start there: skipped", p.skipped));
+            }
+            format!(" ({})", notes.join("; "))
         } else {
             String::new()
         },
@@ -796,6 +803,10 @@ pub fn terminal(reports: &IndexMap<String, Report>, defs: &Module, whys: &IndexM
         if r.props.skipped > 0 {
             let last = out.pop().unwrap_or_default();
             out.push(format!("{}   ({} worlds broke a module invariant: skipped)", last, r.props.skipped));
+        }
+        if r.props.seeded > 0 {
+            let last = out.pop().unwrap_or_default();
+            out.push(format!("{}   ({} of the runs near the eg lines: few random ones succeeded)", last, r.props.seeded));
         }
         for e in ex.iter().filter(|e| !e.pass) {
             out.push(format!("      failing: eg {}   (got {})", e.src, e.got));

@@ -21,7 +21,7 @@ payout [d8d99a9c]  All guarantees proven
   ✔ keep ledger.total
   ✔ ensure ledger.balance' from = ledger.balance from - amount - fee
   writes from to house   (no guarantee about the new balance of to, house)
-  examples 1/1   random tests 29/500 reached success, 0 violations
+  examples 1/1   random tests 310/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 10/12 (prover 10, random tests 6); examples 12/12; together 12/12
       missed: `to` → `house` in `transfer from to amount`   (an example catches it)
       missed: `house` → `to` in `transfer from house fee`   (an example catches it)

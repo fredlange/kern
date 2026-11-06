@@ -20,7 +20,7 @@ payout [8b0478d0]  Broken guarantees
   ✔ ensure ledger.balance' from = ledger.balance from - amount - fee
   ✔ emit TransferDone from to amount clock.now, then TransferDone from house fee clock.now
   writes from to house   (no guarantee about the new balance of to, house)
-  examples 1/1   random tests 29/500 reached success, 2 violations
+  examples 1/1   random tests 310/1000 reached success, 3 violations   (500 of the runs near the eg lines: few random ones succeeded)
   why 1
 
 

@@ -55,8 +55,8 @@ capture [1faee5c4]  All guarantees proven
   ✔ ensure ledger.balance' house = ledger.balance house when amount < 100
   ✔ emit Moved escrow seller amount clock.now when amount < 100, then Moved escrow seller (amount - fee) clock.now when amount >= 100 and amount - fee > 0, then Moved escrow house fee clock.now when amount >= 100 and fee > 0, then Captured seller amount clock.now
   writes escrow seller house
-  examples 3/3   random tests 24/500 reached success, 0 violations
-  spec strength: guarantees 30/30 (prover 30, random tests 28); examples 23/30; together 30/30
+  examples 3/3   random tests 357/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 30/30 (prover 30, random tests 30); examples 23/30; together 30/30
   spec refusals: 5/6 changes caught (examples 1, guarantees 4)
       unpinned: need ledger.balance escrow >= amount else Insufficient (`>=` → `>`)
 
@@ -67,7 +67,7 @@ purchase [298b4e17]  All guarantees proven
   ✔ ensure ledger.balance' escrow = ledger.balance escrow
   ✔ emit Moved buyer escrow amount clock.now, then Reserved buyer amount clock.now, then Moved escrow seller amount clock.now when amount < 100, then Moved escrow seller (amount - fee) clock.now when amount >= 100 and amount - fee > 0, then Moved escrow house fee clock.now when amount >= 100 and fee > 0, then Captured seller amount clock.now
   writes buyer escrow seller house   (no guarantee about the new balance of seller, house)
-  examples 1/1   random tests 19/500 reached success, 0 violations
+  examples 1/1   random tests 314/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 20/20 (prover 20, random tests 20); examples 20/20; together 20/20
   spec refusals: 7/8 changes caught (examples 1, guarantees 6)
       unpinned: need ledger.balance buyer >= amount else Insufficient (`>=` → `>`)
@@ -89,8 +89,8 @@ refund [80da2224]  All guarantees proven
   ✔ ensure ledger.balance' escrow = ledger.balance escrow - amount when part < amount and buyer != seller and buyer != house
   ✔ ensure ledger.balance' buyer = ledger.balance buyer + part when buyer != seller and buyer != house
   writes escrow buyer seller house   (no guarantee about the new balance of seller, house)
-  examples 2/2   random tests 5/500 reached success, 0 violations
-  spec strength: guarantees 41/42 (prover 41, random tests 18); examples 41/42; together 41/42
+  examples 2/2   random tests 136/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
+  spec strength: guarantees 41/42 (prover 41, random tests 41); examples 41/42; together 41/42
       survived: `amount` → `part` in `release escrow buyer amount`
   spec refusals: 5/5 changes caught (examples 1, guarantees 4)
 
@@ -101,7 +101,7 @@ split [43ce7383]  All guarantees proven
   ✔ ensure ledger.balance' a = ledger.balance a + part
   ✔ ensure ledger.balance' b = ledger.balance b + amount - part
   writes escrow a b
-  examples 2/2   random tests 24/500 reached success, 0 violations
+  examples 2/2   random tests 201/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 14/14 (prover 14, random tests 14); examples 14/14; together 14/14
   spec refusals: 4/4 changes caught (examples 1, guarantees 3)
 

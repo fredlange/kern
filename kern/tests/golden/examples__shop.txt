@@ -74,7 +74,7 @@ buy [da94caa8]  All guarantees proven
   ✔ invariant i:Int stock.get i >= 0
   ✔ emit Moved buyer shop (price.get item) clock.now, then Sold item buyer clock.now
   writes buyer shop stock.item   (no guarantee about the new balance of shop)
-  examples 3/3   random tests 31/500 reached success, 0 violations
+  examples 3/3   random tests 121/1000 reached success, 0 violations   (500 of the runs near the eg lines: few random ones succeeded)
   spec strength: guarantees 9/9 (prover 9, random tests 9); examples 6/9; together 9/9
   spec refusals: 7/8 changes caught (examples 3, guarantees 4)
       unpinned: need ledger.balance buyer >= price.get item else Insufficient (`>=` → `>`)
