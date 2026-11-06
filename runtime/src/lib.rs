@@ -85,6 +85,11 @@ pub fn mul(a: i64, b: i64) -> Result<i64, Fault> {
 pub fn div(a: i64, b: i64) -> i64 {
     a.div_euclid(b)
 }
+/// `%` by a positive literal: the remainder of that floor division, 0 <= a % b < b (run.rs: a - (a / b) * b).
+#[inline(always)]
+pub fn rem(a: i64, b: i64) -> i64 {
+    a.rem_euclid(b)
+}
 
 /// One Decimal unit is 1/DEC_UNIT (syntax::UNIT): a Decimal is an i64 count of 0.0001s.
 pub const DEC_UNIT: i64 = 10_000;

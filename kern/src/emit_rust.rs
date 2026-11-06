@@ -297,6 +297,7 @@ impl<'a> Gen<'a> {
                     "-" => (format!("rt::sub({}, {})?", l, r), "Int".into()),
                     "*" => (format!("rt::mul({}, {})?", l, r), "Int".into()),
                     "/" => (format!("rt::div({}, {})", l, r), "Int".into()),
+                    "%" => (format!("rt::rem({}, {})", l, r), "Int".into()),
                     "and" => (format!("({} && {})", l, r), "Bool".into()),
                     "or" => (format!("({} || {})", l, r), "Bool".into()),
                     "=" => (format!("({} == {})", l, r), "Bool".into()),
@@ -1239,6 +1240,16 @@ body
         has("tx.iset(0, k, rt::div(p, 3i64))");
         has("dec: true");
         has(".map(|v| Some(vec![Val::Dec(v)]))");
+    }
+
+    #[test]
+    fn remainder_is_the_floor_remainder_and_constant_expressions_arrive_as_literals() {
+        let src = "const days 7\nconst slots 3 * days + 1\n\nslot s:Int -> Int\nbody\n  result = s % days + slots\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let rs = super::Gen::new(&defs, "t").module().unwrap();
+        assert!(rs.contains("result = rt::add(rt::rem(s, 7i64), 22i64)?;"), "{rs}");
+        assert!(super::RT_LIB.contains("a.rem_euclid(b)"));
     }
 
     #[test]
