@@ -373,6 +373,22 @@ fn s5_using_none_as_an_account_is_refuted_with_a_run_that_replays() {
     assert!(plain["pay"].guarantees.iter().all(|g| g.kind != "pre"));
 }
 
+#[test]
+fn a_result_has_the_declared_type() {
+    // tester on #HLVOFR3BEM: `-> Point` with `result = a` passed wf and the prover panicked; `-> Int` with
+    // `result = Point a a` was accepted. Both are type errors now, for functions and returning procedures
+    let head = "record Point x:Int y:Int\nrecord Pair a:Int b:Int\nstate hold Int\n\n";
+    for (def, want) in [
+        ("f a:Int -> Point\n  ensure result.x = a\nbody\n  result = a\n", "declared Point, this is Int"),
+        ("f a:Int -> Int\nbody\n  result = Point a a\n", "declared Int, this is Point"),
+        ("f a:Int -> Point\nbody\n  hold.set a 1\n  result = Pair a a\n", "declared Point, this is Pair"),
+        ("f a:Int -> Int\nbody\n  hold.set a 1\n  result = a > 1\n", "declared Int, this is Bool"),
+    ] {
+        let e = analyse(&parse(&format!("{head}{def}")), false, None, None).unwrap_err().message();
+        assert!(e.contains(want), "{def}: {e}");
+    }
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int

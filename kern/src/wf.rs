@@ -505,6 +505,15 @@ impl<'a> Checker<'a> {
                         }
                         _ => None,
                     };
+                    // `result = …` has the declared type: a record of that type for `-> Point`, an Int for `-> Int`
+                    if x == "result" {
+                        if let Some(want) = &self.d.ret {
+                            let got = rec.clone().unwrap_or_else(|| t.clone());
+                            if got != *want && got != ANY {
+                                self.err(&place, &format!("the result is declared {}, this is {}", want, got));
+                            }
+                        }
+                    }
                     if let Some(r) = rec {
                         for (f, ft) in crate::syntax::record_leaves(&self.defs.records, &r) {
                             scope.insert(format!("{x}.{f}"), ft);
