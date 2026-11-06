@@ -49,6 +49,7 @@ body
   result = sum i from 0 to (length (cart.get c)) of price.get (at (cart.get c) i)
 
 line_item c:Int i:Int -> Int
+  ensure result = at (cart.get c) i when i >= 0 and i < length (cart.get c)
   ensure result = 0 when i < 0 or i >= length (cart.get c)
   eg cart.1:[7 8 9] | line_item 1 1 -> ok
   eg cart.1:[7 8 9] | line_item 1 3 -> ok
