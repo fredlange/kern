@@ -63,7 +63,7 @@ fn key_str(k: &Key) -> String {
 }
 
 fn world_line(bal: &IndexMap<String, i128>, own: &IndexMap<String, String>, maps: &IndexMap<String, IndexMap<Key, i128>>,
-              texts: &kern::syntax::Texts, now: i128, defs: &Module) -> String {
+              texts: &kern::syntax::Texts, lists: &Lists, now: i128, defs: &Module) -> String {
     let mut items: Vec<String> = bal.iter().map(|(a, b)| format!("{}:{}@{}", a, b, own[a])).collect();
     for (m, kv) in maps {
         items.extend(kv.iter().map(|(k, v)| format!("{}.{}:{}", m, key_str(k), v)));
@@ -72,6 +72,9 @@ fn world_line(bal: &IndexMap<String, i128>, own: &IndexMap<String, String>, maps
         // an Account-valued state's entries are account names or `none`, bare, as eg worlds write them (40579da)
         let acct = defs.account_states.contains(m);
         items.extend(kv.iter().map(|(k, v)| format!("{}.{}:{}", m, key_str(k), if acct { v.clone() } else { kern::syntax::quote(v) })));
+    }
+    for (m, kv) in lists {
+        items.extend(kv.iter().map(|(k, xs)| format!("{}.{}:{}", m, key_str(k), list_tok(xs))));
     }
     items.push(format!("now:{}", now));
     format!("world {}", items.join(" "))
@@ -86,6 +89,18 @@ fn dump(w: &World, defs: &Module) -> String {
     let mut states: Vec<&String> = defs.states.keys().collect();
     states.sort();
     for m in states {
+        if defs.list_states.contains(m) {
+            // as the binary's dump: entries that aren't [], sorted by key, `[1 2]` (runtime's 6264a7b)
+            let mut kv: Vec<(&Key, &Vec<i128>)> = w.lists.get(m).map(|kv| kv.iter().filter(|(_, v)| !v.is_empty()).collect()).unwrap_or_default();
+            kv.sort_by(|(a, _), (b, _)| match (a, b) {
+                (Key::Int(x), Key::Int(y)) => x.cmp(y),
+                _ => key_str(a).cmp(&key_str(b)),
+            });
+            for (k, v) in kv {
+                s.push_str(&format!(" {}.{}:{}", m, key_str(k), list_tok(v)));
+            }
+            continue;
+        }
         if defs.account_states.contains(m) {
             // as the binary's dump: entries that aren't none, sorted by key, by name
             let mut kv: Vec<(&Key, &String)> =
@@ -167,6 +182,7 @@ fn interp_call(interp: &mut Interp, w: &mut World, defs: &Module, checks: &Check
     let Some(which) = checks.get(name) else { return interp_call_plain(interp, w, defs, name, args) };
     let mut lw = World::lazy(std::rc::Rc::new(Snap(w.clone())));
     lw.clock = w.clock;
+    lw.lists = w.lists.clone(); // lists aren't read through the Store: the host preloads them the same way
     let n_obs = interp.observations.len();
     let res = interp_call_plain(interp, &mut lw, defs, name, args)?;
     if res.0.starts_with("ok") {
@@ -188,6 +204,7 @@ fn interp_call(interp: &mut Interp, w: &mut World, defs: &Module, checks: &Check
     for (x, m) in lw.texts {
         w.texts.entry(x).or_default().extend(m);
     }
+    w.lists = lw.lists;
     w.audit.extend(lw.audit);
     for (c, evs) in lw.out {
         w.out.entry(c).or_default().extend(evs);
@@ -253,6 +270,10 @@ fn interp_args(d: &kern::syntax::Def, toks: &[String]) -> Vec<Value> {
         .map(|((_, t), tok)| match t.as_str() {
             "Int" => tok.parse().map(Value::Int).unwrap_or(Value::Str(tok.clone())),
             "Text" => Value::Str(kern_rt_unquote(tok)),
+            "List" => match tok.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
+                Some(inner) => Value::Ctor(kern::run::LIST.into(), inner.split_whitespace().filter_map(|x| x.parse().ok()).map(Value::Int).collect()),
+                None => Value::Str(tok.clone()),
+            },
             _ => Value::Str(tok.clone()),
         })
         .collect();
@@ -317,6 +338,12 @@ fn sample<T: Clone>(rng: &mut Random, pop: &[T], k: usize) -> Vec<T> {
 }
 
 type Maps = IndexMap<String, IndexMap<Key, i128>>;
+type Lists = IndexMap<String, IndexMap<Key, Vec<i128>>>;
+
+/// A list as eg lines and the binary's script write it: `[1 2 3]`.
+fn list_tok(xs: &[i128]) -> String {
+    format!("[{}]", xs.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(" "))
+}
 
 /// A quoted script token back to its Text (as the binary's `unquote`; a bare token stays as it is).
 fn kern_rt_unquote(tok: &str) -> String {
@@ -335,14 +362,28 @@ fn kern_rt_unquote(tok: &str) -> String {
     out
 }
 
-fn random_world(rng: &mut Random, defs: &Module) -> (IndexMap<String, i128>, IndexMap<String, String>, Maps, kern::syntax::Texts, i128) {
+fn random_world(rng: &mut Random, defs: &Module) -> (IndexMap<String, i128>, IndexMap<String, String>, Maps, kern::syntax::Texts, Lists, i128) {
     let k = rng.randint(2, 5) as usize;
     let names = sample(rng, &NAMES, k);
     let bal: IndexMap<String, i128> = names.iter().map(|a| (a.to_string(), *rng.choice(&BALANCES))).collect();
     let own: IndexMap<String, String> = names.iter().map(|a| (a.to_string(), format!("u{}", rng.randint(1, 3)))).collect();
     let mut maps = Maps::new();
     let mut texts = kern::syntax::Texts::new();
+    let mut lists = Lists::new();
     for (m, key) in &defs.states {
+        if defs.list_states.contains(m) {
+            // short lists of the usual Ints (only modules with list states draw these: other streams unchanged)
+            let mut kv = IndexMap::new();
+            for _ in 0..rng.randint(0, 3) {
+                let k = if key == "Account" { Key::Str(rng.choice(&names).to_string()) } else { Key::Int(*rng.choice(&[0, 1, 2, 3, 7])) };
+                let n = rng.randint(0, 4);
+                kv.insert(k, (0..n).map(|_| *rng.choice(&INTS) as i128).collect());
+            }
+            if !kv.is_empty() {
+                lists.insert(m.clone(), kv);
+            }
+            continue;
+        }
         if defs.account_states.contains(m) {
             // accounts of this world, or none
             let mut kv = IndexMap::new();
@@ -376,7 +417,7 @@ fn random_world(rng: &mut Random, defs: &Module) -> (IndexMap<String, i128>, Ind
             maps.insert(m.clone(), kv);
         }
     }
-    (bal, own, maps, texts, rng.randint(0, 20) as i128)
+    (bal, own, maps, texts, lists, rng.randint(0, 20) as i128)
 }
 
 fn tok_of(k: &Key) -> String {
@@ -395,14 +436,15 @@ pub fn build_case<'m>(defs: &'m Module, checks: &Checks, rng: &mut Random, per_d
         for ex in &d.examples {
             let bal: IndexMap<String, i128> = ex.world.iter().map(|(a, (b, _))| (a.clone(), *b)).collect();
             let own: IndexMap<String, String> = ex.world.iter().map(|(a, (_, o))| (a.clone(), o.clone())).collect();
-            case.script.push(world_line(&bal, &own, &ex.maps, &ex.texts, ex.now, defs));
-            let mut w = World::from_example(&ex.world, ex.now, &ex.maps).with_texts(&ex.texts);
+            case.script.push(world_line(&bal, &own, &ex.maps, &ex.texts, &ex.list_maps, ex.now, defs));
+            let mut w = World::of_example(ex);
             let name = &ex.call.0;
             let Some(cd) = defs.defs.get(name) else { continue };
             // a Text argument is one quoted token in the script
             let toks: Vec<String> = ex.call.1.iter().enumerate()
                 .map(|(i, k)| match (cd.params.get(i).map(|p| p.1.as_str()), k) {
                     (Some("Text"), Key::Str(t)) => kern::syntax::quote(t),
+                    (Some("List"), _) => list_tok(ex.lists.get(&i).map(|v| v.as_slice()).unwrap_or(&[])),
                     _ => tok_of(k),
                 })
                 .collect();
@@ -419,10 +461,10 @@ pub fn build_case<'m>(defs: &'m Module, checks: &Checks, rng: &mut Random, per_d
     let n_calls = per_def * names.len();
     let mut done = 0;
     while done < n_calls {
-        let (bal, own, maps, texts, now) = random_world(rng, defs);
-        let wl = world_line(&bal, &own, &maps, &texts, now, defs);
+        let (bal, own, maps, texts, lists, now) = random_world(rng, defs);
+        let wl = world_line(&bal, &own, &maps, &texts, &lists, now, defs);
         case.script.push(wl.clone());
-        let mut w = World { bal: bal.clone(), own: own.clone(), clock: now, maps: maps.clone(), texts, ..Default::default() };
+        let mut w = World { bal: bal.clone(), own: own.clone(), clock: now, maps: maps.clone(), texts, lists, ..Default::default() };
         let accounts: Vec<String> = bal.keys().cloned().collect();
         for _ in 0..15 {
             let name = if done < names.len() * per_def / 2 { names[done % names.len()] } else { *rng.choice(&names) };
@@ -439,6 +481,9 @@ pub fn build_case<'m>(defs: &'m Module, checks: &Checks, rng: &mut Random, per_d
                         }
                     } else if t == "Text" {
                         kern::syntax::quote(rng.choice(&TEXTS))
+                    } else if t == "List" {
+                        let n = rng.randint(0, 4);
+                        list_tok(&(0..n).map(|_| *rng.choice(&INTS) as i128).collect::<Vec<_>>())
                     } else {
                         rng.choice(&INTS).to_string()
                     }
