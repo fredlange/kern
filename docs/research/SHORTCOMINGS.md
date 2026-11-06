@@ -598,8 +598,10 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   288 tests pass, both digests and the goldens unchanged, fuzzer seeds 1–3 0 contradictions, difftest and
   fuzzdiff 0 divergences. REFERENCE.md 2,262 → 2,300 tokens.
 - **What remains:**
-  - Not built (decided): negative values (write `0 - n`), constant expressions, constants in `eg` lines (a
-    constant there is a parse error, "bad world item").
+  - Not built (decided): negative values (write `0 - n`), constants in `eg` lines (a constant there is a parse
+    error, "bad world item"). ~~Constant expressions~~ built in `a884adb` (#JDJTBVQQFW: literals and the file's
+    constants with `+ - * / %`, evaluated at load; compiled path `79fbb0a`), with `%` by a positive literal
+    (floor remainder in prover, interpreter and binary; tester `913aa2a`, planted truncating `%` caught).
   - The decision says a constant named like a handler is an error; handler names are dotted, so
     `const ledger 5` is accepted. It is harmless (`ledger.debit` still resolves), but the decision text and
     the code disagree. Keyword names are rejected unevenly (`need`, `body` are; `const`, `import`, `state`
