@@ -521,6 +521,28 @@ fn s5_reading_a_list_outside_it_is_refuted_with_a_run_that_replays() {
     assert!(parse_module("record List a:Int\n", true).unwrap_err().0.contains("built-in type"));
 }
 
+#[test]
+fn a_guarantee_that_rests_on_an_unproven_call_site_condition_is_conditional() {
+    // tester on #RSKCCK3TLL: `ledger.credit (member.get k) 1` unguarded showed `✔ ok otherwise` next to `✗ pre
+    // member.get k is an account`, while most random runs faulted. A call-site condition is assumed after its
+    // point, so what follows rests on it: `!`, as for an unproven loop invariant (an assumed handler's need too)
+    use kern::report::Status;
+    let reps = reports(&parse("state member Int -> Account\n\npay k:Int\n  ok otherwise\nbody\n  ledger.credit (member.get k) 1\n"));
+    let ok = reps["pay"].guarantees.iter().find(|g| g.kind == "ok").unwrap();
+    assert_eq!(ok.status, Status::Conditional, "{ok:?}");
+    assert!(ok.blocked_by.as_ref().unwrap()[0].starts_with("call-site condition member.get k is an account"));
+    let reps = reports(&parse("handler rand.below n:Int -> Int\n  need n > 0 else BadBound\n  ensure result >= 0 and result < n\nstate hold Int\n\ndraw n:Int\n  ok otherwise\nbody\n  x = rand.below n\n  hold.set 0 x\n"));
+    let ok = reps["draw"].guarantees.iter().find(|g| g.kind == "ok").unwrap();
+    assert_eq!(ok.status, Status::Conditional, "{ok:?}");
+    // tester on #Y4TVGF6C7A: an `at` only in the spec isn't run by the call: its goal is stated (and refuted) but
+    // assumes nothing, so the definition isn't "never succeeds" and `ok otherwise` doesn't rest on it
+    let reps = reports(&parse("state out Int\n\nspec_only xs:List\n  ok otherwise\n  ensure out.get' 0 = at xs 5\nbody\n  out.set 0 1\n\ntotal_bad xs:List -> Int\n  ensure result = sum i from 0 to (length xs + 1) of at xs i\nbody\n  result = sum i from 0 to (length xs) of at xs i\n"));
+    let g = &reps["spec_only"].guarantees;
+    assert_eq!(g.iter().find(|g| g.kind == "ok").unwrap().status, Status::Proven, "{g:?}");
+    assert!(g.iter().any(|g| g.kind == "pre" && g.status == Status::Refuted && g.clause.ends_with("(in the spec)")));
+    assert!(reps["total_bad"].guarantees.iter().all(|g| g.status != Status::Vacuous), "{:?}", reps["total_bad"].guarantees);
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int

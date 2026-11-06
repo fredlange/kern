@@ -620,6 +620,15 @@ pub fn propagate_trust(reports: &mut IndexMap<String, Report>) {
                             out.push(c.clone());
                         }
                     }
+                    // a call-site condition (an assumed handler's need, an account that isn't none, an index inside a
+                    // list) is assumed after its point: the rest holds only if it does (tester, #RSKCCK3TLL)
+                    if g.kind != "pre" {
+                        for (xi, x) in r.guarantees.iter().enumerate() {
+                            if xi != gi && x.kind == "pre" && !ok_status(x.status) && !x.clause.ends_with(crate::prove::IN_SPEC) {
+                                out.push(format!("call-site condition {}", x.clause));
+                            }
+                        }
+                    }
                     if (g.kind != "loop" || g.clause.contains("(kept by every iteration)")) && !crate::prove::fault("a") {
                         for (xi, x) in r.guarantees.iter().enumerate() {
                             if xi != gi && x.kind == "loop" && !ok_status(x.status) {

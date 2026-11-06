@@ -326,8 +326,10 @@ pub struct Prover<'m> {
     list_params: IndexMap<String, Seq>,
     /// the `for j …` / `sum j …` ranges being evaluated, innermost last: a goal raised inside holds for each j
     ranges: Vec<(ZInt, ZInt, ZInt)>,
-    /// > 0 while a sum's recursive function is built: no goals then
+    /// > 0 while a sum's recursive function is built or a callee's spec assumed: no goals then
     quiet: u32,
+    /// evaluating the definition's own spec after its body: goals are stated, not assumed
+    in_spec: bool,
     /// while its body runs: the definition being proved and its measure at its own parameters (`decreases`)
     measuring: Option<(String, Option<ZInt>)>,
     /// scoring a mutant: how many more solver calls may come back unknown before the proof stops (each one spends
@@ -344,6 +346,10 @@ fn raises_goals(defs: &Module, e: &Expr) -> bool {
         .iter()
         .any(|n| matches!(n, Expr::App(h, _, _) if h == "at" || !defs.account_states.is_empty()))
 }
+
+/// Marks a call-site goal raised by a definition's own spec (an `at` in an ensure): the call doesn't evaluate its
+/// spec, so no other guarantee rests on it.
+pub const IN_SPEC: &str = "(in the spec)";
 
 /// `none` (an unset entry of an Account-valued state) in the prover, where accounts are Ints; every Account
 /// parameter is assumed to be another one.
@@ -495,6 +501,7 @@ impl<'m> Prover<'m> {
             list_params: IndexMap::new(),
             ranges: vec![],
             quiet: 0,
+            in_spec: false,
             measuring: None,
             unknowns_left: None,
             self_called: false,
@@ -766,6 +773,14 @@ impl<'m> Prover<'m> {
             let inside = zz::and(&[zz::le(lo, j), zz::lt(j, hi)]);
             c = zz::forall(&[j], &zz::implies(&inside, &c));
         }
+        // raised by the definition's own spec: nothing the call runs rests on it
+        let owned;
+        let text = if self.in_spec {
+            owned = format!("{text} {IN_SPEC}");
+            owned.as_str()
+        } else {
+            text
+        };
         let premise = snapshot(&self.pc);
         let case = Case { goal: c.clone(), pc: premise, draws: None };
         match self.loop_goals.iter_mut().find(|g| g.kind == "pre" && g.text == text) {
@@ -777,7 +792,9 @@ impl<'m> Prover<'m> {
                 cases: vec![case],
             }),
         }
-        self.pc.borrow_mut().push(c);
+        if !self.in_spec {
+            self.pc.borrow_mut().push(c);
+        }
     }
 
     /// In a module with Account-valued states, each Account a call uses as an account (a ledger op, an
@@ -1051,6 +1068,8 @@ impl<'m> Prover<'m> {
             self.pc.borrow_mut().push(zz::ge(&later, &s.now));
             s.now = later;
         }
+        // the callee's spec is assumed, not run: it raises no call-site goal (also keeps and emits below)
+        self.quiet += 1;
         for c in &callee.ensures {
             let v = self.sev(c, &env, &pre, Some(s)).b().clone();
             self.pc.borrow_mut().push(v);
@@ -1099,6 +1118,7 @@ impl<'m> Prover<'m> {
                 s.append(&ch, vec![Event::Ev(ctor.clone(), vals, c)]);
             }
         }
+        self.quiet -= 1;
         result
     }
 
@@ -1169,10 +1189,12 @@ impl<'m> Prover<'m> {
             .expect("a function returns a value");
         let mut env: Env = f.params.iter().zip(args).map(|((p, _), v)| (p.clone(), v.clone())).collect();
         env.insert("result".into(), r.clone());
+        self.quiet += 1;
         for c in &f.ensures {
             let v = self.sev(c, &env, s, Some(s)).b().clone();
             self.pc.borrow_mut().push(v);
         }
+        self.quiet -= 1;
         r
     }
 
@@ -1668,6 +1690,7 @@ impl<'m> Prover<'m> {
 
     fn prove_goals(&mut self, d: &Def, first_kill: bool) -> (Vec<Guarantee>, Vec<String>) {
         self.relied_on = BTreeSet::new();
+        self.in_spec = false;
         self.self_called = false;
         self.sums = IndexMap::new();
         let (bal, own, total) = (zz::array("bal"), zz::array("own"), zz::int("total"));
@@ -1755,6 +1778,9 @@ impl<'m> Prover<'m> {
         self.measuring = Some((d.name.clone(), own_measure));
         let paths = self.exec(&d.body, start);
         self.measuring = None;
+        // from here the definition's own spec is evaluated: a call-site goal it raises (an `at` in an ensure) is
+        // a goal, but the run has succeeded by then, so it is not assumed (tester, #Y4TVGF6C7A)
+        self.in_spec = true;
 
         let mut goals: Vec<Goal> = vec![];
         for c in &d.keeps {
