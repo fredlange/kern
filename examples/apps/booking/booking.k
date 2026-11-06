@@ -42,8 +42,7 @@ cancel room:Int day:Int guest:Int
   need stay.guest.get (room * days + day) = guest else NotYours
   need guest > 0 else NoGuest
   ok otherwise
-  ensure stay.guest.get' (room * days + day) = 0
-  ensure stay.name.get' (room * days + day) = ""
+  ensure stay.get' (room * days + day) = Booking room day 0 ""
   ensure stay.guest.get' s = stay.guest.get s when s != room * days + day for s from 0 to slots
   emit Cancelled room day guest
   eg stay.guest.17:9 stay.name.17:"ann" | cancel 2 3 9 -> ok | stay.guest.17:0 stay.name.17:""
@@ -56,8 +55,7 @@ cancel room:Int day:Int guest:Int
   eg | cancel 0 7 9 -> NoSuchDay
   eg stay.guest.0:0 | cancel 0 0 0 -> NoGuest
 body
-  stay.guest.set (room * days + day) 0
-  stay.name.set (room * days + day) ""
+  stay.set (room * days + day) (Booking room day 0 "")
   audit.emit (Cancelled room day guest)
 
 nights_booked room:Int -> Int
