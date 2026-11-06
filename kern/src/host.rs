@@ -120,6 +120,33 @@ fn every_key(w: &World, defs: &Module) -> IndexMap<String, indexmap::IndexSet<Ke
     keys
 }
 
+/// A value as the HTTP API shows it: value_json, except that a Decimal is a JSON string with the point (`"37.5"`;
+/// DECISIONS 2026-11-06: a JSON number would be a float to most clients). The log and outbox keep value_json.
+pub fn api_json(v: &Value) -> J {
+    match v {
+        Value::Ctor(c, n) if c == crate::run::DEC && n.len() == 1 => json!(crate::syntax::decimal_text(n[0].num().unwrap_or(0))),
+        Value::Ctor(c, a) => {
+            let mut xs = vec![json!(c)];
+            xs.extend(a.iter().map(api_json));
+            J::Array(xs)
+        }
+        other => value_json(other),
+    }
+}
+
+/// A Decimal parameter over HTTP: a string `"12.5"` / `"3"`, or a number whose shortest text has at most 4 places.
+fn decimal_from_json(j: &J) -> Option<Value> {
+    let text = match j {
+        J::String(s) => s.clone(),
+        J::Number(n) => n.to_string(),
+        _ => return None,
+    };
+    if let Ok(n) = text.parse::<i64>() {
+        return Some(Value::Int(n as Int)); // an Int: that many units (the interpreter promotes it at the boundary)
+    }
+    crate::syntax::decimal_value(&text).ok().map(crate::run::decimal)
+}
+
 fn key_value(k: &Key) -> J {
     match k {
         Key::Int(n) => json!(*n as i64),
@@ -239,6 +266,7 @@ pub fn event_text(ev: &Value) -> String {
         Value::Ctor(c, a) => {
             let mut parts = vec![c.clone()];
             parts.extend(a.iter().map(|x| match x {
+                Value::Ctor(c, n) if c == crate::run::DEC && n.len() == 1 => crate::syntax::decimal_text(n[0].num().unwrap_or(0)),
                 Value::Ctor(..) => format!("({})", event_text(x)),
                 other => other.str(),
             }));
@@ -855,7 +883,9 @@ impl<'m> Host<'m> {
             return Ok(false);
         }
         // the eg world grammar: accounts, `state.key:N`, Text entries `state.key:"…"` (quoted)
-        let ex = crate::syntax::parse_call(world_src, "genesis").map_err(|e| e.0)?;
+        let mut ex = crate::syntax::parse_call(world_src, "genesis").map_err(|e| e.0)?;
+        // Decimal states: `price.4:12.5`, and an Int there is that many units (as eg worlds)
+        crate::syntax::normalize_example(&self.defs.decimal_states, &mut ex).map_err(|e| e.0)?;
         let mut w = World::from_example(&ex.world, 0, &ex.maps).with_texts(&ex.texts).with_lists(&ex.list_maps);
         if let Some(what) = out_of_range(&w, None) {
             return Err(format!("genesis world: Int out of the host's range (i64): {}", what));
@@ -1109,6 +1139,7 @@ impl<'m> Host<'m> {
 
     fn call_in_tx(&mut self, name: &str, has_ret: bool, args: &[Value], now: Int) -> Result<CallResult, HostError> {
         let defs = self.defs;
+        let d_ret = defs.defs.get(name).and_then(|d| d.ret.clone());
         let mut world = self.lazy();
         world.clock = now;
         world.lists = self.all_lists().map_err(sql)?;
@@ -1182,18 +1213,23 @@ impl<'m> Host<'m> {
                     res.insert("error".into(), json!(format!("invariant broken: {} at {}", text, key.str())));
                 } else {
                     res.insert("status".into(), json!("ok"));
-                    res.insert("events".into(), J::Array(world.audit.iter().map(value_json).collect()));
+                    res.insert("events".into(), J::Array(world.audit.iter().map(api_json).collect()));
                     if world.out.values().any(|e| !e.is_empty()) {
                         let out: Map<String, J> = world
                             .out
                             .iter()
                             .filter(|(_, e)| !e.is_empty())
-                            .map(|(c, e)| (c.clone(), J::Array(e.iter().map(value_json).collect())))
+                            .map(|(c, e)| (c.clone(), J::Array(e.iter().map(api_json).collect())))
                             .collect();
                         res.insert("out".into(), J::Object(out));
                     }
                     if has_ret {
-                        let v = interp.last_result.as_ref().map(|v| result_json(defs, v)).unwrap_or(J::Null);
+                        let v = match (interp.last_result.as_ref(), d_ret.as_deref()) {
+                            // an Int result of a `-> Decimal` is that many units (the interpreter keeps the Int)
+                            (Some(Value::Int(n)), Some("Decimal")) => json!(crate::syntax::decimal_text(*n * crate::syntax::UNIT)),
+                            (Some(v), _) => result_json(defs, v),
+                            (None, _) => J::Null,
+                        };
                         res.insert("result".into(), v);
                     }
                 }
@@ -1696,7 +1732,11 @@ fn state_json(w: &World, defs: &Module) -> J {
     let mut flat: Map<String, J> = w
         .maps
         .iter()
-        .map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), json!(*v as i64))).collect())))
+        .map(|(s, m)| {
+            // a Decimal state holds scaled values: shown as Decimal strings, as the API shows every Decimal
+            let dec = defs.decimal_states.contains(s);
+            (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), if dec { json!(crate::syntax::decimal_text(*v)) } else { json!(*v as i64) })).collect()))
+        })
         .chain(w.texts.iter().map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), json!(v))).collect()))))
         .chain(w.lists.iter().map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, xs)| (key_str(k), list_json(xs))).collect()))))
         .collect();
@@ -1752,7 +1792,7 @@ fn parse_args(text: &[&str]) -> Vec<Value> {
 fn result_json(defs: &Module, v: &Value) -> J {
     let Value::Ctor(r, vals) = v else { return value_json(v) };
     if !defs.records.contains_key(r) {
-        return value_json(v);
+        return api_json(v);
     }
     let mut out = J::Object(Map::new());
     for ((path, _), x) in crate::syntax::record_leaves(&defs.records, r).iter().zip(vals) {
@@ -1846,7 +1886,7 @@ pub fn repl(host: &mut Host, lines: impl Iterator<Item = String>, out: &mut dyn 
             continue;
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
-        let (name, args) = if line.contains('"') || line.contains('[') {
+        let (name, args) = if line.contains('"') || line.contains('[') || line.contains('.') {
             // a quoted Text or a list argument: the eg grammar (`post 3 "hello world"`, `total [1 2 3]`)
             match crate::syntax::parse_call("", line) {
                 Ok(ex) => (ex.call.0.clone(), crate::run::example_args(&ex)),
@@ -1928,7 +1968,10 @@ pub fn http_args(params: &[(String, String)], body: &J) -> Result<Vec<Value>, St
     let mut out = vec![];
     for (p, t) in params {
         let v = p.split('.').fold(body, |v, part| &v[part]);
-        if t == "List" {
+        if t == "Decimal" {
+            let x = decimal_from_json(v).ok_or_else(|| format!("{} must be a Decimal (\"12.5\" or a number with at most 4 places), got {}", repr_str(p), dumps(v)))?;
+            out.push(x);
+        } else if t == "List" {
             // a list is a JSON array of integers (each an i64)
             let xs = list_from_json(v).ok_or_else(|| format!("{} must be a JSON array of integers, got {}", repr_str(p), dumps(v)))?;
             out.push(Value::Ctor(crate::run::LIST.into(), xs.into_iter().map(Value::Int).collect()));
@@ -2914,6 +2957,41 @@ body
         h.db.execute("update listcell set value='[1,2,3]' where key='4'", []).unwrap();
         drop(h);
         assert!(open().err().unwrap().0.contains("startup audit"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn decimals_are_strings_over_http_exact_on_the_way_in_and_scaled_in_sqlite() {
+        let src = "state price Int -> Decimal\n\nset k:Int p:Decimal\n  ok otherwise\nbody\n  price.set k p\n  \
+                   audit.emit (Priced k p)\n\nvat k:Int -> Decimal\nbody\n  result = price.get k * 1.25\n\n\
+                   three n:Int -> Decimal\nbody\n  result = 3\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let dir = std::env::temp_dir().join(format!("kern-dec-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("t.db").to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&db);
+        let open = || Host::new(&defs, IndexMap::new(), Options { db: db.clone(), sinks: Some(vec![]), gate: false, ..Default::default() }).unwrap();
+        let mut h = open();
+        h.init("price.4:12.5 price.5:2").unwrap();
+        let ps = &defs.defs["set"].params;
+        for (body, ok) in [(json!({"k": 1, "p": "0.0001"}), true), (json!({"k": 2, "p": 7.25}), true), (json!({"k": 3, "p": 3}), true),
+                           (json!({"k": 1, "p": "0.00001"}), false), (json!({"k": 1, "p": [1]}), false)] {
+            assert_eq!(http_args(ps, &body).is_ok(), ok, "{body}");
+        }
+        let r = h.call("set", &http_args(ps, &json!({"k": 2, "p": "7.25"})).unwrap()).unwrap();
+        assert_eq!(r["events"], json!([["Priced", 2, "7.25"]]));
+        assert_eq!(h.call("vat", &[Value::Int(4)]).unwrap()["result"], json!("15.625"));
+        assert_eq!(h.call("three", &[Value::Int(0)]).unwrap()["result"], json!("3.0"));
+        let st = state_json(&h.load().unwrap(), &defs)["state"].clone();
+        assert_eq!(st["price"], json!({"4": "12.5", "5": "2.0", "2": "7.25"}));
+        let v: i64 = h.db.query_row("select value from cell where state='price' and key='4'", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, 125000); // scaled, as the interpreter's world holds it
+        let mut out = vec![];
+        repl(&mut h, ["set 6 0.5", "vat 6"].iter().map(|l| l.to_string()), &mut |l| out.push(l)).unwrap();
+        assert_eq!(out, ["ok", "ok 0.625"]);
+        drop(h);
+        assert!(open().replay().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -53,6 +53,17 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   `"order": {"7": {"item": 3, "qty": 2, "note": "rush"}}`, nested records nested, each key any field has shown with
   every field (absent ones at 0 or `""`); the shape a record argument has (DECISIONS 2026-11-06). The manifest
   and the page say which tables a state uses (`cell`, `textcell` or both); before, a Text state was shown as `cell`.
+- **Decimals (2026-11-06).** A Decimal (exact to 0.0001, lang's 1bdc8b2) goes out of the HTTP API as a JSON
+  *string* with the point, in results, events and `GET /state` (`"result": "37.5"`, `"price": {"4": "12.5"}`): a
+  JSON number is a float to most clients. A Decimal parameter takes a string (`"12.5"`, exact at any size) or a
+  number whose text has at most 4 places (`12.5`, `3`; a number past 2^53 is already rounded by the client, so send
+  big amounts as strings); more places is a 400, never a round. `repl` takes `12.5` and prints `ok 37.5`. A Decimal
+  state is an Int map of scaled values (table `cell`, `price|4|125000`), so replay, the range check and the log
+  work unchanged; the genesis world takes `price.4:12.5` (an Int there is that many units). The log and outbox keep
+  the interpreter's value form (`["Decimal", 125000]`). Decimal × Decimal runs in the interpreter's i128, so only a
+  result past i64 is the range fault. `kern build`: a Decimal is a scaled i64, an Int promoted exactly where a
+  Decimal is wanted, Decimal × Decimal through i128 and floored (`rt::dec_mul`), `/` floored; the binary's script
+  protocol writes `12.5` and prints `ok result=37.5` (an Int result of a `-> Decimal` as `3.0`).
 - **Lists (2026-11-06).** A List parameter is a JSON array of integers over HTTP (`{"xs": [1, 2, 3]}`; a fraction,
   a string or a number past i64 is a 400) and `[1 2 3]` in `repl`, as in `eg` lines. A List state (`state cart Int
   -> List`) is stored per entry in table `listcell` as a JSON array; `GET /state` shows arrays, replay compares them

@@ -86,6 +86,45 @@ pub fn div(a: i64, b: i64) -> i64 {
     a.div_euclid(b)
 }
 
+/// One Decimal unit is 1/DEC_UNIT (syntax::UNIT): a Decimal is an i64 count of 0.0001s.
+pub const DEC_UNIT: i64 = 10_000;
+
+/// An Int where a Decimal is wanted: that many units, exactly (overflow is a fault, as any i64 overflow).
+#[inline(always)]
+pub fn dec_of_int(n: i64) -> Result<i64, Fault> {
+    mul(n, DEC_UNIT)
+}
+/// Decimal × Decimal: the product in i128, floored to the scale (run.rs decimal_op); only the result must fit i64.
+#[inline(always)]
+pub fn dec_mul(a: i64, b: i64) -> Result<i64, Fault> {
+    let p = (a as i128 * b as i128).div_euclid(DEC_UNIT as i128);
+    i64::try_from(p).map_err(|_| Fault::Overflow)
+}
+/// A Decimal as syntax::decimal_text writes it: `37.5`, `3.0`, `-0.0001`.
+pub fn show_dec(n: i64) -> String {
+    let (sign, a) = if n < 0 { ("-", -(n as i128)) } else { ("", n as i128) };
+    let (w, f) = (a / DEC_UNIT as i128, a % DEC_UNIT as i128);
+    let f = format!("{f:04}");
+    let f = f.trim_end_matches('0');
+    format!("{sign}{w}.{}", if f.is_empty() { "0" } else { f })
+}
+/// `12.5` or an Int `3` (= 3.0) as a Decimal, as eg lines take them; None past 4 places or past i64.
+pub fn parse_dec(tok: &str) -> Option<i64> {
+    if let Ok(n) = tok.parse::<i64>() {
+        return n.checked_mul(DEC_UNIT);
+    }
+    let (neg, body) = match tok.strip_prefix('-') {
+        Some(b) => (true, b),
+        None => (false, tok),
+    };
+    let (whole, frac) = body.split_once('.')?;
+    if whole.is_empty() || frac.is_empty() || frac.len() > 4 || !whole.chars().chain(frac.chars()).all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let n: i64 = format!("{whole}{frac:0<4}").parse().ok()?;
+    Some(if neg { -n } else { n })
+}
+
 /// A call argument at the boundary.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Val {
@@ -93,6 +132,8 @@ pub enum Val {
     Acct(Acct),
     Text(String),
     List(Vec<i64>),
+    /// a Decimal, scaled (DEC_UNIT units)
+    Dec(i64),
 }
 
 /// A parameter's type (and a map's key type: Int or Account only).
@@ -103,6 +144,8 @@ pub enum KeyType {
     Text,
     /// a parameter only: a list of Ints
     List,
+    /// a parameter only: a Decimal
+    Decimal,
 }
 
 /// What the compiler knows about a definition.
@@ -124,6 +167,8 @@ pub struct MapInfo {
     pub text: bool,
     /// a List-valued state (`state cart Int -> List`)
     pub list: bool,
+    /// a Decimal-valued state (`state price Int -> Decimal`): an Int map of scaled values
+    pub dec: bool,
     /// an Account-valued state (`state member Int -> Account`): an Int map of `store`d accounts
     pub acct: bool,
 }
@@ -695,6 +740,12 @@ pub fn acct(v: &Val) -> Acct {
 pub fn int(v: &Val) -> i64 {
     match v {
         Val::Int(n) => *n,
+        _ => unreachable!("checked at the boundary"),
+    }
+}
+pub fn dec(v: &Val) -> i64 {
+    match v {
+        Val::Dec(n) => *n,
         _ => unreachable!("checked at the boundary"),
     }
 }

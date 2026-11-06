@@ -73,6 +73,8 @@ fn rust_type(t: &str) -> Option<&'static str> {
         "Bool" => "bool",
         "Text" => "String",
         "List" => "Vec<i64>",
+        // scaled: an i64 count of 0.0001s (rt::DEC_UNIT)
+        "Decimal" => "i64",
         _ => return None,
     })
 }
@@ -248,6 +250,29 @@ impl<'a> Gen<'a> {
         Ok(())
     }
 
+    /// run.rs decimal_op: `+ -` and comparisons on scaled values (an Int promoted exactly), Decimal × Int exact,
+    /// Decimal × Decimal through i128 and floored, `/` by an Int floored.
+    fn decimal_op(op: &str, (l, lt): (String, String), (r, rt): (String, String)) -> G<(String, String)> {
+        let up = |c: &str, t: &str| if t == "Int" { format!("rt::dec_of_int({})?", c) } else { c.to_string() };
+        let (sl, sr) = (up(&l, &lt), up(&r, &rt));
+        let dec = |c: String| Ok((c, "Decimal".to_string()));
+        match op {
+            "+" => dec(format!("rt::add({}, {})?", sl, sr)),
+            "-" => dec(format!("rt::sub({}, {})?", sl, sr)),
+            "*" if lt == "Decimal" && rt == "Decimal" => dec(format!("rt::dec_mul({}, {})?", l, r)),
+            "*" => dec(format!("rt::mul({}, {})?", l, r)),
+            "/" if lt == "Decimal" && rt == "Int" => dec(format!("rt::div({}, {})", l, r)),
+            "=" => Ok((format!("({} == {})", sl, sr), "Bool".into())),
+            "!=" | "<" | "<=" | ">" | ">=" => Ok((format!("({} {} {})", sl, op, sr), "Bool".into())),
+            _ => unsupported(format!("operator {} on {} and {}", op, lt, rt)),
+        }
+    }
+
+    /// A value going where a Decimal is wanted (a Decimal parameter, state or result): an Int is that many units.
+    fn to_decimal((c, t): (String, String)) -> (String, String) {
+        if t == "Int" { (format!("rt::dec_of_int({})?", c), "Decimal".into()) } else { (c, t) }
+    }
+
     // ---- expressions: (rust code, Kern type)
     fn expr(&mut self, e: &Expr, sc: &Scope) -> G<(String, String)> {
         match e {
@@ -263,6 +288,9 @@ impl<'a> Gen<'a> {
                 if *op == "+" && lt == "Text" && rt == "Text" {
                     // Text + Text joins them (wf typed it)
                     return Ok((format!("format!(\"{{}}{{}}\", {}, {})", l, r), "Text".into()));
+                }
+                if lt == "Decimal" || rt == "Decimal" {
+                    return Self::decimal_op(op, (l, lt), (r, rt));
                 }
                 Ok(match *op {
                     "+" => (format!("rt::add({}, {})?", l, r), "Int".into()),
@@ -297,7 +325,7 @@ impl<'a> Gen<'a> {
                 let (hi, _) = self.expr(hi, sc)?;
                 let mut inner = sc.clone();
                 inner.insert(j.clone(), "Int".into());
-                let (body, _) = self.expr(body, &inner)?;
+                let (body, bt) = self.expr(body, &inner)?;
                 let add = format!("__s = rt::add(__s, {})?;", body);
                 let step = match cond {
                     Some(c) => format!("if {} {{ {} }}", self.expr(c, &inner)?.0, add),
@@ -312,7 +340,8 @@ impl<'a> Gen<'a> {
                         ident(j),
                         step
                     ),
-                    "Int".into(),
+                    // a sum of Decimal terms is a Decimal (scaled values add exactly)
+                    if bt == "Decimal" { bt } else { "Int".into() },
                 ))
             }
             Expr::All(..) => unsupported(format!("expression {}", code(e))),
@@ -385,6 +414,18 @@ impl<'a> Gen<'a> {
                 vals = self.used_as_accounts(vals);
                 vals.extend(rest);
             }
+            if self.defs.decimal_states.iter().any(|a| a == x) {
+                // a Decimal-valued state: an Int map of scaled values; an Int stored is that many units
+                if op == "get" {
+                    return Ok((Self::hoist(&format!("tx.{}get({}, {{}})", pre, slot), &vals), "Decimal".into()));
+                }
+                let mut vals = vals;
+                if vals.len() == 2 {
+                    let v = vals.pop().unwrap();
+                    vals.push(Self::to_decimal(v));
+                }
+                return Ok((Self::hoist(&format!("tx.{}set({}, {{}}, {{}})", pre, slot), &vals), "Unit".into()));
+            }
             if self.defs.list_states.iter().any(|a| a == x) {
                 // a List-valued state: a missing entry reads []
                 if op == "get" {
@@ -428,9 +469,17 @@ impl<'a> Gen<'a> {
         if let Some(d) = self.defs.defs.get(name) {
             // an Account argument is used as an account: the interpreter's call_def_body refuses `none` there
             let vals = self.used_as_accounts(vals);
+            // an Int argument to a Decimal parameter is that many units (run.rs promotes at every call boundary)
+            let vals: Vec<(String, String)> =
+                vals.into_iter().zip(&d.params).map(|(v, (_, t))| if t == "Decimal" { Self::to_decimal(v) } else { v }).collect();
             let fmt = format!("{}(tx{}{})?", ident(name), sep, ph);
             // a record result's type is the record's name: only a let binds it (block), anything else won't type
             return Ok((Self::hoist(&fmt, &vals), d.ret.clone().unwrap_or_else(|| "Unit".into())));
+        }
+        if name.starts_with(|c: char| c.is_ascii_digit() || c == '-') {
+            if let Ok(v) = crate::syntax::decimal_value(name) {
+                return Ok((format!("{}i64", v), "Decimal".into()));
+            }
         }
         if name == crate::run::NONE && !self.defs.account_states.is_empty() {
             return Ok(("Acct::NONE".into(), "Account".into()));
@@ -488,6 +537,9 @@ impl<'a> Gen<'a> {
                 Stmt::Let(x, e) => {
                     let (c, t) = self.expr(e, sc)?;
                     if x == "result" && d.ret.is_some() {
+                        // an Int result of a `-> Decimal` is that many units (the interpreter keeps the Int; both
+                        // mean the same value)
+                        let c = if d.ret.as_deref() == Some("Decimal") { Self::to_decimal((c, t)).0 } else { c };
                         out.push(format!("{}result = {};", ind, c));
                     } else {
                         if t == "Unit" {
@@ -536,6 +588,7 @@ impl<'a> Gen<'a> {
         }
         match d.ret.as_deref() {
             None | Some("Int") => Ok(()),
+            Some("Decimal") if what == "definition" => Ok(()),
             Some(r) if what == "definition" && self.leaves(r).map_or(false, |ls| ls.iter().all(|(_, t)| rust_type(t).is_some())) => Ok(()),
             Some(t) => unsupported(format!("{}: {} result of type {}", d.name, what, t)),
         }
@@ -550,7 +603,7 @@ impl<'a> Gen<'a> {
     fn ret_type(&self, d: &Def) -> String {
         match d.ret.as_deref() {
             None => "()".into(),
-            Some("Int") => "i64".into(),
+            Some("Int") | Some("Decimal") => "i64".into(),
             Some(r) => format!("({},)", self.leaves(r).unwrap().iter().map(|(_, t)| rust_type(t).unwrap()).collect::<Vec<_>>().join(", ")),
         }
     }
@@ -664,6 +717,7 @@ impl<'a> Gen<'a> {
                 "Int" => format!("Val::Int({})", ident(p)),
                 "Text" => format!("Val::Text({}.clone())", ident(p)),
                 "List" => format!("Val::List({}.clone())", ident(p)),
+                "Decimal" => format!("Val::Dec({})", ident(p)),
                 _ => format!("Val::Acct({})", ident(p)),
             })
             .collect();
@@ -714,6 +768,7 @@ impl<'a> Gen<'a> {
                 "Text" => format!("{}.clone()", v),
                 "Account" => format!("w.name(*{}).to_string()", v),
                 "Owner" => format!("w.owner_name(*{}).to_string()", v),
+                "Decimal" => format!("rt::show_dec(*{})", v),
                 _ => format!("rt::show_bool(*{}).to_string()", v),
             })
             .collect();
@@ -791,7 +846,7 @@ impl<'a> Gen<'a> {
             let ps: Vec<String> = d
                 .params
                 .iter()
-                .map(|(p, t)| format!("({}, KeyType::{})", json_str(p), match t.as_str() { "Account" => "Account", "Text" => "Text", "List" => "List", _ => "Int" }))
+                .map(|(p, t)| format!("({}, KeyType::{})", json_str(p), match t.as_str() { "Account" => "Account", "Text" => "Text", "List" => "List", "Decimal" => "Decimal", _ => "Int" }))
                 .collect();
             let us: Vec<String> = infer_uses(defs, d).iter().map(|u| json_str(u)).collect();
             out.push(format!(
@@ -810,7 +865,8 @@ impl<'a> Gen<'a> {
             .map(|(n, k, s, t)| {
                 let acct = self.defs.account_states.contains(n);
                 let list = self.defs.list_states.contains(n);
-                format!("MapInfo {{ name: {}, key: KeyType::{}, slot: {}, text: {}, list: {}, acct: {} }}", json_str(n), k, s, t, list, acct)
+                let dec = self.defs.decimal_states.contains(n);
+                format!("MapInfo {{ name: {}, key: KeyType::{}, slot: {}, text: {}, list: {}, dec: {}, acct: {} }}", json_str(n), k, s, t, list, dec, acct)
             })
             .collect();
         out.push(format!("    const MAPS: &'static [MapInfo] = &[{}];", maps.join(", ")));
@@ -823,12 +879,13 @@ impl<'a> Gen<'a> {
                 .params
                 .iter()
                 .enumerate()
-                .map(|(j, (_, t))| format!("rt::{}(&args[{}])", match t.as_str() { "Account" => "acct", "Text" => "text", "List" => "list", _ => "int" }, j))
+                .map(|(j, (_, t))| format!("rt::{}(&args[{}])", match t.as_str() { "Account" => "acct", "Text" => "text", "List" => "list", "Decimal" => "dec", _ => "int" }, j))
                 .collect();
             // the result as the interpreter's value: an Int, or a record's leaves in order
             let wrap = match d.ret.as_deref() {
                 None => ".map(|_| None)".to_string(),
                 Some("Int") => ".map(|v| Some(vec![Val::Int(v)]))".to_string(),
+                Some("Decimal") => ".map(|v| Some(vec![Val::Dec(v)]))".to_string(),
                 Some(r) => {
                     let ls = self.leaves(r).unwrap();
                     let pat: Vec<String> = (0..ls.len()).map(|i| format!("__{}", i)).collect();
@@ -1164,6 +1221,24 @@ body
         has("tx.ilset(0, k, Vec::<i64>::new())");
         has("list: true");
         has("rt::list(&args[0])");
+    }
+
+    #[test]
+    fn decimals_compile_to_scaled_i64_with_ints_promoted_and_products_through_i128() {
+        let src = "state price Int -> Decimal\n\nvat k:Int q:Int -> Decimal\nbody\n  result = price.get k * 1.25 + q\n\n\
+                   put k:Int\nbody\n  price.set k 2\n  pay k 3\n\npay k:Int p:Decimal\n  need p > 0 else Neg\nbody\n  \
+                   price.set k (p / 3)\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let rs = super::Gen::new(&defs, "t").module().unwrap();
+        let has = |s: &str| assert!(rs.contains(s), "missing {s:?} in\n{rs}");
+        has("result = rt::add(rt::dec_mul(tx.iget(0, k), 12500i64)?, rt::dec_of_int(q)?)?;");
+        has("tx.iset(0, k, rt::dec_of_int(2i64)?)");
+        has("pay(tx, k, rt::dec_of_int(3i64)?)?");
+        has("(p > rt::dec_of_int(0i64)?)");
+        has("tx.iset(0, k, rt::div(p, 3i64))");
+        has("dec: true");
+        has(".map(|v| Some(vec![Val::Dec(v)]))");
     }
 
     #[test]

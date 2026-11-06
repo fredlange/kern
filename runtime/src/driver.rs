@@ -97,7 +97,10 @@ pub fn parse_world<M: Module>(items: &[&str]) -> Result<World, String> {
             }
             continue;
         }
-        let v: i64 = if mi.acct {
+        let v: i64 = if mi.dec {
+            // `price.4:12.5`, or an Int: that many units
+            parse_dec(v).ok_or(format!("bad decimal {it}"))?
+        } else if mi.acct {
             // an account by name, or `none` (the same as no entry)
             if v == "none" { 0 } else { store(w.acct(v).ok_or(format!("{it}: no account {v}"))?) }
         } else {
@@ -119,7 +122,13 @@ pub fn parse_world<M: Module>(items: &[&str]) -> Result<World, String> {
 /// A map entry as the eg grammar writes it: an Int, or for an Account-valued state the account's name (entries that
 /// are `none` are 0, so the dump skips them as it skips 0).
 fn show_stored(m: &MapInfo, v: i64, w: &World) -> String {
-    if m.acct { w.name(stored(v)).to_string() } else { v.to_string() }
+    if m.acct {
+        w.name(stored(v)).to_string()
+    } else if m.dec {
+        show_dec(v)
+    } else {
+        v.to_string()
+    }
 }
 
 pub fn dump<M: Module>(w: &World) -> String {
@@ -199,6 +208,7 @@ pub fn parse_args<M: Module>(w: &World, def: usize, raw: &[&str]) -> Result<Vec<
             KeyType::Int => s.parse().map(Val::Int).map_err(|_| format!("`{p}` must be an Int, got {s:?}")),
             KeyType::Text => unquote(s).map(Val::Text).ok_or(format!("`{p}` must be a quoted Text, got {s}")),
             KeyType::List => parse_list(s).map(Val::List).ok_or(format!("`{p}` must be a list [1 2 3], got {s}")),
+            KeyType::Decimal => parse_dec(s).map(Val::Dec).ok_or(format!("`{p}` must be a Decimal (12.5), got {s}")),
         })
         .collect()
 }
@@ -210,6 +220,7 @@ fn show_val(v: &Val, w: &World) -> String {
         Val::Acct(a) => w.name(*a).to_string(),
         Val::Text(t) => quote(t),
         Val::List(xs) => show_list(xs),
+        Val::Dec(n) => show_dec(*n),
     }
 }
 
@@ -308,6 +319,7 @@ fn bench<M: Module>(def: &str, n: u32, calls: u64) {
                 KeyType::Int => Val::Int(((x >> 40) % 1500) as i64 - 10),
                 KeyType::Text => Val::Text(String::new()),
                 KeyType::List => Val::List(Vec::new()),
+                KeyType::Decimal => Val::Dec(((x >> 40) % 1500) as i64 - 10),
             };
         }
         match M::call(&mut exec, &mut w, &mut prov, d, &args) {
