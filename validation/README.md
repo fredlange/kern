@@ -141,3 +141,9 @@ succeeds: the label bug sent to lang, fixed in f3af834 (0 contradictions since; 
 committed) gives 3,000 contradictions in 10 of 100; claims written with `*` alone agree with any consistent rounding,
 so the generator computes each literal product's floor value itself. Host and compiled decimals: not yet (runtime).
 
+**2026-11-06, short-circuit guards** (9e0c650). `gen_list` also emits `and`/`or` guards in the right and the wrong
+order around an `at`. Teeth: an `or` guarded by its left side instead of its negation (prove.rs, not committed) gives
+786 contradictions in 8 of 100 list programs. difftest's reference counts a list key as written only if its value
+changed, as the host does (lists are preloaded, so the store can't say what was written); before, a list entry
+another key already broke made a correct call a fault (585 divergences on a Text/List invariant probe).
+

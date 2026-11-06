@@ -1184,7 +1184,18 @@ pub fn acct_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
 pub fn gen_list(rnd: &mut Random) -> String {
     let wrong = rnd.random() < 0.4;
     let mut lines: Vec<String> = vec!["state cart Int -> List".into(), "state out Int".into(), String::new()];
-    match choice_str(rnd, &["push", "read", "total", "eq"]) {
+    match choice_str(rnd, &["push", "read", "total", "eq", "guard", "guard"]) {
+        "guard" => {
+            // a short-circuit guard (9e0c650): `and`/`or` in the right or the wrong order around an `at`
+            let n = *rnd.choice(&[0i64, 1]);
+            let cond = match rnd.randbelow(4) {
+                0 => format!("length xs > {n} and at xs {n} > 0"),
+                1 => format!("at xs {n} > 0 and length xs > {n}"),
+                2 => format!("length xs <= {n} or at xs {n} > 0"),
+                _ => format!("length xs > {n} or at xs {n} > 0"),
+            };
+            lines.extend(["f xs:List".to_string(), "  ok otherwise".into(), "body".into(), format!("  if {cond}"), "    out.set 0 1".into(), "  else".into(), "    out.set 0 0".into()]);
+        }
         "push" => {
             lines.extend(["f k:Int v:Int".to_string(), "  ok otherwise".into()]);
             lines.push(format!("  ensure length (cart.get' k) = length (cart.get k) + {}", if wrong && rnd.random() < 0.5 { 2 } else { 1 }));

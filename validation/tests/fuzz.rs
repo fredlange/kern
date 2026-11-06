@@ -53,7 +53,11 @@ fn an_injected_prover_fault_is_found() {
     // the other tests of this binary.
     let out = std::env::temp_dir().join(format!("kern_fuzz_fault_b_{}.json", std::process::id()));
     let p = Command::new(env!("CARGO_BIN_EXE_fuzz"))
-        .args(["--loops", "0", "--handlers", "20", "--runs", "60", "--no-mutants", "--jobs", "2", "--fault", "b", "--save"])
+        .args(["--loops", "0", "--handlers", "20", "--runs", "60", "--no-mutants", "--jobs", "2", "--fault", "b"])
+        // the generators added since (each defaults to 100+) stay off here: this test is about fault (b) only
+        .args(["--sums", "0", "--variants", "0", "--texts", "0", "--nests", "0", "--matches", "0", "--ticks", "0"])
+        .args(["--frames", "0", "--ckeys", "0", "--recs", "0", "--lits", "0", "--rets", "0", "--accts", "0", "--lists", "0", "--decs", "0"])
+        .arg("--save")
         .arg(&out)
         .output()
         .unwrap();

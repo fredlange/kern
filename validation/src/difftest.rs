@@ -186,7 +186,18 @@ fn interp_call(interp: &mut Interp, w: &mut World, defs: &Module, checks: &Check
     let n_obs = interp.observations.len();
     let res = interp_call_plain(interp, &mut lw, defs, name, args)?;
     if res.0.starts_with("ok") {
-        let keys = lw.written_keys(&defs.states);
+        // the lists were preloaded (they aren't read through the Store), so they don't say what was written: as the
+        // host's call_in_tx, a list key counts as written when its value changed (9e0c650 checks list entries)
+        let preloaded = std::mem::take(&mut lw.lists);
+        let mut keys = lw.written_keys(&defs.states);
+        lw.lists = preloaded;
+        for (x, m) in &lw.lists {
+            if let Some(t) = defs.states.get(x) {
+                let old = w.lists.get(x);
+                let changed = m.iter().filter(|(k, xs)| old.and_then(|o| o.get(*k)).map_or(!xs.is_empty(), |o| o != *xs));
+                keys.entry(t.clone()).or_default().extend(changed.map(|(k, _)| k.clone()));
+            }
+        }
         let texts: Vec<String> =
             which.iter().map(|&i| { let (v, t, c) = &defs.invariants[i]; format!("{}:{} {}", v, t, kern::syntax::code(c)) }).collect();
         let broken = interp.broken_invariants(&mut lw, Some(&keys)).map_err(|e| format!("interpreter: {e}"))?;
