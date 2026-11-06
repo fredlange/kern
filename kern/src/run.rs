@@ -356,6 +356,11 @@ impl World {
                 keys.entry(t.clone()).or_default().extend(m.keys().cloned());
             }
         }
+        for (x, m) in &self.lists {
+            if let Some(t) = states.get(x) {
+                keys.entry(t.clone()).or_default().extend(m.keys().cloned());
+            }
+        }
         keys
     }
 
@@ -1231,10 +1236,13 @@ impl<'m, 'p> Interp<'m, 'p> {
                 }
                 None if t == "Account" => world.bal.keys().map(|a| Value::Str(a.clone())).collect(),
                 None => {
+                    // every Int key any state holds (Int, Text, Account-valued and List entries alike)
                     let mut ks: Vec<Int> = world
                         .maps
                         .values()
                         .flat_map(|m| m.keys())
+                        .chain(world.texts.values().flat_map(|m| m.keys()))
+                        .chain(world.lists.values().flat_map(|m| m.keys()))
                         .filter_map(|k| if let Key::Int(n) = k { Some(*n) } else { None })
                         .collect();
                     ks.sort();

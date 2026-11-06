@@ -611,6 +611,25 @@ fn s5_a_decimal_is_exact_and_rounds_down_and_its_counterexamples_replay() {
     assert!(e.message().contains("payloads are Int or Account"), "{}", e.message());
 }
 
+#[test]
+fn a_guard_discharges_the_goals_of_what_it_guards() {
+    // app on lists: `ensure result = at (cart.get c) i when i >= 0 and i < length (cart.get c)` left the `at` goal
+    // `?`. The interpreter short-circuits `when` (C first), `and` and `or`, so a goal raised where it may skip
+    // holds only where that part runs
+    let src = "state cart Int -> List\n\nitem c:Int i:Int -> Int\n  ensure result = at (cart.get c) i when i >= 0 and i < length (cart.get c)\nbody\n  if i >= 0 and i < length (cart.get c)\n    result = at (cart.get c) i\n  else\n    result = 0\n\nfirst_big xs:List -> Int\n  ensure result = 1 when length xs > 0 and at xs 0 > 5\nbody\n  if length xs > 0\n    if at xs 0 > 5\n      result = 1\n    else\n      result = 0\n  else\n    result = 0\n";
+    let reps = reports(&parse(src));
+    for n in ["item", "first_big"] {
+        assert!(reps[n].clean, "{n}: {:?}", reps[n].guarantees);
+    }
+    // and a list state's entries are checked against the module invariants (runtime: written_keys, every key)
+    let defs = parse("state cart Int -> List\ninvariant k:Int length (cart.get k) <= 2\n\nadd k:Int v:Int\n  ok otherwise\nbody\n  cart.set k (append (cart.get k) v)\n");
+    let lists: IndexMap<String, IndexMap<Key, Vec<i128>>> = [("cart".to_string(), [(Key::Int(3), vec![1, 2, 3])].into_iter().collect())].into_iter().collect();
+    let mut w = kern::run::World::from_example(&IndexMap::new(), 0, &IndexMap::new()).with_lists(&lists);
+    assert!(w.written_keys(&defs.states)["Int"].contains(&Key::Int(3)));
+    let broken = kern::run::Interp::new(&defs).broken_invariants(&mut w, None).unwrap();
+    assert_eq!(broken.len(), 1, "{broken:?}");
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int

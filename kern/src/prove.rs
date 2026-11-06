@@ -332,8 +332,9 @@ pub struct Prover<'m> {
     acct_params: BTreeSet<String>,
     /// List parameters (a model gives them as sequences)
     list_params: IndexMap<String, Seq>,
-    /// the `for j …` / `sum j …` ranges being evaluated, innermost last: a goal raised inside holds for each j
-    ranges: Vec<(ZInt, ZInt, ZInt)>,
+    /// the `for j …` / `sum j …` ranges and short-circuit guards being evaluated, innermost last: a goal raised
+    /// inside holds for each j of a range, where each guard holds
+    ranges: Vec<Scope>,
     /// > 0 while a sum's recursive function is built or a callee's spec assumed: no goals then
     quiet: u32,
     /// evaluating the definition's own spec after its body: goals are stated, not assumed
@@ -361,6 +362,13 @@ fn as_param(t: &str, v: &SV) -> SV {
         ("Decimal", SV::I(n)) => SV::D(zz::mul(n, &zz::val(crate::syntax::UNIT))),
         _ => v.clone(),
     }
+}
+
+/// Where a call-site goal is raised: inside a range (`for j`, `sum j`) or a guard (the condition of a `when`, the
+/// left of an `and` / `or`).
+enum Scope {
+    Range(ZInt, ZInt, ZInt),
+    Guard(Bool),
 }
 
 /// Decimal arithmetic over scaled Ints, as the interpreter does it: an Int operand promoted exactly; Decimal ×
@@ -576,7 +584,7 @@ impl<'m> Prover<'m> {
                 }
                 let j = zz::int(&format!("{}_{}", v, fresh()));
                 // a goal raised inside (an `at`) holds for every j in the range
-                self.ranges.push((j.clone(), lo.i().clone(), hi.i().clone()));
+                self.ranges.push(Scope::Range(j.clone(), lo.i().clone(), hi.i().clone()));
                 let inner = self.sev(body, &env_with(env, v, SV::I(j.clone())), cur, post);
                 self.ranges.pop();
                 let range = zz::and(&[zz::le(lo.i(), &j), zz::lt(&j, hi.i())]);
@@ -607,7 +615,7 @@ impl<'m> Prover<'m> {
                 // ... so a body that raises one (an `at`) is gone over again for every j in the range
                 if [&**body].into_iter().chain(cond.as_deref()).any(|e| raises_goals(self.defs, e)) {
                     let jv = zz::int(&format!("{}_{}", j, fresh()));
-                    self.ranges.push((jv.clone(), lo.clone(), hi.clone()));
+                    self.ranges.push(Scope::Range(jv.clone(), lo.clone(), hi.clone()));
                     let e2 = env_with(env, j, SV::I(jv));
                     if let Some(c) = cond {
                         self.sev(c, &e2, cur, post);
@@ -622,8 +630,26 @@ impl<'m> Prover<'m> {
                 }
             }
             Expr::Bin(op, l, r) => {
-                let l = self.sev(l, env, cur, post);
-                let r = self.sev(r, env, cur, post);
+                // the interpreter short-circuits `and`, `or` and `when` (C first): a goal raised in the part it may
+                // skip holds only where that part runs
+                let (l, r) = match *op {
+                    "when" => {
+                        let r = self.sev(r, env, cur, post);
+                        self.ranges.push(Scope::Guard(r.b().clone()));
+                        let l = self.sev(l, env, cur, post);
+                        self.ranges.pop();
+                        (l, r)
+                    }
+                    "and" | "or" => {
+                        let l = self.sev(l, env, cur, post);
+                        let g = if *op == "and" { l.b().clone() } else { zz::not(l.b()) };
+                        self.ranges.push(Scope::Guard(g));
+                        let r = self.sev(r, env, cur, post);
+                        self.ranges.pop();
+                        (l, r)
+                    }
+                    _ => (self.sev(l, env, cur, post), self.sev(r, env, cur, post)),
+                };
                 if matches!(l, SV::D(_)) || matches!(r, SV::D(_)) {
                     return decimal_op(op, &l, &r);
                 }
@@ -832,9 +858,14 @@ impl<'m> Prover<'m> {
             return;
         }
         let mut c = c;
-        for (j, lo, hi) in self.ranges.iter().rev() {
-            let inside = zz::and(&[zz::le(lo, j), zz::lt(j, hi)]);
-            c = zz::forall(&[j], &zz::implies(&inside, &c));
+        for scope in self.ranges.iter().rev() {
+            c = match scope {
+                Scope::Range(j, lo, hi) => {
+                    let inside = zz::and(&[zz::le(lo, j), zz::lt(j, hi)]);
+                    zz::forall(&[j], &zz::implies(&inside, &c))
+                }
+                Scope::Guard(g) => zz::implies(g, &c),
+            };
         }
         // raised by the definition's own spec: nothing the call runs rests on it
         let owned;
