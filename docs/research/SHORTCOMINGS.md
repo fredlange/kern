@@ -133,7 +133,7 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   | ~~named constants~~ closed `0acdb54` (Closed: "S5, named constants") | `s5_named_constants_check` |
   | ~~imports across packages~~ closed `b71848b` (Closed: "S5, imports across packages") | `s5_import_across_packages_loads` |
   | ~~effects that return values~~ closed `700e189` (Closed: "S5, effects that return values") | `s5_effects_that_return_values_check` |
-  | records as state values, `-> Record`, nested records, record equality (added 2026-11-05) | not written yet |
+  | ~~records as state values, `-> Record`, nested records, record equality~~ closed `6ceca0a` (Closed: "S5, records, second cut") | `s5_records_as_state_values_check`, `s5_a_definition_returns_a_record`, `s5_nested_records_and_record_equality_check` |
   | Accounts as state values, iteration over accounts | not written yet |
   | decimals: exact fixed-point, not binary floats (added 2026-11-05) | not written yet |
   | lists: a sequence type (added 2026-11-05) | not written yet |
@@ -217,6 +217,28 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S5, records, second cut (one row of S5)
+- **Kind:** code gap. **Closed** 2026-11-06 in `00fedb4` (nested records, equality), `6506a42` (records as state
+  values), `1bb9cef` (`-> Point`, records in lets), `d3bc291` (stored sub-records, one field's frame) and
+  `6ceca0a` (a result has its declared type), under delegation (.party/DECISIONS.md, 2026-11-06, records, second
+  cut); compiled path and host `21e46f7`, `76c4891`, `a1ec8c0` (runtime); fuzzer `3809805`, `def75f2` (tester).
+- **Was:** records were parameters only; no stored record, no record result, no field that is a record, no `p = q`.
+- **Decided by** F4 (one meaning everywhere): everything is flattened at load time (syntax::flatten_records), so
+  run, infer and prove see Ints and plain states as before and a module without records is untouched; a stored
+  record is one state per leaf field; over HTTP a record has one JSON shape in, out and stored. F2: a returned
+  record gets a fresh value (procedure) or an uninterpreted function (function) per leaf. F7: nothing runs twice.
+  Tokens: `p = q` 7 vs 19 written out; field read `order.qty.get k` 9 vs `(order.get k).qty` 10.
+- **Evidence:** the three gap tests above pass as ordinary tests, with
+  `s5_a_stored_record_is_read_by_field_or_whole_and_set_as_a_statement`,
+  `s5_a_returned_record_is_bound_before_use_and_eg_compares_its_leaves` and `a_result_has_the_declared_type`
+  (`cargo test -p kern --release --test shortcomings`, 79 passed at `0b9932d`). Tester: the result type is
+  checked in 10 shapes; nested, stored and record-returning fuzz variants 0 mismatches; difftest prints a
+  record result as its leaves (`7f4117e`), 0 divergences. Floors: digests unchanged, fuzz seeds 1–3 0
+  contradictions; docs test green at `0b9932d`.
+- **What remains:** the page shows a whole-record comparison as its field expansion (longer than written;
+  DECISIONS caveat); no Account fields in stored records; records in handler parameters and grouped `eg`
+  arguments not built.
 
 ### S5, effects that return values (one row of S5)
 - **Kind:** code gap. **Closed** 2026-11-06 in `700e189`, under delegation (.party/DECISIONS.md, 2026-11-06, lang,
