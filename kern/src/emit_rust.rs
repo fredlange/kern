@@ -319,6 +319,16 @@ impl<'a> Gen<'a> {
         }
     }
 
+    /// In a module with Account-valued states an Account value may be `none`; where it is used as an account (a
+    /// ledger operation, an Account-keyed state, an Account argument) that is an error, as in the interpreter. Other
+    /// modules compile exactly as before.
+    fn used_as_accounts(&self, vals: Vec<(String, String)>) -> Vec<(String, String)> {
+        if self.defs.account_states.is_empty() {
+            return vals;
+        }
+        vals.into_iter().map(|(c, t)| if t == "Account" { (format!("rt::some({})?", c), t) } else { (c, t) }).collect()
+    }
+
     /// Arguments that call into the transaction are evaluated into temporaries first (left to right, as the
     /// interpreter does), so no argument borrows `tx` while the call holds it.
     fn hoist(fmt: &str, vals: &[(String, String)]) -> String {
@@ -351,6 +361,7 @@ impl<'a> Gen<'a> {
                 "audit.emit" => "tx.emit(0, {})",
                 _ => unreachable!(),
             };
+            let vals = self.used_as_accounts(vals);
             return Ok((Self::hoist(fmt, &vals), sig(name).unwrap().1.to_string()));
         }
         if assumed_op(self.defs, name).is_some() {
@@ -364,6 +375,24 @@ impl<'a> Gen<'a> {
         if let Some((x, op, key)) = state_op(self.defs, name) {
             let pre = if key == "Account" { "a" } else { "i" };
             let (_, slot, text) = self.slot[x].clone();
+            let mut vals = vals;
+            if key == "Account" && !vals.is_empty() {
+                // the key is used as an account
+                let rest = vals.split_off(1);
+                vals = self.used_as_accounts(vals);
+                vals.extend(rest);
+            }
+            if self.defs.account_states.iter().any(|a| a == x) {
+                // an Account-valued state: an Int map of rt::store'd accounts (0 = none)
+                if op == "get" {
+                    return Ok((format!("rt::stored({})", Self::hoist(&format!("tx.{}get({}, {{}})", pre, slot), &vals)), "Account".into()));
+                }
+                let mut vals = vals;
+                if let Some(v) = vals.get_mut(1) {
+                    v.0 = format!("rt::store({})", v.0);
+                }
+                return Ok((Self::hoist(&format!("tx.{}set({}, {{}}, {{}})", pre, slot), &vals), "Unit".into()));
+            }
             let (t, ty) = if text { ("t", "Text") } else { ("", "Int") };
             if op == "get" {
                 return Ok((Self::hoist(&format!("tx.{}{}get({}, {{}})", pre, t, slot), &vals), ty.into()));
@@ -374,9 +403,14 @@ impl<'a> Gen<'a> {
             return Ok((Self::hoist("rt::length(&{})", &vals), "Int".into()));
         }
         if let Some(d) = self.defs.defs.get(name) {
+            // an Account argument is used as an account: the interpreter's call_def_body refuses `none` there
+            let vals = self.used_as_accounts(vals);
             let fmt = format!("{}(tx{}{})?", ident(name), sep, ph);
             // a record result's type is the record's name: only a let binds it (block), anything else won't type
             return Ok((Self::hoist(&fmt, &vals), d.ret.clone().unwrap_or_else(|| "Unit".into())));
+        }
+        if name == crate::run::NONE && !self.defs.account_states.is_empty() {
+            return Ok(("Acct::NONE".into(), "Account".into()));
         }
         if self.defs.records.contains_key(name) {
             // a record value is bound by a let (block) or set as `result`; nowhere else does it have a Rust form
@@ -749,7 +783,10 @@ impl<'a> Gen<'a> {
         let maps: Vec<String> = self
             .maps
             .iter()
-            .map(|(n, k, s, t)| format!("MapInfo {{ name: {}, key: KeyType::{}, slot: {}, text: {} }}", json_str(n), k, s, t))
+            .map(|(n, k, s, t)| {
+                let acct = self.defs.account_states.contains(n);
+                format!("MapInfo {{ name: {}, key: KeyType::{}, slot: {}, text: {}, acct: {} }}", json_str(n), k, s, t, acct)
+            })
             .collect();
         out.push(format!("    const MAPS: &'static [MapInfo] = &[{}];", maps.join(", ")));
         let chans: Vec<String> = self.channels.iter().map(|c| json_str(c)).collect();
@@ -1068,6 +1105,23 @@ body
         let mut b = defs.clone();
         b.records.get_mut("Point").unwrap()[0].1 = "List".into();
         assert!(super::Gen::new(&b, "t").module().unwrap_err().0.contains("result of type"));
+    }
+
+    #[test]
+    fn none_is_an_error_where_an_account_is_used_and_only_in_modules_with_account_states() {
+        let src = "state holder Int -> Account\nstate score Account\n\npay k:Int n:Int\nbody\n  ledger.credit (holder.get k) n\n  \
+                   score.set (holder.get k) 1\n  give (holder.get k)\n  holder.set k none\n\ngive a:Account\nbody\n  score.set a 5\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let rs = super::Gen::new(&defs, "t").module().unwrap();
+        let has = |s: &str| assert!(rs.contains(s), "missing {s:?} in\n{rs}");
+        has("rt::some(rt::stored(tx.iget(0, k)))?"); // ledger.credit, the Account key and the Account argument
+        assert_eq!(rs.matches("rt::some(rt::stored(tx.iget(0, k)))?").count(), 3, "{rs}");
+        has("tx.iset(0, k, rt::store(Acct::NONE))");
+        has("acct: true");
+        // a module without Account-valued states has no check
+        let plain = crate::syntax::parse_module("state score Account\n\ngive a:Account\nbody\n  score.set a 5\n", true).unwrap();
+        assert!(!super::Gen::new(&plain, "t").module().unwrap().contains("rt::some("));
     }
 
     #[test]

@@ -53,6 +53,14 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   `"order": {"7": {"item": 3, "qty": 2, "note": "rush"}}`, nested records nested, each key any field has shown with
   every field (absent ones at 0 or `""`); the shape a record argument has (DECISIONS 2026-11-06). The manifest
   and the page say which tables a state uses (`cell`, `textcell` or both); before, a Text state was shown as `cell`.
+- **Accounts in state (2026-11-06).** `state member Int -> Account` is kept as the interpreter's world keeps it:
+  account names in table `textcell`, a cleared entry as `none` (an entry nobody set has no row and reads `none`).
+  `GET /state` shows the names, `"member": {"4": "M", "5": "none"}`; replay compares them. A genesis world may store
+  only accounts it holds (`member.4:Z` without `Z` is refused at startup: the interpreter checks it at every call's
+  boundary, the host's lazy world can't, and a call can store only accounts the world has). Using `none` as an
+  account (a ledger operation, an Account-keyed state, an Account argument) is an error, undone, like any other.
+  `kern build`: an Account-valued state is an Int map of account index + 1 (0 = `none`, `Acct::NONE` in Rust), and
+  each use of an Account as an account checks it (`rt::some`), only in modules that have Account-valued states.
 - **Record results (2026-11-06).** A definition returning a record (`mid p:Point q:Point -> Point`) answers HTTP
   with the record as an object, nested as a record argument is: `"result": {"x": 2, "y": 3}`. `repl` prints its
   leaves as an `eg` line asserts them, `ok 2 3` (a Text leaf quoted, an Account by name). Replay is unchanged (the

@@ -811,6 +811,15 @@ impl<'m> Host<'m> {
         if let Some(what) = out_of_range(&w, None) {
             return Err(format!("genesis world: Int out of the host's range (i64): {}", what));
         }
+        // an Account-valued state holds accounts of this world or none (the interpreter checks it at every call's
+        // boundary, but the host's world is lazy there; a call can store only accounts the world holds)
+        for x in &self.defs.account_states {
+            for (k, v) in w.texts.get(x).into_iter().flatten() {
+                if v != crate::run::NONE && !w.has_account(&Value::Str(v.clone())) {
+                    return Err(format!("genesis world: {}.{} holds {}, which is not an account in the world", x, key_str(k), v));
+                }
+            }
+        }
         let broken = Interp::new(self.defs).broken_invariants(&mut w, None).map_err(|e| e.to_string())?;
         if let Some((text, key)) = broken.first() {
             return Err(format!("genesis world breaks invariant {} at {}", text, key.str()));
@@ -1376,7 +1385,8 @@ pub fn host_effect(defs: &Module, root: &str) -> String {
     let dotted = format!("{}.", root);
     let parts: Vec<&String> = defs.states.keys().filter(|x| *x == root || x.starts_with(&dotted)).collect();
     if !parts.is_empty() {
-        let text = parts.iter().filter(|x| defs.text_states.contains(x)).count();
+        // Text states and Account-valued ones (kept as names, as the interpreter's world keeps them) are in textcell
+        let text = parts.iter().filter(|x| defs.text_states.contains(x) || defs.account_states.contains(x)).count();
         let tables = match (parts.len() - text, text) {
             (_, 0) => "table `cell`",
             (0, _) => "table `textcell`",
@@ -2680,6 +2690,32 @@ body
         let mut out = vec![];
         repl(&mut h, ["tag A \"say \\\"hi\\\"\""].iter().map(|l| l.to_string()), &mut |l| out.push(l)).unwrap();
         assert_eq!(out, [r#"ok A "say \"hi\"!" 2 7"#]);
+        drop(h);
+        assert!(open().replay().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_account_valued_state_is_stored_by_name_and_a_genesis_world_holds_only_its_accounts() {
+        let src = "state member Int -> Account\n\nlend k:Int m:Account\n  need member.get k = none else Taken\n  \
+                   ok otherwise\nbody\n  member.set k m\n\nclose k:Int\n  ok otherwise\nbody\n  member.set k none\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let dir = std::env::temp_dir().join(format!("kern-acctstate-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("t.db").to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&db);
+        let open = || Host::new(&defs, IndexMap::new(), Options { db: db.clone(), sinks: Some(vec![]), gate: false, ..Default::default() }).unwrap();
+        let mut h = open();
+        let e = h.init("M:0@u1 member.4:Z").unwrap_err();
+        assert!(e.contains("member.4 holds Z, which is not an account in the world"), "{e}");
+        h.init("M:0@u1 L:0@u2 member.4:M").unwrap();
+        assert_eq!(h.call("lend", &[Value::Int(4), Value::Str("L".into())]).unwrap()["refused"], "Taken");
+        h.call("lend", &[Value::Int(5), Value::Str("L".into())]).unwrap();
+        h.call("close", &[Value::Int(4)]).unwrap();
+        let st = state_json(&h.load().unwrap(), &defs)["state"].clone();
+        assert_eq!(st["member"], json!({"4": "none", "5": "L"}));
+        assert_eq!(host_effect(&defs, "member"), "SQLite table `textcell`, one transaction per call");
         drop(h);
         assert!(open().replay().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);

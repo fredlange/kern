@@ -15,6 +15,32 @@ pub mod driver;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct Acct(pub u32);
 
+impl Acct {
+    /// `none`: what an unset entry of an Account-valued state reads (run::NONE). Never an index into the world.
+    pub const NONE: Acct = Acct(u32::MAX);
+}
+
+/// An Account used as an account (a ledger operation, an Account-keyed state, an Account parameter): `none` there
+/// is an error, as in the interpreter (run::NONE_USED).
+#[inline(always)]
+pub fn some(a: Acct) -> Result<Acct, Fault> {
+    if a == Acct::NONE {
+        return Err(Fault::Error("none is not an account".into()));
+    }
+    Ok(a)
+}
+
+/// An Account-valued state keeps its entries in an Int map as index + 1, so the default 0 is `none` and rollback,
+/// written keys and dumps work as for Int maps.
+#[inline(always)]
+pub fn stored(v: i64) -> Acct {
+    if v == 0 { Acct::NONE } else { Acct((v - 1) as u32) }
+}
+#[inline(always)]
+pub fn store(a: Acct) -> i64 {
+    if a == Acct::NONE { 0 } else { a.0 as i64 + 1 }
+}
+
 /// An account owner, interned.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Owner(pub u32);
@@ -93,6 +119,8 @@ pub struct MapInfo {
     pub key: KeyType,
     pub slot: usize,
     pub text: bool,
+    /// an Account-valued state (`state member Int -> Account`): an Int map of `store`d accounts
+    pub acct: bool,
 }
 
 // ---- account names: stored once, in one byte arena, with an index that holds only ids
@@ -241,6 +269,9 @@ impl World {
     }
 
     pub fn name(&self, a: Acct) -> &str {
+        if a == Acct::NONE {
+            return "none";
+        }
         self.names.get(a.0)
     }
 

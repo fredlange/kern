@@ -84,7 +84,12 @@ pub fn parse_world<M: Module>(items: &[&str]) -> Result<World, String> {
             }
             continue;
         }
-        let v: i64 = v.parse().map_err(|_| format!("bad value {it}"))?;
+        let v: i64 = if mi.acct {
+            // an account by name, or `none` (the same as no entry)
+            if v == "none" { 0 } else { store(w.acct(v).ok_or(format!("{it}: no account {v}"))?) }
+        } else {
+            v.parse().map_err(|_| format!("bad value {it}"))?
+        };
         match mi.key {
             KeyType::Account => {
                 let a = w.acct(key).ok_or(format!("no account {key}"))?;
@@ -96,6 +101,12 @@ pub fn parse_world<M: Module>(items: &[&str]) -> Result<World, String> {
         }
     }
     Ok(w)
+}
+
+/// A map entry as the eg grammar writes it: an Int, or for an Account-valued state the account's name (entries that
+/// are `none` are 0, so the dump skips them as it skips 0).
+fn show_stored(m: &MapInfo, v: i64, w: &World) -> String {
+    if m.acct { w.name(stored(v)).to_string() } else { v.to_string() }
 }
 
 pub fn dump<M: Module>(w: &World) -> String {
@@ -131,14 +142,14 @@ pub fn dump<M: Module>(w: &World) -> String {
                     .collect();
                 ks.sort();
                 for (k, v) in ks {
-                    s += &format!(" {}.{k}:{v}", m.name);
+                    s += &format!(" {}.{k}:{}", m.name, show_stored(m, v, w));
                 }
             }
             _ => {
                 let mut ks: Vec<(i64, i64)> = w.imaps[m.slot].iter().filter(|(_, v)| **v != 0).map(|(k, v)| (*k, *v)).collect();
                 ks.sort();
                 for (k, v) in ks {
-                    s += &format!(" {}.{k}:{v}", m.name);
+                    s += &format!(" {}.{k}:{}", m.name, show_stored(m, v, w));
                 }
             }
         }
@@ -168,7 +179,7 @@ pub fn parse_args<M: Module>(w: &World, def: usize, raw: &[&str]) -> Result<Vec<
 fn show_val(v: &Val, w: &World) -> String {
     match v {
         Val::Int(n) => n.to_string(),
-        Val::Acct(a) => w.names.get(a.0).to_string(),
+        Val::Acct(a) => w.name(*a).to_string(),
         Val::Text(t) => quote(t),
     }
 }
