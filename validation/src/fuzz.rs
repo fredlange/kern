@@ -1105,6 +1105,77 @@ pub fn ret_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
     out
 }
 
+// ---------------------------------------------------------------- Accounts as state values (4a9d41d)
+
+/// A program over `state member Int -> Account` (and `state boss Account -> Account`): join (store when none),
+/// pay through a stored member (the `!= none` guard sometimes dropped), move money between two members, leave
+/// (clear to none), a boss chain. Claims right or perturbed. Own stream (`acct_jobs`).
+pub fn gen_acct(rnd: &mut Random) -> String {
+    let guard = rnd.random() < 0.7;
+    let wrong = rnd.random() < 0.4;
+    let mut lines: Vec<String> = vec!["state member Int -> Account".into(), "state boss Account -> Account".into(), String::new()];
+    match choice_str(rnd, &["join", "pay", "move", "leave", "chain"]) {
+        "join" => {
+            lines.extend(["f k:Int a:Account".to_string(), "  need member.get k = none else Taken".into(), "  ok otherwise".into()]);
+            lines.push(if wrong { "  ensure member.get' k = none".into() } else { "  ensure member.get' k = a".into() });
+            lines.extend(["body".to_string(), "  need member.get k = none else Taken".into(), "  member.set k a".into()]);
+        }
+        "pay" => {
+            lines.push("f k:Int n:Int".into());
+            if guard {
+                lines.push("  need member.get k != none else Nobody".into());
+            }
+            lines.extend(["  need n > 0 else Bad".to_string(), "  ok otherwise".into(), "  keep ledger.total".into()]);
+            let d = if wrong { "n + 1" } else { "n" };
+            lines.push(format!("  ensure ledger.balance' (member.get k) = ledger.balance (member.get k) - {d}"));
+            lines.push("  ensure ledger.balance' (member.get (k + 1)) = ledger.balance (member.get (k + 1)) + n when member.get k != member.get (k + 1)".into());
+            lines.push("body".into());
+            if guard {
+                lines.push("  need member.get k != none else Nobody".into());
+            }
+            lines.extend(["  need n > 0 else Bad".to_string(), "  need member.get (k + 1) != none else Nobody".into(),
+                          "  need ledger.balance (member.get k) >= n else Short".into(),
+                          "  ledger.debit (member.get k) n".into(), "  ledger.credit (member.get (k + 1)) n".into()]);
+        }
+        "move" => {
+            lines.extend(["f j:Int k:Int".to_string(), "  ok otherwise".into()]);
+            lines.push(if wrong { "  ensure member.get' j = member.get j".into() } else { "  ensure member.get' j = member.get k".into() });
+            lines.push("  ensure member.get' k = none when j != k".into());
+            lines.extend(["body".to_string(), "  member.set j (member.get k)".into(), "  if j != k".into(), "    member.set k none".into()]);
+        }
+        "leave" => {
+            lines.extend(["f k:Int".to_string(), "  ok otherwise".into()]);
+            lines.push(if wrong { "  ensure member.get' k != none".into() } else { "  ensure member.get' k = none".into() });
+            lines.extend(["  keep boss".to_string(), "body".into(), "  member.set k none".into()]);
+        }
+        _ => {
+            lines.push("f a:Account".into());
+            if guard {
+                lines.push("  need boss.get a != none else NoBoss".into());
+            }
+            lines.push("  ok otherwise".into());
+            lines.push(if wrong { "  ensure boss.get' a = boss.get a".into() } else { "  ensure boss.get' a = boss.get (boss.get a)".into() });
+            lines.push("body".into());
+            if guard {
+                lines.push("  need boss.get a != none else NoBoss".into());
+            }
+            lines.push("  boss.set a (boss.get (boss.get a))".into());
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `n` Account-state programs from their own stream, labelled `acct#i`.
+pub fn acct_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 49);
+    (0..n)
+        .map(|i| {
+            let src = gen_acct(&mut rnd);
+            Job { label: format!("acct#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -1286,6 +1357,14 @@ fn world(defs: &Module, d: &kern::syntax::Def, rnd: &mut Random) -> (World, Vec<
     let mut w = World::new(bal, own, rnd.randint(0, 20) as kern::Int);
     let neg = defs.invariants.is_empty() && rnd.random() < 0.3;
     for (x, key_type) in relevant_states(defs, d) {
+        if defs.account_states.contains(&x) {
+            // Account-valued states (4a9d41d): an account of the world or none, drawn only for modules that have them
+            let keys: Vec<Key> = if key_type == "Account" { accts.iter().map(|a| Key::Str(a.to_string())).collect() } else { (-3..11).map(Key::Int).collect() };
+            let pool = [kern::run::NONE, kern::run::NONE, "A", "B", "C", "D"];
+            let m: IndexMap<Key, String> = keys.into_iter().map(|k| (k, rnd.choice(&pool).to_string())).collect();
+            w.texts.insert(x, m);
+            continue;
+        }
         if defs.text_states.contains(&x) {
             // Text maps (135dfca): drawn only for modules that have them, so other streams are unchanged
             let keys: Vec<Key> = if key_type == "Account" { accts.iter().map(|a| Key::Str(a.to_string())).collect() } else { (-3..11).map(Key::Int).collect() };
@@ -1410,6 +1489,23 @@ pub fn oracle(defs: &Module, reports: &IndexMap<String, Report>, rnd: Rnd, runs:
                 Err(RunError::Kern(msg)) => {
                     if msg.contains(" gave no value for ") {
                         stats.skipped += 1;
+                        continue;
+                    }
+                    if msg.starts_with(kern::run::NONE_USED) {
+                        // none used as an account (4a9d41d): contradicts the page only if every "is an account, not
+                        // none" goal of this definition is claimed
+                        let pres: Vec<&kern::report::Guarantee> =
+                            r.guarantees.iter().filter(|g| g.kind == "pre" && g.clause.contains("not none")).collect();
+                        if !pres.is_empty() && pres.iter().all(|g| claimed(g.status)) {
+                            let mut e = ev.clone();
+                            e["def"] = json!(name);
+                            e["kind"] = json!("pre");
+                            e["clause"] = json!(msg);
+                            e["status"] = json!("proven");
+                            found.push(e);
+                        } else {
+                            stats.skipped += 1;
+                        }
                         continue;
                     }
                     if msg.starts_with(kern::run::TOO_DEEP) {
@@ -1665,7 +1761,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
         "nested_record_variant_well_formed": fam("sumn#"), "state_record_variant_well_formed": fam("sums#"),
         "frame_record_well_formed": fam("framer#"), "ret_record_well_formed": fam("retr#"),
-        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"),
+        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"), "acct_well_formed": fam("acct#"),
         "variant_mismatches": variant_mismatches(results),
     })
 }
@@ -1678,12 +1774,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--rets" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--rets" | "--accts" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--rets N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--rets N] [--accts N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -1721,6 +1817,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(rec_jobs(num("seed", 1) as i128, num("recs", 100) as usize, num("runs", 300)));
     js.extend(lit_jobs(num("seed", 1) as i128, num("lits", 100) as usize, num("runs", 300)));
     js.extend(ret_jobs(num("seed", 1) as i128, num("rets", 100) as usize, num("runs", 300)));
+    js.extend(acct_jobs(num("seed", 1) as i128, num("accts", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));

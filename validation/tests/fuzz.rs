@@ -388,3 +388,18 @@ fn a_nested_record_argument_is_positional_in_declaration_order() {
         assert!(e.len() == 1 && e[0].pass, "{n}: {:?}", e.iter().map(|x| (&x.src, x.pass, &x.got)).collect::<Vec<_>>());
     }
 }
+
+#[test]
+fn a_small_account_state_fuzz_run_is_clean() {
+    // gen_acct (4a9d41d: Account-valued states, none): join, pay through a member (guard sometimes dropped), move,
+    // leave, a boss chain. A 'none is not an account' run counts against the page only if the definition's
+    // "is an account, not none" goals are all proven. Teeth (2026-11-06): that goal planted as always true -> 1,622
+    // contradictions in 20 of 100.
+    let results: Vec<_> = kern_validation::fuzz::acct_jobs(5, 30, 60).iter().map(check_program).collect();
+    let s = summarise(&results);
+    assert_eq!(s["acct_well_formed"], "30/30");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    let p = &s["tiers"]["pre"];
+    assert!(p["proven"].as_u64().unwrap_or(0) > 3 && p["refuted"].as_u64().unwrap_or(0) > 0, "{p}");
+}

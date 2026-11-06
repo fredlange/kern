@@ -53,6 +53,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 | `--recs N` | recursion (`gen_rec`, default 100, own stream): a counting-down function, a mutual pair, a recursive procedure; the recursive argument decreases or not, claims right or near misses. A depth-limit error contradicts the page only if every measure the call can reach is proven |
 | `--lits N` | literal-range claims (`gen_lit`, default 100, own stream): `for j from A to A + W`, W 1..17, sometimes `when`, over a body writing every key, all but the first or last, or one more |
 | `--rets N` | returning procedures (`gen_ret`, default 100, own stream): an allocator `alloc -> Int` (spec exact or loose), its id used as a key, two calls chained, calls in a loop, a returning procedure that refuses; claims right, off by one, or true only if the value were 0 |
+| `--accts N` | Accounts as state values (`gen_acct`, default 100, own stream): join, pay through a stored member with the `!= none` guard sometimes dropped, move, leave, a boss chain. The oracle draws Account-valued entries from the world's accounts and `none`; a 'none is not an account' run contradicts the page only if every "is an account, not none" goal of the definition is proven |
 | `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`), a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`) a package variant (`agg` in a package `lib` the program's package `use`s), a nested-record variant (`Span` inside `record Wrap s:Span tag:Int`, `w.s` passed whole) and a record-state variant (`hold`/`flag` as the fields of `state cell Int -> Cell`). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (fatal since 7d011af fixed the record counterexamples) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
@@ -124,4 +125,8 @@ and whole-record sets are checked against their field expansions (same AST). Not
 frame programs, since a frame on one field (`keep cell.hold except …`) isn't accepted (sent to lang). (Accepted since d3bc291: the frame programs' record-state variants run, 0 mismatches.)
 Returning procedures get a record-returning variant (`alloc -> Slot`, callers bind it and read `.id`, 1bb9cef): 0
 mismatches. Writing it found a type hole (an Int assigned to a `-> Point` result passes wf and panics the prover).
+
+**2026-11-06, Accounts as state values** (4a9d41d; `--accts`). Teeth: the "is an account, not none" goal planted as
+always true (prove.rs, not committed) gives 1,622 contradictions in 20 of 100. Clean: 0. Open (sent to lang): a
+definition whose none goal is refuted still shows `✔ ok otherwise`; the oracle doesn't count it until that is settled.
 
