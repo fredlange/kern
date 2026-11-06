@@ -68,10 +68,15 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
             _ => false,
         };
         // `-> ok N`: the value returned
-        if let (true, Some(want)) = (same, ex.result) {
+        if let (true, Some(want)) = (same, &ex.result) {
             let got = interp.last_result.clone().unwrap_or(Value::None);
-            if got != Value::Int(want) {
-                out.push(ExampleResult { src: ex.src.clone(), pass: false, got: format!("ok {}", got.str()) });
+            let leaves: Vec<Value> = match &got {
+                Value::Ctor(_, vs) => vs.clone(),
+                v => vec![v.clone()],
+            };
+            if leaves != want.iter().map(|n| Value::Int(*n)).collect::<Vec<_>>() {
+                let shown: Vec<String> = leaves.iter().map(Value::str).collect();
+                out.push(ExampleResult { src: ex.src.clone(), pass: false, got: format!("ok {}", shown.join(" ")) });
                 continue;
             }
         }

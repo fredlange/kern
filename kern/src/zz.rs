@@ -306,6 +306,15 @@ pub fn apply_fn_dyn(name: &str, args: &[Dynamic]) -> ZInt {
     f.apply(&a).as_int().expect("an Int function")
 }
 
+/// An uninterpreted Text function of arguments of any sort (a function returning a record with a Text field).
+pub fn apply_fn_dyn_text(name: &str, args: &[Dynamic]) -> ZStr {
+    let sorts: Vec<Sort> = args.iter().map(|x| x.get_sort()).collect();
+    let srefs: Vec<&Sort> = sorts.iter().collect();
+    let f = FuncDecl::new(name, &srefs, &Sort::string());
+    let a: Vec<&dyn Ast> = args.iter().map(|x| x as &dyn Ast).collect();
+    f.apply(&a).as_string().expect("a Text function")
+}
+
 /// A sum as a recursive function, defined from the right so a loop step is one unfolding:
 /// `f(xs…, lo, hi) = if hi <= lo then 0 else f(xs…, lo, hi - 1) + step`, where `step` is a term over the formal
 /// constants `xs`, `lo` and `hi` (built with the summed variable = hi - 1). Z3 unfolds it on demand.

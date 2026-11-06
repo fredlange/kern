@@ -13,10 +13,12 @@ body
 ```
 
 - **Parameter types:** `Int`, `Account`, `Text` and declared records. A record parameter `p:Point` is read by field,
-  `p.x`, or passed whole to a definition taking a Point (`move p`); build one only as a call argument,
-  `move (Point a b)`. In `eg` lines its fields are separate arguments, in order. A field may be a record
+  `p.x`, or passed whole to a definition taking a Point (`move p`); build one, `Point a b`, where a whole one
+  goes: a call argument `move (Point a b)`, `q = Point a b`, `result = …`, either side of `=`, `order.set k …`. In `eg` lines its fields are separate arguments, in order. A field may be a record
   (`record Line a:Point b:Point`): read `l.a.x`, pass `l.a` as a Point. `p = q` and `p != q` compare every field.
-- **`-> Int`**: the definition returns a value; every path sets `result`, and its spec calls it `result`. One
+- **`-> Int`** or **`-> Point`** (a record): the definition returns a value; every path sets `result`, and its spec
+  calls it `result` (`result.x` for a field). A caller binds a record, `r = f a`, and reads `r.x`; `q = p` and
+  `o = order.get k` bind records too. One
   that only reads (state, the clock) and never refuses is a *function*: specs and expressions may call it. One that
   changes state or refuses is called only as a whole statement, `loan = borrow book` (or `borrow book`, dropping
   the value). Which one it is, is inferred.
@@ -105,7 +107,8 @@ A refusal undoes the whole call, so guarantees only have to hold on success. Eff
 - **WORLD:** `A:500@u1` (account, balance, owner), `now:5`, and state such as `hold.7:100`,
   `limit.A:300`, `title.1:"a b"` or a stored record's field, `order.qty.7:2`.
 - **ARGS:** integers, account names and Text literals.
-- **OUTCOME:** `ok`, `ok N` (also asserts the returned value), or `Ctor ints` (for example `Insufficient 50`).
+- **OUTCOME:** `ok`, `ok N …` (also asserts the returned value; a record's Int fields in order), or `Ctor ints`
+  (for example `Insufficient 50`).
 - **AFTER:** only the items listed are compared, such as `A:400 hold.7:0`.
 - **EVENTS:** `Ev args, [channel] Ev args`: the exact events appended to `audit` (an empty section: none) and
   to each channel named, such as `| | Moved A B 100 0`.

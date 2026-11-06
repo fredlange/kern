@@ -554,6 +554,9 @@ impl<'m> Prover<'m> {
                 if let Some(v) = env.get(n) {
                     return v.clone();
                 }
+                if let Some(v) = self.field_of(env, n) {
+                    return v;
+                }
                 let s = if *primed { post.expect("a primed read needs a post-state") } else { cur };
                 self.scall_read(n, vec![], s)
             }
@@ -678,6 +681,32 @@ impl<'m> Prover<'m> {
         self.scall_write(name, vals, s)
     }
 
+    /// `p.x` where p holds a record value (a constructor value, its leaves in order): that leaf.
+    fn field_of(&self, env: &Env, n: &str) -> Option<SV> {
+        let mut at = n.len();
+        while let Some(i) = n[..at].rfind('.') {
+            if let Some(SV::Ev(r, vals)) = env.get(&n[..i]) {
+                if self.defs.records.contains_key(r) {
+                    let rest = &n[i + 1..];
+                    let k = crate::syntax::record_leaves(&self.defs.records, r).iter().position(|(f, _)| f == rest)?;
+                    return vals.get(k).cloned();
+                }
+            }
+            at = i;
+        }
+        None
+    }
+
+    /// A fresh value of a definition's result: an Int, or a record's leaves as one constructor value.
+    fn fresh_result(&self, d: &Def, make: &mut dyn FnMut(&str, bool) -> SV) -> Option<SV> {
+        let r = d.ret.as_ref()?;
+        if !self.defs.records.contains_key(r) {
+            return Some(make("", false));
+        }
+        let leaves = crate::syntax::record_leaves(&self.defs.records, r);
+        Some(SV::Ev(r.clone(), leaves.iter().map(|(f, t)| make(f, t == "Text")).collect()))
+    }
+
     fn mutates(&self, name: &str) -> bool {
         matches!(name, "ledger.debit" | "ledger.credit" | "audit.emit" | "clock.tick")
             || channel_op(self.defs, name).is_some()
@@ -706,7 +735,7 @@ impl<'m> Prover<'m> {
         }
         if let Some(d) = self.defs.defs.get(name) {
             if crate::infer::is_function(self.defs, d) {
-                return SV::I(self.function_call(d, &a, s));
+                return self.function_call(d, &a, s);
             }
             panic!("prover: a call to {name} in an expression");
         }
@@ -758,10 +787,7 @@ impl<'m> Prover<'m> {
             return SV::Unit;
         }
         let callee = &self.defs.defs[name];
-        match self.modular_call(callee, &a, s) {
-            Some(r) => SV::I(r),
-            None => SV::Unit,
-        }
+        self.modular_call(callee, &a, s).unwrap_or(SV::Unit)
     }
 
     /// An assumed handler: any value its spec allows, a fresh one per call; its needs are call-site goals.
@@ -790,13 +816,21 @@ impl<'m> Prover<'m> {
     }
 
     /// A call, modularly. A definition that returns a value (`-> Int`) gives a fresh `result` its ensures constrain.
-    fn modular_call(&mut self, callee: &Def, args: &[SV], s: &mut Sym) -> Option<ZInt> {
+    fn modular_call(&mut self, callee: &Def, args: &[SV], s: &mut Sym) -> Option<SV> {
         self.measure_goal(callee, args);
         self.rely_on(&callee.name);
         let mut env: Env = callee.params.iter().zip(args).map(|((p, _), v)| (p.clone(), v.clone())).collect();
-        let result = callee.ret.as_ref().map(|_| fresh_int(&format!("{}_result", callee.name)));
+        let base = format!("{}_result", callee.name);
+        let result = self.fresh_result(callee, &mut |f, text| {
+            let name = if f.is_empty() { base.clone() } else { format!("{base}_{}", f.replace('.', "_")) };
+            if text {
+                SV::S(zz::text_const(&format!("{name}_{}", fresh())))
+            } else {
+                SV::I(fresh_int(&name))
+            }
+        });
         if let Some(r) = &result {
-            env.insert("result".into(), SV::I(r.clone()));
+            env.insert("result".into(), r.clone());
         }
         for n in &callee.needs {
             let c = self.sev(need_cond(n), &env, s, None).b().clone();
@@ -968,24 +1002,33 @@ impl<'m> Prover<'m> {
     }
 
     /// A pure function, modularly: an uninterpreted function whose result satisfies its ensures.
-    fn function_call(&mut self, f: &Def, args: &[SV], s: &Sym) -> ZInt {
+    fn function_call(&mut self, f: &Def, args: &[SV], s: &Sym) -> SV {
         self.measure_goal(f, args);
         self.rely_on(&f.name);
         // a function that reads state is a function of that state too, so a write in between gives another value;
         // one that reads nothing and takes only Ints keeps its Int-only symbol
         let all_int = args.iter().all(|a| matches!(a, SV::I(_)));
-        let r = if uses(self.defs, f).is_empty() && all_int {
-            let xs: Vec<ZInt> = args.iter().map(|a| a.i().clone()).collect();
-            zz::apply_fn(&format!("fn_{}", f.name), &xs)
-        } else {
-            let mut ds: Vec<Dynamic> = args.iter().map(SV::dynamic).collect();
-            if !uses(self.defs, f).is_empty() {
-                ds.extend(state_args(s));
-            }
-            zz::apply_fn_dyn(&format!("fn_{}", f.name), &ds)
-        };
+        let reads = !uses(self.defs, f).is_empty();
+        let mut ds: Vec<Dynamic> = args.iter().map(SV::dynamic).collect();
+        if reads {
+            ds.extend(state_args(s));
+        }
+        // a record result: one uninterpreted function per leaf, `fn_mid.x`
+        let r = self
+            .fresh_result(f, &mut |leaf, text| {
+                let name = if leaf.is_empty() { format!("fn_{}", f.name) } else { format!("fn_{}.{leaf}", f.name) };
+                if text {
+                    SV::S(zz::apply_fn_dyn_text(&name, &ds))
+                } else if !reads && all_int {
+                    let xs: Vec<ZInt> = args.iter().map(|a| a.i().clone()).collect();
+                    SV::I(zz::apply_fn(&name, &xs))
+                } else {
+                    SV::I(zz::apply_fn_dyn(&name, &ds))
+                }
+            })
+            .expect("a function returns a value");
         let mut env: Env = f.params.iter().zip(args).map(|((p, _), v)| (p.clone(), v.clone())).collect();
-        env.insert("result".into(), SV::I(r.clone()));
+        env.insert("result".into(), r.clone());
         for c in &f.ensures {
             let v = self.sev(c, &env, s, Some(s)).b().clone();
             self.pc.borrow_mut().push(v);

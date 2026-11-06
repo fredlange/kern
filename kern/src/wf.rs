@@ -310,15 +310,22 @@ impl<'a> Checker<'a> {
             self.err("header", "`length` is built in (the length of a Text); name the definition otherwise");
         }
         if let Some(r) = &d.ret {
-            if r != "Int" {
-                self.err("header", "a definition returns Int (`-> Int`)");
+            if r != "Int" && !self.defs.records.contains_key(r) {
+                self.err("header", "a definition returns Int or a record (`-> Int`, `-> Point`)");
             }
             // one that writes, emits or refuses is a procedure returning a value: inferred, not written
             // (DECISIONS.md, 2026-11-06)
             if !assigns(&d.body) {
                 self.err("body", "every path must set `result`");
             }
-            params.insert("result".into(), "Int".into()); // specs (ensure) may name the result
+            // specs (ensure) may name the result; a record result by its fields, `result.x`
+            if self.defs.records.contains_key(r) {
+                for (f, t) in crate::syntax::record_leaves(&self.defs.records, r) {
+                    params.insert(format!("result.{f}"), t);
+                }
+            } else {
+                params.insert("result".into(), "Int".into());
+            }
         }
         if let Some(m) = &d.decreases {
             let place = format!("decreases {}", code(m));
@@ -478,6 +485,23 @@ impl<'a> Checker<'a> {
                     }
                     if t == "Unit" {
                         self.err(&place, "has no value (Unit)");
+                    }
+                    // a record value (built at load time as its constructor, or a call returning one): its fields
+                    let rec = match e {
+                        Expr::App(n, false, _) if self.defs.records.contains_key(n) => Some(n.clone()),
+                        Expr::App(n, false, _) | Expr::Name(n, false) => {
+                            self.defs.defs.get(n).and_then(|f| f.ret.clone()).filter(|r| self.defs.records.contains_key(r))
+                        }
+                        _ => None,
+                    };
+                    if let Some(r) = rec {
+                        for (f, ft) in crate::syntax::record_leaves(&self.defs.records, &r) {
+                            scope.insert(format!("{x}.{f}"), ft);
+                        }
+                        if x != "result" {
+                            self.used.insert(x.clone());
+                        }
+                        continue;
                     }
                     scope.insert(x.clone(), t);
                     if x != "result" {

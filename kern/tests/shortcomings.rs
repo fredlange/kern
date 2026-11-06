@@ -204,6 +204,71 @@ fn s5_a_stored_record_from_another_module_needs_an_import() {
     kern::package::load(&root.join("shop").to_string_lossy(), &IndexMap::new()).unwrap();
 }
 
+#[test]
+fn s5_a_definition_returns_a_record() {
+    // closed (S5, records second cut, DECISIONS.md 2026-11-06): `-> Point`, `result = Point a b` (or any record
+    // value), `result.x` in the spec; a caller binds it, `r = f a`, and reads `r.x`; records in `let`s; a
+    // returning procedure gives a record too. `eg … -> ok 2 3` asserts the leaves
+    must_check("gap S5 -> Record", "record Point x:Int y:Int
+record Order item:Int qty:Int
+
+state order Int -> Order
+state next Int
+
+mid p:Point q:Point -> Point
+  ensure result.x = (p.x + q.x) / 2
+  ensure result.y = (p.y + q.y) / 2
+  eg | mid 0 0 4 6 -> ok 2 3
+body
+  result = Point ((p.x + q.x) / 2) ((p.y + q.y) / 2)
+
+open_order item:Int qty:Int -> Order
+  need qty > 0 else NoQty
+  ok otherwise
+  ensure result = Order item qty
+  ensure order.get' (next.get 0) = result
+  ensure next.get' 0 = next.get 0 + 1
+  eg next.0:5 | open_order 3 2 -> ok 3 2 | order.qty.5:2 next.0:6
+body
+  k = next.get 0
+  order.set k (Order item qty)
+  next.set 0 (k + 1)
+  result = order.get k
+
+reorder k:Int -> Order
+  need order.qty.get k > 0 else Empty
+  ok otherwise
+  ensure result.qty = order.qty.get k
+  ensure order.qty.get' (next.get 0) = order.qty.get k
+body
+  o = order.get k
+  r = open_order o.item o.qty
+  result = r
+
+far p:Point -> Int
+  ensure result = p.x + p.y + 1
+body
+  m = mid p (Point 2 2)
+  q = p
+  result = q.x + q.y + 1 + m.x - m.x
+");
+}
+
+#[test]
+fn s5_a_returned_record_is_bound_before_use_and_eg_compares_its_leaves() {
+    let head = "record Point x:Int y:Int\n\nmid p:Point -> Point\n  ensure result = p\nbody\n  result = p\n\n";
+    let e = parse_module(&format!("{head}g p:Point -> Int\nbody\n  result = 1 + mid p\n"), true).unwrap_err();
+    assert!(e.0.contains("returns a Point: bind it first, `r = mid p`"), "{}", e.0);
+    let defs = parse(&head.replace("  ensure result = p\n", "  ensure result = p\n  eg | mid 1 2 -> ok 1 3\n"));
+    let ex = &reports(&defs)["mid"].examples[0];
+    assert!(!ex.pass && ex.got == "ok 1 2", "{}", ex.got);
+    // a spec that gets a field wrong is refuted with a run that replays
+    let defs = parse(&head.replace("ensure result = p", "ensure result.y = p.x"));
+    let g = &reports(&defs)["mid"].guarantees[0];
+    assert_eq!(g.status, kern::report::Status::Refuted);
+    assert!(g.counterexample.as_ref().unwrap().confirmed_by_interpreter);
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int
@@ -338,7 +403,7 @@ fn s5_a_record_is_read_by_field_or_passed_whole() {
         ("g k:Int\n  ensure 1 = 1\nbody\n  f (Point k)\n", "has 2 field(s), got 1"),
         ("g p:Point\n  ensure 1 = 1\nbody\n  x = p + 1\n", "p is a Point: read a field"),
         ("g p:Point\n  ensure 1 = 1\nbody\n  x = p.z\n", "has no field z"),
-        ("g k:Int\n  ensure 1 = 1\nbody\n  x = Point k k\n", "only as the argument of a call"),
+        ("g k:Int\n  ensure 1 = 1\nbody\n  x = 1 + Point k k\n", "builds a Point where a whole one goes"),
         ("g hold:Point\n  ensure 1 = 1\nbody\n  x = hold.x\n", "has the name of a state"),
     ];
     for (def, want) in cases {

@@ -627,6 +627,19 @@ impl<'m, 'p> Interp<'m, 'p> {
                 if let Some(v) = env.get(n) {
                     return Ok(v.clone());
                 }
+                // `p.x` where p holds a record value (a constructor value, its leaves in order)
+                let mut at = n.len();
+                while let Some(i) = n[..at].rfind('.') {
+                    if let Some(Value::Ctor(r, vals)) = env.get(&n[..i]) {
+                        if self.defs.records.contains_key(r) {
+                            let rest = &n[i + 1..];
+                            if let Some(k) = crate::syntax::record_leaves(&self.defs.records, r).iter().position(|(f, _)| f == rest) {
+                                return Ok(vals[k].clone());
+                            }
+                        }
+                    }
+                    at = i;
+                }
                 self.call_in(n, vec![], pre, post, *primed)
             }
             Expr::App(n, primed, args) => {

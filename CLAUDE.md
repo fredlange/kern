@@ -197,7 +197,7 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   ordering or conversion yet, and no Text in refusal payloads. `-> Int` returns a value
   (set `result`; `eg … -> ok N` asserts it). A total, read-only one is a function: specs may call it (modularly:
   uninterpreted over its arguments and the state it reads, + its ensures). One that writes or refuses is called
-  only as a statement, `x = f a`, proven from its spec with a fresh `result` (#ZYGSNMXNW7). Int results only. Recursion needs `decreases E` on every definition of the cycle
+  only as a statement, `x = f a`, proven from its spec with a fresh `result` (#ZYGSNMXNW7). Int or record results. Recursion needs `decreases E` on every definition of the cycle
   (proven: `0 <= E(args) < E(params)` at each recursive call); the interpreter stops calls nested deeper than 200.
 - Bodies are guards plus `if`/`else` blocks (the prover forks a path per branch; paths grow as
   2^ifs per body) and bounded loops `for k from LO to HI` with `invariant` lines (a proposal, roadmap
@@ -269,8 +269,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   flattened to their leaf fields at load time (`syntax::flatten_records`; `l:Line` is `l.a.x l.a.y …`); `eg` and
   counterexamples pass the fields positionally; `p = q` / `p != q` compare every field. Stored records:
   `state order Int -> Order` is one state per field (`order.qty`), whole reads/sets/frames expand at load time
-  (a set that reads the record reads every field first); no Account fields in state. Not yet: `-> Record`,
-  records in `let`s.
+  (a set that reads the record reads every field first); no Account fields in state. `-> Point` returns a
+  record (one constructor value in run/prove: `r.x` reads a leaf by position; one fresh value or uninterpreted
+  function per leaf in proofs); `r = f a`, `q = p`, `o = order.get k` bind records; `eg … -> ok 1 2`.
 - Named constants: `const NAME N` (N ≥ 0) is substituted at load time (`syntax::resolve_consts`), so checker,
   host and compiled program see a literal; views add `const NAME N` lines. No negative values, no constant
   expressions, none in `eg` lines. A name that would hide one (parameter, `let`, loop variable) is an error.
