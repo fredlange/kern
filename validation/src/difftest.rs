@@ -63,13 +63,15 @@ fn key_str(k: &Key) -> String {
 }
 
 fn world_line(bal: &IndexMap<String, i128>, own: &IndexMap<String, String>, maps: &IndexMap<String, IndexMap<Key, i128>>,
-              texts: &kern::syntax::Texts, now: i128) -> String {
+              texts: &kern::syntax::Texts, now: i128, defs: &Module) -> String {
     let mut items: Vec<String> = bal.iter().map(|(a, b)| format!("{}:{}@{}", a, b, own[a])).collect();
     for (m, kv) in maps {
         items.extend(kv.iter().map(|(k, v)| format!("{}.{}:{}", m, key_str(k), v)));
     }
     for (m, kv) in texts {
-        items.extend(kv.iter().map(|(k, v)| format!("{}.{}:{}", m, key_str(k), kern::syntax::quote(v))));
+        // an Account-valued state's entries are account names or `none`, bare, as eg worlds write them (40579da)
+        let acct = defs.account_states.contains(m);
+        items.extend(kv.iter().map(|(k, v)| format!("{}.{}:{}", m, key_str(k), if acct { v.clone() } else { kern::syntax::quote(v) })));
     }
     items.push(format!("now:{}", now));
     format!("world {}", items.join(" "))
@@ -84,6 +86,19 @@ fn dump(w: &World, defs: &Module) -> String {
     let mut states: Vec<&String> = defs.states.keys().collect();
     states.sort();
     for m in states {
+        if defs.account_states.contains(m) {
+            // as the binary's dump: entries that aren't none, sorted by key, by name
+            let mut kv: Vec<(&Key, &String)> =
+                w.texts.get(m).map(|kv| kv.iter().filter(|(_, v)| !v.is_empty() && v.as_str() != kern::run::NONE).collect()).unwrap_or_default();
+            kv.sort_by(|(a, _), (b, _)| match (a, b) {
+                (Key::Int(x), Key::Int(y)) => x.cmp(y),
+                _ => key_str(a).cmp(&key_str(b)),
+            });
+            for (k, v) in kv {
+                s.push_str(&format!(" {}.{}:{}", m, key_str(k), v));
+            }
+            continue;
+        }
         if defs.text_states.contains(m) {
             // as the binary's dump: entries that aren't "", sorted by key, quoted
             let mut kv: Vec<(&Key, &String)> = w.texts.get(m).map(|kv| kv.iter().filter(|(_, v)| !v.is_empty()).collect()).unwrap_or_default();
@@ -328,6 +343,19 @@ fn random_world(rng: &mut Random, defs: &Module) -> (IndexMap<String, i128>, Ind
     let mut maps = Maps::new();
     let mut texts = kern::syntax::Texts::new();
     for (m, key) in &defs.states {
+        if defs.account_states.contains(m) {
+            // accounts of this world, or none
+            let mut kv = IndexMap::new();
+            for _ in 0..rng.randint(0, 3) {
+                let k = if key == "Account" { Key::Str(rng.choice(&names).to_string()) } else { Key::Int(*rng.choice(&[0, 1, 2, 3, 7])) };
+                let v = if rng.randint(0, 3) == 0 { kern::run::NONE.to_string() } else { rng.choice(&names).to_string() };
+                kv.insert(k, v);
+            }
+            if !kv.is_empty() {
+                texts.insert(m.clone(), kv);
+            }
+            continue;
+        }
         if defs.text_states.contains(m) {
             let mut kv = IndexMap::new();
             for _ in 0..rng.randint(0, 3) {
@@ -367,7 +395,7 @@ pub fn build_case<'m>(defs: &'m Module, checks: &Checks, rng: &mut Random, per_d
         for ex in &d.examples {
             let bal: IndexMap<String, i128> = ex.world.iter().map(|(a, (b, _))| (a.clone(), *b)).collect();
             let own: IndexMap<String, String> = ex.world.iter().map(|(a, (_, o))| (a.clone(), o.clone())).collect();
-            case.script.push(world_line(&bal, &own, &ex.maps, &ex.texts, ex.now));
+            case.script.push(world_line(&bal, &own, &ex.maps, &ex.texts, ex.now, defs));
             let mut w = World::from_example(&ex.world, ex.now, &ex.maps).with_texts(&ex.texts);
             let name = &ex.call.0;
             let Some(cd) = defs.defs.get(name) else { continue };
@@ -392,7 +420,7 @@ pub fn build_case<'m>(defs: &'m Module, checks: &Checks, rng: &mut Random, per_d
     let mut done = 0;
     while done < n_calls {
         let (bal, own, maps, texts, now) = random_world(rng, defs);
-        let wl = world_line(&bal, &own, &maps, &texts, now);
+        let wl = world_line(&bal, &own, &maps, &texts, now, defs);
         case.script.push(wl.clone());
         let mut w = World { bal: bal.clone(), own: own.clone(), clock: now, maps: maps.clone(), texts, ..Default::default() };
         let accounts: Vec<String> = bal.keys().cloned().collect();

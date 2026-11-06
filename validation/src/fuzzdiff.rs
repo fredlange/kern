@@ -45,6 +45,7 @@ pub fn run(seed: i128, loops: usize, handlers: usize, sums: usize, texts: usize,
     all.extend(crate::fuzz::nest_jobs(seed, texts, 0));
     all.extend(crate::fuzz::match_jobs(seed, texts, 0));
     all.extend(crate::fuzz::ret_jobs(seed, texts, 0));
+    all.extend(crate::fuzz::acct_jobs(seed, texts, 0));
     for job in all {
         let defs = match (&job.module, &job.src) {
             (Some(m), _) => m.clone(),
