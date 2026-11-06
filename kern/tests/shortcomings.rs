@@ -630,6 +630,26 @@ fn a_guard_discharges_the_goals_of_what_it_guards() {
     assert_eq!(broken.len(), 1, "{broken:?}");
 }
 
+#[test]
+fn a_sum_knows_its_terms_from_invariants_and_a_zero_count_means_no_match() {
+    // #VELBJ6SSUP. app (shop's cart.k): a sum of `price.get (at …)` with `invariant i:Int price.get i >= 0` was
+    // refuted `>= 0` with a counterexample that broke the invariant (a false ✗). And payroll/raffle: from
+    // `0 = sum j … of 1 where holder.get j = none` the prover couldn't conclude `holder.get r != none`
+    use kern::report::Status;
+    let cart = "state cart Int -> List\nstate price Int\ninvariant i:Int price.get i >= 0\n\ncart_value c:Int -> Int\n  ensure result >= 0\nbody\n  result = sum i from 0 to (length (cart.get c)) of price.get (at (cart.get c) i)\n";
+    assert!(reports(&parse(cart))["cart_value"].clean);
+    let draw = "state holder Int -> Account\nstate sold Int\n\npay_winner r:Int\n  need r >= 0 and r < sold.get 0 else NoTicket\n  need 0 = sum j from 0 to (sold.get 0) of 1 where holder.get j = none else Unsold\n  ok otherwise\nbody\n  ledger.credit (holder.get r) 1\n";
+    let reps = reports(&parse(draw));
+    assert!(reps["pay_winner"].clean, "{:?}", reps["pay_winner"].guarantees);
+    // without the count it isn't: the account may be none
+    let unguarded = draw.replace("  need 0 = sum j from 0 to (sold.get 0) of 1 where holder.get j = none else Unsold\n", "");
+    let g = &reports(&parse(&unguarded))["pay_winner"].guarantees;
+    assert!(g.iter().any(|g| g.kind == "pre" && g.status == Status::Refuted), "{g:?}");
+    // a negative term: no such lemma (the sum of -1s is not >= each term's ... it is <=): stays sound
+    let neg = "state v Int\n\nlow n:Int -> Int\n  ensure result <= 0 when n >= 0\nbody\n  result = sum j from 0 to n of 0 - 1\n";
+    assert!(reports(&parse(neg))["low"].clean);
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int

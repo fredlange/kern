@@ -323,6 +323,8 @@ pub struct Prover<'m> {
     pub witness_draws: IndexMap<String, Vec<Int>>,
     /// one recursive function per distinct sum (its text, the names it reads, whether it sees an after-state)
     sums: IndexMap<String, (z3::RecFuncDecl, Option<Int>, Option<Int>)>,
+    /// per sum: its terms are >= 0 / <= 0 given the module invariants on the state(s) it reads (not otherwise)
+    sum_inv_bounds: IndexMap<String, (bool, bool)>,
     /// the sums (by memo key) whose terms are Decimals, and whether the last one built or looked up is
     decimal_sums: BTreeSet<String>,
     last_sum_decimal: bool,
@@ -362,6 +364,25 @@ fn as_param(t: &str, v: &SV) -> SV {
         ("Decimal", SV::I(n)) => SV::D(zz::mul(n, &zz::val(crate::syntax::UNIT))),
         _ => v.clone(),
     }
+}
+
+/// Whether a definition's spec or body has a sum.
+fn has_sum(d: &Def) -> bool {
+    let mut exprs: Vec<&Expr> = d.ensures.iter().chain(&d.keeps).chain(d.decreases.iter()).collect();
+    for n in &d.needs {
+        exprs.push(need_cond(n));
+    }
+    for s in flat(&d.body) {
+        match s {
+            Stmt::Let(_, e) | Stmt::Do(e) | Stmt::If(e, _, _) | Stmt::Inv(e) => exprs.push(e),
+            Stmt::Need(c, _, _) => exprs.push(c),
+            Stmt::For(_, a, b, invs, _) => {
+                exprs.extend([a, b]);
+                exprs.extend(invs.iter());
+            }
+        }
+    }
+    exprs.iter().any(|e| crate::infer::walk(e).iter().any(|n| matches!(n, Expr::Sum(..))))
 }
 
 /// Where a call-site goal is raised: inside a range (`for j`, `sum j`) or a guard (the condition of a `when`, the
@@ -544,6 +565,7 @@ impl<'m> Prover<'m> {
             replay_draws: vec![],
             witness_draws: IndexMap::new(),
             sums: IndexMap::new(),
+            sum_inv_bounds: IndexMap::new(),
             decimal_sums: BTreeSet::new(),
             last_sum_decimal: false,
             text_params: IndexMap::new(),
@@ -808,6 +830,25 @@ impl<'m> Prover<'m> {
             if big_m.map_or(true, |x| x > 0) && valid(zz::le(&step, &zz::val(0))) {
                 big_m = Some(0);
             }
+            // the same, given the module invariants on the state(s) the sum reads (a term `price.get k` with
+            // `invariant k:Int price.get k >= 0`): used only where the invariants are known to hold
+            let (mut lo_inv, mut hi_inv) = (false, false);
+            if !self.invariants().is_empty() && !dec && (m.map_or(true, |x| x < 0) || big_m.map_or(true, |x| x > 0)) {
+                let mut inv = vec![self.invariants_hold(&fcur)];
+                if let Some(fp) = &fpost {
+                    inv.push(self.invariants_hold(fp));
+                }
+                let inv = zz::and(&inv);
+                let valid_given = |claim: Bool| {
+                    let solver = zz::solver();
+                    solver.assert(&inv);
+                    solver.assert(&zz::not(&claim));
+                    zz::check(&solver) == zz::Check::Unsat
+                };
+                lo_inv = m.map_or(true, |x| x < 0) && valid_given(zz::ge(&step, &zz::val(0)));
+                hi_inv = big_m.map_or(true, |x| x > 0) && valid_given(zz::le(&step, &zz::val(0)));
+            }
+            self.sum_inv_bounds.insert(key.clone(), (lo_inv, hi_inv));
             self.sums.insert(key.clone(), (f, m, big_m));
             if dec {
                 self.decimal_sums.insert(key.clone());
@@ -833,7 +874,60 @@ impl<'m> Prover<'m> {
         if let Some(big_m) = big_m {
             self.pc.borrow_mut().push(zz::le(&total, &zz::mul(&zz::val(big_m), &n)));
         }
+        // terms of one sign: each term lies between 0 and the sum, at every index of the range (so a count of 0
+        // means no element matches). Given the invariants, only where they hold for the state(s) read
+        let (lo_inv, hi_inv) = self.sum_inv_bounds.get(&key).copied().unwrap_or((false, false));
+        let nonneg = m.is_some_and(|x| x >= 0) || lo_inv;
+        let nonpos = big_m.is_some_and(|x| x <= 0) || hi_inv;
+        if nonneg || nonpos {
+            let jv = zz::int(&format!("{j}_term_{}", fresh()));
+            let e2 = env_with(env, j, SV::I(jv.clone()));
+            let x = self.sev(body, &e2, cur, post).i().clone();
+            let term = match cond {
+                Some(c) => zz::ite(self.sev(c, &e2, cur, post).b(), &x, &zz::val(0)),
+                None => x,
+            };
+            let inside = zz::and(&[zz::le(lo, &jv), zz::lt(&jv, hi)]);
+            let known = |s: &mut Self| {
+                let mut inv = vec![s.invariants_hold(cur)];
+                if let Some(p) = post {
+                    inv.push(s.invariants_hold(p));
+                }
+                zz::and(&inv)
+            };
+            for (on, given, claim) in [
+                (nonneg, !m.is_some_and(|x| x >= 0), zz::le(&term, &total)),
+                (nonpos, !big_m.is_some_and(|x| x <= 0), zz::ge(&term, &total)),
+            ] {
+                if !on {
+                    continue;
+                }
+                let each = zz::forall(&[&jv], &zz::implies(&inside, &claim));
+                let whole = if given { zz::implies(&known(self), &each) } else { each };
+                self.pc.borrow_mut().push(whole);
+            }
+            if lo_inv && !m.is_some_and(|x| x >= 0) {
+                let k = known(self);
+                self.pc.borrow_mut().push(zz::implies(&k, &zz::ge(&total, &zz::val(0))));
+            }
+            if hi_inv && !big_m.is_some_and(|x| x <= 0) {
+                let k = known(self);
+                self.pc.borrow_mut().push(zz::implies(&k, &zz::le(&total, &zz::val(0))));
+            }
+        }
         total
+    }
+
+    /// Every module invariant at every key, in state `s`.
+    fn invariants_hold(&mut self, s: &Sym) -> Bool {
+        let mut parts = vec![];
+        for (var, _, cond) in self.invariants() {
+            let k = zz::int(&format!("inv_{var}_{}", fresh()));
+            let e: Env = [(var.clone(), SV::I(k.clone()))].into_iter().collect();
+            let c = self.sev(cond, &e, s, None).b().clone();
+            parts.push(zz::forall(&[&k], &c));
+        }
+        zz::and(&parts)
     }
 
     /// Python `sev` at statement level, where the call may change the state (a write, an emit, a callee).
@@ -1857,7 +1951,8 @@ impl<'m> Prover<'m> {
         }
         let has_loop = flat(&d.body).iter().any(|s| matches!(s, Stmt::For(..)))
             || callees(self.defs, d).iter().any(|c| writes(self.defs, &self.defs.defs[c.as_str()]).iter().any(|w| w.contains('[')));
-        if has_loop {
+        // a sum's terms read state at many keys: the invariants hold at every key before the call
+        if has_loop || has_sum(d) {
             for (var, _, cond) in self.invariants() {
                 let j = zz::int(&format!("pre_{}", fresh()));
                 let e: Env = [(var.clone(), SV::I(j.clone()))].into_iter().collect();

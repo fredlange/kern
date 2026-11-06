@@ -268,7 +268,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   share examples/money). Missing for
   ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): none of the table's rows now. A collection
   of accounts is an Int-indexed Account map iterated with `for`/`sum` (no loop over the world's accounts,
-  DECISIONS 2026-11-06); "count = 0 means no element matches" is not provable yet (task FPCP2UCC36). Accounts as state values: `state member Int -> Account`, an unset entry is `none` (-1 in the
+  DECISIONS 2026-11-06). A sum whose terms are of one sign (by their syntax, or given the module invariants on the
+  state they read) is known to bound each term, so `0 = sum … of 1 where C` rules C out at one index; prefix
+  sums (a balance after i of n payments) still need induction the prover doesn't do. Accounts as state values: `state member Int -> Account`, an unset entry is `none` (-1 in the
   prover, every Account parameter assumed another); each use of a non-parameter Account as an account is a
   call-site `pre` goal (only in modules with such states).
 - Records: `record Name f:Int|Account|Text|Record …` (nested; a cycle is an error); record-typed parameters,

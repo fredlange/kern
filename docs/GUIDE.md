@@ -477,9 +477,10 @@ body
   ledger.credit e (wage.get i)
 ```
 
-A loop calling `pay_one i payer` for `i from 0 to n` proves its balance invariant; its `ok otherwise` needs the
-prover to go from "no employee in [0, n) is none" (a count, `0 = sum j from 0 to n of 1 where employee.get j =
-none`) to one index, which it can't yet (`?`). There is no loop over every account in the world.
+A loop calling `pay_one i payer` for `i from 0 to n` proves its balance invariant, and a need such as
+`0 = sum j from 0 to n of 1 where employee.get j = none` rules out a `none` employee at each step. Its
+`ok otherwise` stays `?` while it also needs "the payer still has wage i after paying 0..i-1" (a prefix sum,
+which needs induction the prover doesn't do). There is no loop over every account in the world.
 
 ## Money with decimals
 
