@@ -695,6 +695,8 @@ impl<'m> Prover<'m> {
                     "-" => return SV::I(zz::sub(l.i(), r.i())),
                     "*" => return SV::I(zz::mul(l.i(), r.i())),
                     "/" => return SV::I(zz::div(l.i(), r.i())),
+                    // Z3's mod by a positive numeral is the remainder of floor division, as the interpreter's
+                    "%" => return SV::I(zz::modulo(l.i(), r.i())),
                     "=" => match (&l, &r) {
                         (SV::B(a), SV::B(b)) => zz::eq_bool(a, b),
                         _ => zz::eq_int(l.i(), r.i()),

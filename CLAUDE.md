@@ -188,7 +188,7 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   and checked at parameter keys; a computed-key write is proven quantified, at every key).
 - `need as C args` / `emit as C args` expand a callee's spec at parse time; only right when
   the callee runs first (otherwise the prover refutes it and the caller restates).
-- `*` may multiply two variables (nonlinear: Z3 can answer unknown, shown `?`); `/` needs a positive literal on
+- `*` may multiply two variables (nonlinear: Z3 can answer unknown, shown `?`); `/` and `%` need a positive literal on
   the right. Int is i64 at run time
   (host store, `kern build`); a literal, `const` or `eg` value outside i64 is a parse error (S20). The interpreter
   computes in i128 and the prover over unbounded integers, so an i64 overflow in the middle of a call is a run-time fault.
@@ -281,8 +281,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
   record (one constructor value in run/prove: `r.x` reads a leaf by position; one fresh value or uninterpreted
   function per leaf in proofs); `r = f a`, `q = p`, `o = order.get k` bind records; `eg … -> ok 1 2`.
 - Named constants: `const NAME N` (N ≥ 0) is substituted at load time (`syntax::resolve_consts`), so checker,
-  host and compiled program see a literal; views add `const NAME N` lines. No negative values, no constant
-  expressions, none in `eg` lines. A name that would hide one (parameter, `let`, loop variable) is an error.
+  host and compiled program see a literal; views add `const NAME N` lines (the value). `const slots rooms * days`:
+  literals and the file's constants with `+ - * / %`, evaluated at load (no cycles, >= 0; not imported constants).
+  No negative values, none in `eg` lines. A name that would hide one (parameter, `let`, loop variable) is an error.
 - Application arguments must be atoms; nested calls need parentheses. An open
   design question is whether to parse by arity instead, using known interfaces.
 - The `.why` file is chosen with `--why`, defaulting to `<module>.why`.

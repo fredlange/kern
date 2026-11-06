@@ -205,6 +205,10 @@ pub fn div(a: &ZInt, b: &ZInt) -> ZInt {
     a.div(b)
 }
 
+pub fn modulo(a: &ZInt, b: &ZInt) -> ZInt {
+    a.modulo(b)
+}
+
 /// Is this term a numeral? In z3py it is then an `IntNumRef`, a subclass of `ArithRef`, and Python's operator
 /// rule (the right operand's reflected method goes first when its type is a subclass of the left's) makes
 /// `x > IntVal(0)` build `(< 0 x)`. Comparisons and `==`/`!=` follow that rule below; `+ - * /` don't swap.

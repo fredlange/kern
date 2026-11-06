@@ -1363,6 +1363,7 @@ fn binop(op: &str, a: &Value, b: &Value) -> RResult<Value> {
         return Err(match op {
             "+" | "-" | "*" => type_err(op, a, b),
             "/" => type_err("//", a, b),
+            "%" => type_err("%", a, b),
             _ => match (a, b) {
                 (Value::Str(s), Value::Str(t)) => {
                     return Ok(Value::Bool(match op {
@@ -1381,6 +1382,8 @@ fn binop(op: &str, a: &Value, b: &Value) -> RResult<Value> {
         "-" => Value::Int(checked(x.checked_sub(y))?),
         "*" => Value::Int(checked(x.checked_mul(y))?),
         "/" => Value::Int(floordiv(x, y)?),
+        // the remainder of floor division: a = (a / n) * n + a % n
+        "%" => Value::Int(checked(x.checked_sub(checked(floordiv(x, y)?.checked_mul(y))?))?),
         ">=" => Value::Bool(x >= y),
         "<=" => Value::Bool(x <= y),
         ">" => Value::Bool(x > y),

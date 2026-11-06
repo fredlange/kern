@@ -40,14 +40,14 @@ body
 - **Operands:** integers (literals fit in i64), Text literals `"…"` (escape `\"` and `\\`), names, and
   juxtaposition application `f a b`. Arguments are atoms,
   so parenthesise anything compound: `Insufficient (amount - have)`.
-- **Arithmetic:** `+ - * /`. `/` needs a positive literal on the right (floor division). `*` of two
+- **Arithmetic:** `+ - * / %`. `/` and `%` need a positive literal on the right (floor division, its remainder). `*` of two
   variables is allowed, but the prover may give no answer (`?`) where it is nonlinear.
 - **Comparisons:** `= != < <= > >=` (Text: only `=` and `!=`).
 - **Text:** `length t` is its number of characters; `a + b` joins two Texts.
 - **Decimal:** exact to 0.0001 (`12.5`); an Int promotes exactly; `*` of two Decimals and `/` round down.
 - **List:** `[]`, `append xs v`, `at xs i` (from 0; each `at` is a goal that i is inside), `length xs`, `=`.
   Walk one with `for i from 0 to (length xs)` or `sum i from 0 to (length xs) of at xs i`.
-- **Logic:** `and` binds tighter than `or`; `distinct a b c`.
+- **Logic:** `and` binds tighter than `or`; `distinct a b c`. `and`, `or` and `when` short-circuit, so a guard covers an `at` it guards.
 - **Sums:** `sum j from A to B of E [where C]` adds E for each j in [A, B) where C holds (bounds are
   atoms; E can't call definitions; no sum inside a sum). E runs to the next comparison; `where C` runs to the
   end, so parenthesise a filtered sum that isn't last.
@@ -73,7 +73,7 @@ body
 | `state NAME Int -> R` (R a record of Int and Text fields) | one map per field, `NAME.f`: `NAME.f.get k`, `NAME.f.set k v`. Whole: `NAME.get k` where an R goes (an argument, `=`), `NAME.set k r` (a statement), `keep NAME`; a record field likewise (`seg.b.get k`), and `keep NAME.f` frames one field |
 | `invariant x:Type COND` | COND holds for every key, before and after every call. It may read state only at `x` |
 | `record Name f:Type …` | a record type: Int, Account or Text fields. Views add its `record` line |
-| `const NAME N` | a named integer (N ≥ 0), usable wherever a literal is (`amount * rate` stays linear). Views add a `const NAME N` line |
+| `const NAME N` | a named integer (N ≥ 0, or literals and the file's constants with `+ - * / %`: `const slots rooms * days`), usable wherever a literal is (`amount * rate` stays linear). Views add a `const NAME N` line |
 | `channel NAME` | another output stream: `NAME.emit (Ev …)` |
 | `handler a.b p:Int -> Int`, then `need` and `ensure` lines (no body) | an observation inside a call, such as `rand.below n`. Its spec is *assumed*: it may read only its arguments and `result`. Its `need`s are preconditions every call must meet. The host provides the value and checks the spec at runtime |
 

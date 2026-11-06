@@ -366,7 +366,7 @@ pub enum Tok {
     Op(&'static str),
 }
 
-const OPS: [&str; 14] = ["!=", ">=", "<=", "->", "=", "<", ">", "+", "-", "*", "/", "(", ")", "when"];
+const OPS: [&str; 15] = ["!=", ">=", "<=", "->", "=", "<", ">", "+", "-", "*", "/", "%", "(", ")", "when"];
 const CMP: [&str; 6] = ["=", "!=", ">=", "<=", ">", "<"];
 const KEYWORDS: [&str; 5] = ["and", "or", "else", "when", "where"];
 
@@ -388,6 +388,71 @@ fn tok_repr(t: Option<&Tok>) -> String {
         Some(Tok::Name(s)) => repr_str(s),
         Some(Tok::Op(s)) => repr_str(s),
     }
+}
+
+/// `const NAME EXPR`: each expression's value (literals, this file's constants, `+ - * / %`, parentheses), in
+/// dependency order; a cycle, an unknown name or a value below 0 or past i64 is an error.
+fn eval_consts(defs: &mut Module, exprs: &IndexMap<String, (Expr, Option<usize>)>) -> PResult<()> {
+    fn eval(
+        name: &str,
+        exprs: &IndexMap<String, (Expr, Option<usize>)>,
+        done: &mut IndexMap<String, Int>,
+        chain: &mut Vec<String>,
+    ) -> PResult<Int> {
+        if let Some(v) = done.get(name) {
+            return Ok(*v);
+        }
+        let (e, line) = &exprs[name];
+        if chain.iter().any(|c| c == name) {
+            chain.push(name.to_string());
+            return Err(ParseError::at(format!("constants defined in a cycle: {}", chain.join(" -> ")), *line));
+        }
+        chain.push(name.to_string());
+        fn go(
+            e: &Expr,
+            line: Option<usize>,
+            exprs: &IndexMap<String, (Expr, Option<usize>)>,
+            done: &mut IndexMap<String, Int>,
+            chain: &mut Vec<String>,
+        ) -> PResult<Int> {
+            let bad = |m: String| ParseError::at(m, line);
+            Ok(match e {
+                Expr::Int(n) => *n,
+                Expr::Name(n, false) if done.contains_key(n) => done[n],
+                Expr::Name(n, false) if exprs.contains_key(n) => eval(n, exprs, done, chain)?,
+                Expr::Bin(op, l, r) => {
+                    let (a, b) = (go(l, line, exprs, done, chain)?, go(r, line, exprs, done, chain)?);
+                    let v = match *op {
+                        "+" => a.checked_add(b),
+                        "-" => a.checked_sub(b),
+                        "*" => a.checked_mul(b),
+                        "/" | "%" if b <= 0 => return Err(bad(format!("`{}` needs a positive number on the right", code(e)))),
+                        "/" => Some(a.div_euclid(b)),
+                        "%" => Some(a.rem_euclid(b)),
+                        _ => return Err(bad(format!("a constant is literals and constants with + - * / %, not `{}`", code(e)))),
+                    };
+                    v.filter(|n| in_range(*n)).ok_or_else(|| bad(out_of_range(&code(e))))?
+                }
+                _ => return Err(bad(format!("a constant is literals and constants of this file, not `{}`", code(e)))),
+            })
+        }
+        let v = go(e, *line, exprs, done, chain)?;
+        chain.pop();
+        if v < 0 {
+            return Err(ParseError::at(format!("constant {} is {}; a constant is >= 0", name, v), *line));
+        }
+        done.insert(name.to_string(), v);
+        Ok(v)
+    }
+    let mut done: IndexMap<String, Int> = defs.consts.clone();
+    for name in exprs.keys() {
+        eval(name, exprs, &mut done, &mut vec![])?;
+    }
+    // in declaration order: literal ones first as before, then the expressions
+    for name in exprs.keys() {
+        defs.consts.insert(name.clone(), done[name]);
+    }
+    Ok(())
 }
 
 /// Decimal places of every `Decimal` (DECISIONS.md, decimals): a value is an Int count of 10^-SCALE.
@@ -504,7 +569,7 @@ pub fn lex(s: &str, line: Option<usize>) -> PResult<Vec<Tok>> {
             if ["!=", ">=", "<=", "->"].contains(&two.as_str()) {
                 toks.push(Tok::Op(op(&two)));
                 p += 2;
-            } else if "=<>+-*/()".contains(c) {
+            } else if "=<>+-*/%()".contains(c) {
                 toks.push(Tok::Op(op(&c.to_string())));
                 p += 1;
             } else {
@@ -689,7 +754,7 @@ impl ExprParser {
     }
     fn term(&mut self) -> PResult<Expr> {
         let mut left = self.app()?;
-        while let Some(o @ ("*" | "/")) = self.peek_op() {
+        while let Some(o @ ("*" | "/" | "%")) = self.peek_op() {
             self.take();
             left = Expr::Bin(o, Box::new(left), Box::new(self.app()?));
         }
@@ -1281,7 +1346,7 @@ fn handler_re() -> &'static Regex {
 }
 fn const_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    re(&R, r"^const ([a-z]\w*) (\d+)$")
+    re(&R, r"^const ([a-z]\w*) (.+)$")
 }
 /// `X` or `X except A to B` after `keep` (a bare name: whether it is a state is wf's question).
 fn frame_re() -> &'static Regex {
@@ -1325,6 +1390,7 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
     let mut cur: Option<(bool, String)> = None; // (is_handler, name)
     let mut in_body = false;
     let lines = splitlines(text);
+    let mut const_exprs: IndexMap<String, (Expr, Option<usize>)> = IndexMap::new();
 
     fn cur_def<'m>(defs: &'m mut Module, cur: &Option<(bool, String)>) -> Option<&'m mut Def> {
         match cur {
@@ -1386,15 +1452,20 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
             // `const NAME N` (a definition may itself be named `const`: `const x:Int`)
             if line.starts_with("const ") && !line.contains(':') {
                 let Some(m) = const_re().captures(line) else {
-                    return Err(ParseError::at("want `const NAME N` (a lower-case name, a non-negative integer)", no));
+                    return Err(ParseError::at("want `const NAME N` (a lower-case name, a non-negative integer or an expression of them)", no));
                 };
                 if RESERVED.contains(&&m[1]) {
                     return Err(ParseError::at(format!("`{}` is reserved and can't name a constant", &m[1]), no));
                 }
-                if defs.consts.contains_key(&m[1]) {
+                if defs.consts.contains_key(&m[1]) || const_exprs.contains_key(&m[1]) {
                     return Err(ParseError::at(format!("constant {} is declared twice", &m[1]), no));
                 }
-                defs.consts.insert(m[1].to_string(), int(&m[2], no)?);
+                if m[2].chars().all(|c| c.is_ascii_digit()) {
+                    defs.consts.insert(m[1].to_string(), int(&m[2], no)?);
+                } else {
+                    // an expression of literals and this file's constants, evaluated once the file is read
+                    const_exprs.insert(m[1].to_string(), (parse_expr(&m[2], no)?, no));
+                }
                 finish_cur(&mut defs, &cur)?;
                 cur = None;
                 in_body = false;
@@ -1535,6 +1606,7 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
         }
     }
     finish_cur(&mut defs, &cur)?;
+    eval_consts(&mut defs, &const_exprs)?;
     if expand {
         let consts = defs.consts.clone();
         resolve_consts(&mut defs, &consts, &IndexMap::new())?;
@@ -2623,7 +2695,7 @@ pub fn prec(op: &str) -> u8 {
         "and" => 2,
         "=" | "!=" | ">=" | "<=" | ">" | "<" => 3,
         "+" | "-" => 4,
-        "*" | "/" => 5,
+        "*" | "/" | "%" => 5,
         _ => panic!("no precedence for {}", op),
     }
 }

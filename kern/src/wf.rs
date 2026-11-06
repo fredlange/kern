@@ -102,10 +102,10 @@ impl<'a> Checker<'a> {
                         "Bool".into()
                     }
                     "+" | "-" => self.need_types(place, op, &[&lt, &rt], &["Int", "Int"], "Int"),
-                    "*" | "/" => {
+                    "*" | "/" | "%" => {
                         // linear arithmetic only, so the prover stays decidable
-                        if *op == "/" && !matches!(**r, Expr::Int(n) if n > 0) {
-                            self.err(place, &format!("`{}`: `/` needs a positive number on the right", code(e)));
+                        if (*op == "/" || *op == "%") && !matches!(**r, Expr::Int(n) if n > 0) {
+                            self.err(place, &format!("`{}`: `{}` needs a positive number on the right", code(e), op));
                         }
                         self.need_types(place, op, &[&lt, &rt], &["Int", "Int"], "Int")
                     }

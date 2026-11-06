@@ -670,6 +670,27 @@ fn decimal_sums_results_and_kern_run_arguments() {
     assert!(out.starts_with("('ok', 3.125)"), "{out}");
 }
 
+#[test]
+fn remainder_and_constant_expressions() {
+    // #JDJTBVQQFW (app booking 2, 3): `s % days` (floor division's remainder, a positive literal on the right) and
+    // `const slots rooms * days`
+    must_check(
+        "% and const expressions",
+        "const rooms 5\nconst days 7\nconst slots rooms * days\nconst half (slots + 1) / 2\n\nday_of s:Int -> Int\n  ensure result >= 0 and result < days\n  ensure result = s - (s / days) * days\n  eg | day_of 17 -> ok 3\n  eg | day_of -1 -> ok 6\nbody\n  result = s % days\n\nmiddle -> Int\n  ensure result = 18\nbody\n  result = half\n",
+    );
+    for (src, want) in [
+        ("const a b\nconst b a\n", "constants defined in a cycle: a -> b -> a"),
+        ("const a 3 - 5\n", "constant a is -2; a constant is >= 0"),
+        ("const a 7 % 0\n", "needs a positive number on the right"),
+        ("const a x + 1\n", "literals and constants of this file"),
+    ] {
+        let e = parse_module(src, true).unwrap_err();
+        assert!(e.0.contains(want), "{src}: {}", e.0);
+    }
+    let e = analyse(&parse("f x:Int -> Int\nbody\n  result = x % x\n"), false, None, None).unwrap_err();
+    assert!(e.message().contains("`%` needs a positive number on the right"), "{}", e.message());
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int
