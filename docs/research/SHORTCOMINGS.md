@@ -135,7 +135,7 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   | ~~effects that return values~~ closed `700e189` (Closed: "S5, effects that return values") | `s5_effects_that_return_values_check` |
   | ~~records as state values, `-> Record`, nested records, record equality~~ closed `6ceca0a` (Closed: "S5, records, second cut") | `s5_records_as_state_values_check`, `s5_a_definition_returns_a_record`, `s5_nested_records_and_record_equality_check` |
   | ~~Accounts as state values, iteration over accounts~~ closed `0b9932d` (Closed: "S5, Accounts as state values") | `s5_accounts_as_state_values_check`, `s5_iteration_over_a_collection_of_accounts` |
-  | decimals: exact fixed-point, not binary floats (added 2026-11-05) | not written yet |
+  | ~~decimals~~ closed on the checker side `1bdc8b2` (Closed: "S5, decimals"); `kern build`/host pending (#OM2M7766M3) | `s5_decimals_check` |
   | ~~lists~~ closed `792389e` (Closed: "S5, lists") | `s5_lists_check` |
 - **Next:** records, then `match`, then text (roadmap step 1), ranked by C5's gap list once it
   exists.
@@ -217,6 +217,24 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S5, decimals (one row of S5)
+- **Kind:** code gap. **Closed** on the checker side 2026-11-06 in `1bdc8b2`, under delegation (.party/DECISIONS.md,
+  2026-11-06, decimals; Fredrik approved decimals for this milestone 2026-11-05); fuzzer `aaa8890` (tester).
+  `kern build` and the host don't take Decimal yet (runtime, #OM2M7766M3): the row's end-to-end part is open
+  until that lands.
+- **Was:** only Ints; money with cents had to be scaled by hand, and nothing stopped a 0.1 + 0.2 float.
+- **Decided by** F4 (one meaning across modules): one language-wide scale of 4 places, no per-module `scale`.
+  F5: a literal with more than 4 places is a parse error, never a silent round; Decimal × Decimal and `/` round
+  down (floor toward −∞), the rounding Z3's integer div already has, so proofs hold for the computed values
+  with no new prover theory. Ints promote exactly (`p + 1` 6 tokens vs `p + 1.0` 8). F8: counterexamples print
+  the point and parse back to the same value.
+- **Evidence:** `s5_decimals_check` and `s5_a_decimal_is_exact_and_rounds_down_and_its_counterexamples_replay`
+  pass as ordinary tests (`cargo test -p kern --release --test shortcomings`, 84 passed at `aaa8890`); docs and
+  digest tests green there. Tester: floor rounding with negatives, promotion, literal checks, `eg`,
+  counterexample replay; gen_dec with ground-truth literal products catches a planted half-up rounding (3,000);
+  seeds 1–3 2,477/2,477 programs, 0 contradictions. REFERENCE.md 3,425 → 3,444 of 3,500 tokens.
+- **What remains:** no Decimal record fields; balances stay Int; no Decimal / Decimal; no half-even rounding.
 
 ### S5, lists (one row of S5)
 - **Kind:** code gap. **Closed** 2026-11-06 in `792389e`, with `f3af834` (call-site conditions), under delegation
