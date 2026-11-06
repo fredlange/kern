@@ -2042,8 +2042,8 @@ fn s7_a_condition_after_a_write_is_rewritten_into_the_pre_state() {
 
 #[test]
 fn s7_lifting_still_stops_where_the_after_state_is_not_exact() {
-    // after a callee that writes (its after-state is only its spec), after a loop with effects, and after an `if`
-    // whose branches write, a state-reading condition is not lifted; one that reads no state still is
+    // after a callee that writes (its after-state is only its spec) and after a loop with effects, a state-reading
+    // condition is not lifted; one that reads no state still is. After an `if` whose branches wrote it is (S19)
     let src = "state hold Int
 
 move a:Account b:Account
@@ -2079,7 +2079,8 @@ body
     let ctors = |n: &str| s7_lifted(src, n).into_iter().map(|(c, k, _)| format!("{c} else {k}")).collect::<Vec<_>>();
     assert_eq!(ctors("via_callee"), ["n > 0 else Bad"]);
     assert!(ctors("via_loop").is_empty());
-    assert!(ctors("via_if").is_empty());
+    // S19 (#75HG3VEWQS): an `if` whose branches wrote merges: the read splits on the branch's guard
+    assert_eq!(ctors("via_if"), ["n > 0 and ledger.balance a - 1 >= 0 or n <= 0 and ledger.balance a >= 0 else Low"]);
     // inside the branch that wrote, the write is exact: lifted under the branch's guard
     assert_eq!(ctors("inside_if"), ["n <= 0 or ledger.balance a - 1 >= 0 else Low"]);
 }
@@ -2169,6 +2170,36 @@ fn s17_lifting_stops_after_a_callee_that_does_not_pin_what_it_writes() {
     let defs = parse(&format!("{unkept}{S17_REST}"));
     let ctors: Vec<String> = kern::infer::lifted(&defs, &defs.defs["step"]).iter().map(|l| l.ctor.clone()).collect();
     assert_eq!(ctors, ["Same", "Big"]);
+    // S19 (#75HG3VEWQS): pinned under complementary `when`s, the entry is a branch on the guard and lifts; under one
+    // `when` only, the other case is unknown and it still doesn't
+    let capped = "move a:Account b:Account n:Int
+  need a != b else Same
+  keep ledger.total
+  ensure ledger.balance' a = ledger.balance a - n when n <= 10
+  ensure ledger.balance' a = ledger.balance a - 10 when n > 10
+  ensure ledger.balance' b = ledger.balance b + n when n <= 10
+  ensure ledger.balance' b = ledger.balance b + 10 when n > 10
+body
+  if n <= 10
+    ledger.debit a n
+    ledger.credit b n
+  else
+    ledger.debit a 10
+    ledger.credit b 10
+";
+    let defs = parse(&format!("{capped}{S17_REST}"));
+    let lifted = kern::infer::lifted(&defs, &defs.defs["step"]);
+    let big = lifted.iter().find(|l| l.ctor == "Big").expect("Big lifted through the complementary whens");
+    assert_eq!(
+        kern::syntax::code(&big.cond),
+        // (no aliasing split: move's `need a != b` has been passed)
+        "n <= 10 and ledger.balance a - n <= 10 or n > 10 and ledger.balance a - 10 <= 10"
+    );
+    assert!(reports(&defs)["step"].guarantees.iter().all(|g| g.status != kern::report::Status::Refuted));
+    let one = capped.replace("  ensure ledger.balance' a = ledger.balance a - 10 when n > 10\n", "");
+    let defs = parse(&format!("{one}{S17_REST}"));
+    let ctors: Vec<String> = kern::infer::lifted(&defs, &defs.defs["step"]).iter().map(|l| l.ctor.clone()).collect();
+    assert_eq!(ctors, ["Same"]);
 }
 
 // =====================================================================================

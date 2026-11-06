@@ -432,6 +432,8 @@ enum Write {
     BalSet(Expr, Expr),
     /// a callee wrote balances without keeping the total: the total is no longer known
     TotalUnknown,
+    /// an `if G` whose branches wrote: the writes of each, G in pre-state terms (S19)
+    Branch(Expr, Vec<Write>, Vec<Write>),
 }
 
 /// The most case combinations a rewritten condition may have; beyond it the condition isn't lifted.
@@ -463,6 +465,25 @@ fn may_tick(defs: &Module, stmts: &[Stmt]) -> bool {
         Some(Expr::App(n, _, _)) | Some(Expr::Name(n, _)) => {
             n == "clock.tick" || defs.defs.get(n).is_some_and(|c| uses(defs, c).contains("clock.tick"))
         }
+        _ => false,
+    })
+}
+
+/// Whether `writes` (branches included) write balances (`map` None) or the map `map`.
+fn touches(writes: &[Write], map: Option<&str>) -> bool {
+    writes.iter().any(|w| match (w, map) {
+        (Write::Bal(..) | Write::BalSet(..), None) => true,
+        (Write::Map(x, _, _), Some(m)) => x == m,
+        (Write::Branch(_, t, e), _) => touches(t, map) || touches(e, map),
+        _ => false,
+    })
+}
+
+/// Whether `writes` change the total (or make it unknown).
+fn moves_total(writes: &[Write]) -> bool {
+    writes.iter().any(|w| match w {
+        Write::Bal(..) | Write::TotalUnknown => true,
+        Write::Branch(_, t, e) => moves_total(t) || moves_total(e),
         _ => false,
     })
 }
@@ -534,77 +555,113 @@ impl<'a> Lifter<'a> {
         }
         let mut out = vec![];
         for t in terms {
-            let mut cases: Vec<(Vec<Expr>, Expr)> = vec![(vec![], t.clone())];
+            let cases: Vec<(Vec<Expr>, Expr)> = vec![(vec![], t.clone())];
             if is_total(&t) {
-                for w in log {
-                    match w {
-                        Write::Bal(_, op, n) => cases[0].1 = bin(op, cases[0].1.clone(), n.clone()),
-                        Write::TotalUnknown => return None,
-                        _ => {}
-                    }
-                }
-                out.push((t, cases));
+                out.push((t.clone(), self.through(&t, None, cases, log)?));
                 continue;
             }
             let Expr::App(name, _, args) = &t else { unreachable!() };
             let key = &args[0];
             let map = name.strip_suffix(".get");
-            let hit = |w: &Write| -> Option<(Expr, Box<dyn Fn(&Expr) -> Expr>)> {
-                match (w, map) {
-                    (Write::Bal(a, op, n), None) => {
-                        let (op, n) = (*op, n.clone());
-                        Some((a.clone(), Box::new(move |v: &Expr| bin(op, v.clone(), n.clone()))))
-                    }
-                    (Write::Map(x, k, v), Some(m)) if x == m => {
-                        let v = v.clone();
-                        Some((k.clone(), Box::new(move |_: &Expr| v.clone())))
-                    }
-                    (Write::BalSet(a, v), None) => {
-                        let v = v.clone();
-                        Some((a.clone(), Box::new(move |_: &Expr| v.clone())))
-                    }
-                    _ => None,
-                }
-            };
-            let touched = log.iter().any(|w| hit(w).is_some());
-            if touched && reads_state(key) {
+            if reads_state(key) && touches(log, map) {
                 return None; // the key itself may have changed
             }
-            for w in log {
-                let Some((at, apply)) = hit(w) else { continue };
+            let cases = self.through(key, map, cases, log)?;
+            out.push((t, cases));
+        }
+        Some(out)
+    }
+
+    /// The cases of a read (`ledger.balance key`, `x.get key`, or the total when `map` is None and `key` is the
+    /// total) after `writes`, in order: a write at the same key applies, a write at a key that may or may not be the
+    /// same splits on `key = at`, and a branch splits on its guard. None past MAX_CASES or an unknown total.
+    fn through(&self, key: &Expr, map: Option<&str>, mut cases: Vec<(Vec<Expr>, Expr)>, writes: &[Write])
+        -> Option<Vec<(Vec<Expr>, Expr)>> {
+        let total = is_total(key) && map.is_none();
+        for w in writes {
+            if let Write::Branch(g, then_w, else_w) = w {
+                if !touches(then_w, map) && !touches(else_w, map) && !(total && (moves_total(then_w) || moves_total(else_w))) {
+                    continue;
+                }
+                let ng = negate(g)?;
                 let mut next = vec![];
                 for (conds, v) in cases {
-                    if Self::same(key, &at) {
-                        next.push((conds, apply(&v)));
-                    } else if self.differ(key, &at) {
-                        next.push((conds, v));
-                    } else {
-                        let eq = bin("=", key.clone(), at.clone());
-                        let ne = bin("!=", key.clone(), at.clone());
-                        if !conds.contains(&ne) {
-                            let mut c = conds.clone();
-                            if !c.contains(&eq) {
-                                c.push(eq.clone());
-                            }
-                            next.push((c, apply(&v)));
+                    for (guard, ws) in [(g, then_w), (&ng, else_w)] {
+                        if conds.iter().any(|c| Some(c) == negate(guard).as_ref()) {
+                            continue;
                         }
-                        if !conds.contains(&eq) {
-                            let mut c = conds;
-                            if !c.contains(&ne) {
-                                c.push(ne);
-                            }
-                            next.push((c, v));
+                        let mut c = conds.clone();
+                        if !c.contains(guard) {
+                            c.push(guard.clone());
                         }
+                        next.extend(self.through(key, map, vec![(c, v.clone())], ws)?);
                     }
                 }
                 cases = next;
                 if cases.len() > MAX_CASES {
                     return None;
                 }
+                continue;
             }
-            out.push((t, cases));
+            if total {
+                match w {
+                    Write::Bal(_, op, n) => {
+                        for c in cases.iter_mut() {
+                            c.1 = bin(op, c.1.clone(), n.clone());
+                        }
+                    }
+                    Write::TotalUnknown => return None,
+                    _ => {}
+                }
+                continue;
+            }
+            let hit: Option<(Expr, Box<dyn Fn(&Expr) -> Expr>)> = match (w, map) {
+                (Write::Bal(a, op, n), None) => {
+                    let (op, n) = (*op, n.clone());
+                    Some((a.clone(), Box::new(move |v: &Expr| bin(op, v.clone(), n.clone()))))
+                }
+                (Write::Map(x, k, v), Some(m)) if x == m => {
+                    let v = v.clone();
+                    Some((k.clone(), Box::new(move |_: &Expr| v.clone())))
+                }
+                (Write::BalSet(a, v), None) => {
+                    let v = v.clone();
+                    Some((a.clone(), Box::new(move |_: &Expr| v.clone())))
+                }
+                _ => None,
+            };
+            let Some((at, apply)) = hit else { continue };
+            let mut next = vec![];
+            for (conds, v) in cases {
+                if Self::same(key, &at) {
+                    next.push((conds, apply(&v)));
+                } else if self.differ(key, &at) {
+                    next.push((conds, v));
+                } else {
+                    let eq = bin("=", key.clone(), at.clone());
+                    let ne = bin("!=", key.clone(), at.clone());
+                    if !conds.contains(&ne) {
+                        let mut c = conds.clone();
+                        if !c.contains(&eq) {
+                            c.push(eq.clone());
+                        }
+                        next.push((c, apply(&v)));
+                    }
+                    if !conds.contains(&eq) {
+                        let mut c = conds;
+                        if !c.contains(&ne) {
+                            c.push(ne);
+                        }
+                        next.push((c, v));
+                    }
+                }
+            }
+            cases = next;
+            if cases.len() > MAX_CASES {
+                return None;
+            }
         }
-        Some(out)
+        Some(cases)
     }
 
     /// A value in pre-state terms, only when it has exactly one (no case split).
@@ -819,7 +876,7 @@ impl<'a> Lifter<'a> {
                     let ng = g.as_ref().and_then(negate);
                     let (log0, distinct0, rests0) = (self.log.clone(), self.distinct.clone(), self.rests.clone());
                     let mut g1 = guards.to_vec();
-                    g1.push(g);
+                    g1.push(g.clone());
                     self.walk(t, &g1);
                     let log_then = std::mem::replace(&mut self.log, log0.clone());
                     self.distinct = distinct0.clone();
@@ -827,13 +884,25 @@ impl<'a> Lifter<'a> {
                     let mut g2 = guards.to_vec();
                     g2.push(ng);
                     self.walk(o, &g2);
-                    // the after-state stays exact only if neither branch wrote (no merge of conditional writes)
+                    // branches that wrote: one log entry holding each branch's writes under the guard (S19), so a
+                    // later read splits on G as it does on aliasing; exact only if G is stated in the pre-state and
+                    // both branches' writes are
                     if log_then != log0 || self.log != log0 {
-                        self.log = None;
+                        self.log = match (&log0, &log_then, &self.log, &g) {
+                            (Some(l0), Some(lt), Some(le), Some(g)) if negate(g).is_some() => {
+                                let mut merged = l0.clone();
+                                merged.push(Write::Branch(g.clone(), lt[l0.len()..].to_vec(), le[l0.len()..].to_vec()));
+                                Some(merged)
+                            }
+                            _ => None,
+                        };
                     }
                     self.distinct = distinct0;
-                    if rests_then != rests0 || self.rests != rests0 {
-                        self.rests = rests0; // the log is gone anyway: nothing more reads through these writes
+                    // a condition read through either branch's writes rests on the callees either used
+                    for r in rests_then {
+                        if !self.rests.contains(&r) {
+                            self.rests.push(r);
+                        }
                     }
                 }
                 Stmt::Do(Expr::Name(name, _)) if name == "clock.tick" => self.ticked = true,
@@ -879,6 +948,32 @@ impl<'a> Lifter<'a> {
                 pins.push((k.clone(), k.clone()));
             }
         }
+        // `ensure R' = E when C` (S19): pinned only on C; with a second ensure pinning R on `not C` the entry is a
+        // branch of the two (complementary guards), else it isn't pinned
+        let mut guarded: Vec<(Expr, Expr, Expr)> = vec![];
+        for e in &callee.ensures {
+            let Expr::Bin("when", body, c) = e else { continue };
+            for e in conjuncts(body) {
+                if let Expr::Bin("=", l, r) = e {
+                    for (lhs, rhs) in [(l, r), (r, l)] {
+                        if let Some(read) = unprime(lhs) {
+                            if !primed(rhs) && !primed(c) {
+                                guarded.push((read, (**rhs).clone(), (**c).clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let branch = |read: &Expr| -> Option<(Expr, Expr, Expr)> {
+            for (_, v1, c1) in guarded.iter().filter(|(r, _, _)| r == read) {
+                let not_c1 = negate(c1)?;
+                if let Some((_, v2, _)) = guarded.iter().find(|(r, _, c)| r == read && *c == not_c1) {
+                    return Some((c1.clone(), v1.clone(), v2.clone()));
+                }
+            }
+            None
+        };
         let pinned = |read: &Expr| pins.iter().find(|(r, _)| r == read).map(|(_, v)| v.clone());
         let mut out = vec![];
         let total_kept = pins.iter().any(|(r, v)| is_total(r) && is_total(v));
@@ -895,12 +990,21 @@ impl<'a> Lifter<'a> {
                 }
                 _ => return None,
             };
-            let value = pinned(&read)?;
             let Expr::App(_, _, args) = &read else { unreachable!() };
             // into the caller's terms: the callee's parameters become the arguments, then the caller's log applies
             let key = self.pre_value(&subst(&args[0], m))?;
-            let value = self.pre_value(&subst(&value, m))?;
-            out.push(write(key, value));
+            match pinned(&read) {
+                Some(value) => {
+                    let value = self.pre_value(&subst(&value, m))?;
+                    out.push(write(key, value));
+                }
+                None => {
+                    let (c, v1, v2) = branch(&read)?;
+                    let g = self.pre_cond(&subst(&c, m))?;
+                    let (v1, v2) = (self.pre_value(&subst(&v1, m))?, self.pre_value(&subst(&v2, m))?);
+                    out.push(Write::Branch(g, vec![write(key.clone(), v1)], vec![write(key, v2)]));
+                }
+            }
         }
         if wrote_balances && !total_kept {
             out.push(Write::TotalUnknown);

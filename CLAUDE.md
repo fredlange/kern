@@ -228,8 +228,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
 - Lifted refusal conditions (`body need`): direct writes (debit/credit, `x.set`) are rewritten into the
   pre-state, with aliasing split into cases (at most 8); a callee whose ensures pin what it writes
   (`ensure R' = E`, `keep R`) counts as exact writes, and the condition then rests on that callee (relied_on;
-  hidden from views unless it is clean); lifting stops at other writing callees, loops with effects and `if`s
-  whose branches wrote (SHORTCOMINGS.md S19). The page's "Refuses when" shows a body need after a write in that
+  hidden from views unless it is clean); an `if` whose branches wrote is merged (a later read splits on
+  its guard), and so is a callee pinning an entry under complementary `when`s (S19, #75HG3VEWQS); lifting stops at
+  other writing callees (`>=`, a single `when`, `for`, an unpinned write) and loops with effects. The page's "Refuses when" shows a body need after a write in that
   pre-state form when it has one case, else its source text marked "(after this call's earlier changes)" (S18).
   Agent views show only a definition's
   *own* body needs (inherited ones measured at ~2x the spec-view tokens).
