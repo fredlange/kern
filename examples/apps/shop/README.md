@@ -8,6 +8,7 @@ shop/
 ├── kern.pkg             `use ../catalog`
 ├── orders.k             place, advance (match on the phase), cancel (restocks), quote (price * qty + shipping)
 ├── cart.k               order lines as a list: add_line, empty_cart, lines, line_item, cart_value (`state cart Int -> List`)
+├── pricing.k            Decimal unit prices (`state unit Int -> Decimal`) and Account-valued buyers (`state buyer Int -> Account`)
 ├── shipping.k           parcels (recursive, `decreases weight`) and shipping
 └── proof-pages/shop.html
 ```
@@ -19,7 +20,7 @@ cargo run --release -p kern -- check examples/apps/shop
 cargo run --release -p kern -- build examples/apps/shop
 ```
 
-## What `check` says (recorded at 7aaecdb, built from a clean checkout of that commit, `--cache ''`)
+## What `check` says (recorded at f2933ff, built from a clean checkout of that commit, `--cache ''`)
 
 | definition | status | spec strength |
 |---|---|---|
@@ -32,9 +33,16 @@ cargo run --release -p kern -- build examples/apps/shop
 | `shipping` | All guarantees proven | 2/2 |
 | `add_line` (`cart.get' c = append (cart.get c) item`, length +1, last element), `empty_cart` | All guarantees proven | 4/4, 1/1; spec refusals 8/8, 2/2 |
 | `lines`, `cart_value` (`sum i … of price.get (at (cart.get c) i)`, `result >= 0` from the price invariant) | All guarantees proven | 0/0 |
+| `set_unit`, `line_total`, `discounted` (Decimal: `unit.get item * qty * (100 - pct) / 100`) | All guarantees proven | 1/1, 2/2, 10/10 |
+| `claim`, `release` (`state buyer Int -> Account`, `none`) | All guarantees proven | 1/1, 1/1; spec refusals 4/4, 2/2 |
 | `line_item` (guarded `at`, in-range case in the spec) | All guarantees proven | 10/10 |
 
 `kern build` compiles the package. What the app found:
+- Decimals and Account-valued state (both used here, `kern build` compiles the package): `unit` is a parallel Decimal price
+  (`unit.get item * qty`, exact to 0.0001, `/` rounds down); the Int `price` in `catalog` is unchanged, so the shop now has two
+  price notions. Not wired into `place`/`quote`. `buyer.get order = none` guards a claim and `buyer.set order none` clears it.
+  A first `claim` example failed with "account 'A' for `who` is not in the world": an `eg` that passes an Account must
+  declare it in the world (`A:0@u1`), also in refusal examples.
 - Lists (792389e) fit order lines: `invariant c:Int length (cart.get c) <= max_lines` is proven for `add_line`, which
   appends and refuses a full cart; sums over `at xs i` work. Two gaps, both closed by lang: `cart_value` could not prove `result >= 0` although
   `price.get k >= 0` is an invariant (the invariant wasn't assumed at the computed key `at xs i` inside a sum; df05911 does), and the `when`-guarded `at` in `line_item` was `?` until 9e0c650, which now proves it.

@@ -83,7 +83,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 </ul>
 <h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 0/0 deliberate bugs (100%)</span></h3><p>Caught by the prover: 0; by random tests checking the guarantees: 0. The examples alone catch 0/0; everything together 0/0.</p>
-<h3>Relies on</h3><p><code>invariant on cart</code>, <code>invariant on item_of</code>, <code>invariant on phase</code>, <code>invariant on price</code>, <code>invariant on qty_of</code>, <code>invariant on stock</code> — through their specs only, not their code.</p>
+<h3>Relies on</h3><p><code>invariant on cart</code>, <code>invariant on item_of</code>, <code>invariant on phase</code>, <code>invariant on price</code>, <code>invariant on qty_of</code>, <code>invariant on stock</code>, <code>invariant on unit</code> — through their specs only, not their code.</p>
 </section>
 <section class="card"><header><h2><code>line_item</code><span class="muted"> in cart</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build d95f98b2</span></header>
 <h3>Can touch</h3><p>state <code>cart</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
@@ -249,6 +249,84 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <h3>Spec strength <span class='muted'>guarantees catch 3/3 deliberate bugs (100%)</span></h3><p>Caught by the prover: 3; by random tests checking the guarantees: 3. The examples alone catch 0/3; everything together 3/3.</p>
 <p class='failc'>The checker crashed on these mutants (not counted):</p><ul class='ex'><li>`qty` → `item` in `result = price.get item * qty + shipping qty`: KernError: calls nest deeper than 200</li></ul>
 <h3>Relies on</h3><p><code>parcels</code>, <code>shipping</code> — through their specs only, not their code.</p>
+</section>
+<section class="card"><header><h2><code>set_unit</code><span class="muted"> in pricing</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build b7bfdb36</span></header>
+<h3>Can touch</h3><p>state <code>unit</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: unit.item. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<h3>Refuses when</h3><table><tr><td><code>item</code> ≤ 0</td><td class='fail-name'>→ <code>NoSuchItem</code></td></tr><tr><td><code>p</code> &lt; 0</td><td class='fail-name'>→ <code>BadPrice</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>unit of <code>item</code> <em>after</em> = <code>p</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure unit.get&#x27; item = p</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>i</code> (Int): unit of <code>i</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant i:Int unit.get i &gt;= 0</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>4/4 pass, executed against build b7bfdb36</span></h3><ul class='ex'>
+<li><code>| set_unit 3 2.5 -&gt; ok | unit.3:2.5</code> <span class='okc'>✔</span></li>
+<li><code>| set_unit 0 2.5 -&gt; NoSuchItem</code> <span class='okc'>✔</span></li>
+<li><code>| set_unit 3 -1 -&gt; BadPrice</code> <span class='okc'>✔</span></li>
+<li><code>| set_unit 3 0 -&gt; ok</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 345 succeeded and were checked against every guarantee; refused: NoSuchItem 83, BadPrice 72.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 1/1 deliberate bugs (100%)</span></h3><p>Caught by the prover: 1; by random tests checking the guarantees: 1. The examples alone catch 1/1; everything together 1/1.</p>
+<p>Refusals in the spec: 4/4 changes caught, by examples 4, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section>
+<section class="card"><header><h2><code>line_total</code><span class="muted"> in pricing</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 82c673b6</span></header>
+<h3>Can touch</h3><p>state <code>unit</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div><em>when</em> <code>qty</code> ≥ 0: <code>result</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result &gt;= 0 when qty &gt;= 0</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div><code>result</code> = unit of <code>item</code> × <code>qty</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result = unit.get item * qty</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>1/1 pass, executed against build 82c673b6</span></h3><ul class='ex'>
+<li><code>unit.3:2.5 | line_total 3 4 -&gt; ok</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 2/2 deliberate bugs (100%)</span></h3><p>Caught by the prover: 2; by random tests checking the guarantees: 2. The examples alone catch 0/2; everything together 2/2.</p>
+</section>
+<section class="card"><header><h2><code>discounted</code><span class="muted"> in pricing</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build b4c425ba</span></header>
+<h3>Can touch</h3><p>state <code>unit</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div><code>result</code> = unit of <code>item</code> × <code>qty</code> × (100 − <code>pct</code>) ÷ 100</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result = unit.get item * qty * (100 - pct) / 100</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div><em>when</em> <code>pct</code> ≥ 0 and <code>qty</code> ≥ 0: <code>result</code> ≤ unit of <code>item</code> × <code>qty</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result &lt;= unit.get item * qty when pct &gt;= 0 and qty &gt;= 0</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>3/3 pass, executed against build b4c425ba</span></h3><ul class='ex'>
+<li><code>unit.3:2.5 | discounted 3 4 10 -&gt; ok</code> <span class='okc'>✔</span></li>
+<li><code>unit.3:2.5 | discounted 3 4 0 -&gt; ok</code> <span class='okc'>✔</span></li>
+<li><code>unit.3:2.5 | discounted 3 0 10 -&gt; ok</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 10/10 deliberate bugs (100%)</span></h3><p>Caught by the prover: 10; by random tests checking the guarantees: 10. The examples alone catch 0/10; everything together 10/10.</p>
+</section>
+<section class="card"><header><h2><code>claim</code><span class="muted"> in pricing</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 7d6d12d3</span></header>
+<h3>Can touch</h3><p>state <code>buyer</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: buyer.order. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<h3>Refuses when</h3><table><tr><td><code>order</code> ≤ 0</td><td class='fail-name'>→ <code>BadOrder</code></td></tr><tr><td>buyer of <code>order</code> ≠ <code>none</code></td><td class='fail-name'>→ <code>AlreadyClaimed</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>buyer of <code>order</code> <em>after</em> = <code>who</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure buyer.get&#x27; order = who</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>3/3 pass, executed against build 7d6d12d3</span></h3><ul class='ex'>
+<li><code>A:0@u1 | claim 1 A -&gt; ok | buyer.1:A</code> <span class='okc'>✔</span></li>
+<li><code>A:0@u1 | claim 0 A -&gt; BadOrder</code> <span class='okc'>✔</span></li>
+<li><code>A:0@u1 B:0@u2 buyer.1:B | claim 1 A -&gt; AlreadyClaimed</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 366 succeeded and were checked against every guarantee; refused: BadOrder 76, AlreadyClaimed 58.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 1/1 deliberate bugs (100%)</span></h3><p>Caught by the prover: 1; by random tests checking the guarantees: 1. The examples alone catch 1/1; everything together 1/1.</p>
+<p>Refusals in the spec: 4/4 changes caught, by examples 4, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section>
+<section class="card"><header><h2><code>release</code><span class="muted"> in pricing</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 1ee1926e</span></header>
+<h3>Can touch</h3><p>state <code>buyer</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: buyer.order. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<h3>Refuses when</h3><table><tr><td><code>order</code> ≤ 0</td><td class='fail-name'>→ <code>BadOrder</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>buyer of <code>order</code> <em>after</em> = <code>none</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure buyer.get&#x27; order = none</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>2/2 pass, executed against build 1ee1926e</span></h3><ul class='ex'>
+<li><code>A:0@u1 buyer.1:A | release 1 -&gt; ok | buyer.1:none</code> <span class='okc'>✔</span></li>
+<li><code>| release 0 -&gt; BadOrder</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 423 succeeded and were checked against every guarantee; refused: BadOrder 77.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 1/1 deliberate bugs (100%)</span></h3><p>Caught by the prover: 1; by random tests checking the guarantees: 1. The examples alone catch 1/1; everything together 1/1.</p>
+<p>Refusals in the spec: 2/2 changes caught, by examples 2, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 </section>
 <section class="card"><header><h2><code>parcels</code><span class="muted"> in shipping</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 02e333cc</span></header>
 <h3>Can touch</h3><p>nothing. <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
