@@ -453,6 +453,34 @@ body
 - **The frame can't be stated, only inferred,** so a mutant that sweeps one key too many survives
   in the definition itself (`examples/batch/batch.k`).
 
+## A collection of accounts
+
+Accounts a program keeps track of (employees, ticket holders) are an Int-indexed Account map; loop or sum over
+its indices. An entry nobody set is `none`, and using `none` as an account is a goal the prover must discharge,
+so guard each use (`need employee.get i != none`):
+
+```kern clean
+state employee Int -> Account
+state wage Int
+
+pay_one i:Int payer:Account
+  need employee.get i != none else NoEmployee
+  need employee.get i != payer else SelfPay
+  need wage.get i >= 0 else BadWage
+  need ledger.balance payer >= wage.get i else Insufficient
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' payer = ledger.balance payer - wage.get i
+body
+  e = employee.get i
+  ledger.debit payer (wage.get i)
+  ledger.credit e (wage.get i)
+```
+
+A loop calling `pay_one i payer` for `i from 0 to n` proves its balance invariant; its `ok otherwise` needs the
+prover to go from "no employee in [0, n) is none" (a count, `0 = sum j from 0 to n of 1 where employee.get j =
+none`) to one index, which it can't yet (`?`). There is no loop over every account in the world.
+
 ## Limits worth knowing
 
 - **Types:** Int, Account, Text, and records of those as parameters. Text has only `=`, `length` and `+`.

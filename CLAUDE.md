@@ -263,8 +263,9 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
 - Packages (a proposal, roadmap run P): `import a.b` brings a module's names in unqualified; names are unique
   per package; `use ../other` in kern.pkg brings in a sibling package as `other.<module>` (S5; examples
   share examples/money). Missing for
-  ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): iteration over accounts (lists, decimals
-  are open tasks). Accounts as state values: `state member Int -> Account`, an unset entry is `none` (-1 in the
+  ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): lists and decimals (open tasks). A collection
+  of accounts is an Int-indexed Account map iterated with `for`/`sum` (no loop over the world's accounts,
+  DECISIONS 2026-11-06); "count = 0 means no element matches" is not provable yet (task FPCP2UCC36). Accounts as state values: `state member Int -> Account`, an unset entry is `none` (-1 in the
   prover, every Account parameter assumed another); each use of a non-parameter Account as an account is a
   call-site `pre` goal (only in modules with such states).
 - Records: `record Name f:Int|Account|Text|Record …` (nested; a cycle is an error); record-typed parameters,

@@ -389,6 +389,63 @@ fn a_result_has_the_declared_type() {
     }
 }
 
+#[test]
+fn s5_iteration_over_a_collection_of_accounts() {
+    // part 2 of Accounts (DECISIONS.md 2026-11-06): a program's accounts are an Int-indexed Account map, iterated
+    // with the existing loops and sums; no iteration over the world's accounts. pay_all's `ok otherwise` stays `?`
+    // (follow-up FPCP2UCC36: count = 0 means no element matches); nothing is refuted
+    use kern::report::Status;
+    let reps = reports(&parse("state employee Int -> Account
+state wage Int
+state staff Int
+
+hire i:Int e:Account w:Int
+  need i = staff.get 0 else NotNext
+  need employee.get i = none else Taken
+  need w > 0 else BadWage
+  ok otherwise
+  ensure employee.get' i = e
+  ensure wage.get' i = w
+  ensure staff.get' 0 = i + 1
+body
+  employee.set i e
+  wage.set i w
+  staff.set 0 (i + 1)
+
+pay_one i:Int payer:Account
+  need employee.get i != none else NoEmployee
+  need employee.get i != payer else SelfPay
+  need wage.get i >= 0 else BadWage
+  need ledger.balance payer >= wage.get i else Insufficient
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' payer = ledger.balance payer - wage.get i
+body
+  e = employee.get i
+  ledger.debit payer (wage.get i)
+  ledger.credit e (wage.get i)
+
+pay_all n:Int payer:Account
+  need 0 = sum j from 0 to n of 1 where employee.get j = none else NoEmployee
+  need 0 = sum j from 0 to n of 1 where employee.get j = payer else SelfPay
+  need 0 = sum j from 0 to n of 1 where wage.get j < 0 else BadWage
+  need ledger.balance payer >= sum j from 0 to n of wage.get j else Insufficient
+  ok otherwise
+  keep ledger.total
+  ensure ledger.balance' payer = ledger.balance payer - sum j from 0 to n of wage.get j
+body
+  for i from 0 to n
+    invariant ledger.balance' payer = ledger.balance payer - sum j from 0 to i of wage.get j
+    invariant ledger.total' = ledger.total
+    pay_one i payer
+"));
+    for n in ["hire", "pay_one"] {
+        assert!(reps[n].clean, "{n}: {:?}", reps[n].guarantees);
+    }
+    let all = &reps["pay_all"].guarantees;
+    assert!(all.iter().all(|g| g.status == Status::Proven || (g.kind == "ok" && g.status == Status::Unknown)), "{all:?}");
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int
