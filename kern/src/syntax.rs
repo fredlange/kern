@@ -153,6 +153,8 @@ pub struct Module {
     pub text_states: Vec<String>,
     /// `state NAME KEY -> Record`: NAME -> the record type; flatten_records makes one state per field (`NAME.f`)
     pub record_states: IndexMap<String, String>,
+    /// declared states whose values are Accounts (`state NAME KEY -> Account`); an unset entry is `none`
+    pub account_states: Vec<String>,
     /// set by the package loader (kern/package.py's `defs.package`)
     pub package: Option<crate::package::Package>,
 }
@@ -881,6 +883,11 @@ pub type Maps = IndexMap<String, IndexMap<Key, Int>>;
 /// Text state entries: state -> {key: text}
 pub type Texts = IndexMap<String, IndexMap<Key, String>>;
 
+fn account_item() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    re(&R, r"^([a-z]\w*(?:\.[a-z]\w*)*)\.([A-Z]\w*|-?\d+):([A-Z]\w*|none)$")
+}
+
 fn text_item() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     re(&R, r"^([a-z]\w*(?:\.[a-z]\w*)*)\.([A-Z]\w*|-?\d+):(\x01\d+\x01)$")
@@ -894,6 +901,11 @@ fn split_texts(src: &str, line: Option<usize>) -> PResult<(String, Texts)> {
             let k = &m[2];
             let key = if k.chars().next().unwrap().is_alphabetic() { Key::Str(k.into()) } else { Key::Int(int(k, line)?) };
             texts.entry(m[1].to_string()).or_default().insert(key, lifted(&m[3]).unwrap_or_default());
+        } else if let Some(m) = account_item().captures(item) {
+            // an Account-valued state's entry, `member.4:M` (or `member.4:none`): kept with the Text entries, as a name
+            let k = &m[2];
+            let key = if k.chars().next().unwrap().is_alphabetic() { Key::Str(k.into()) } else { Key::Int(int(k, line)?) };
+            texts.entry(m[1].to_string()).or_default().insert(key, m[3].to_string());
         } else if item.contains(HOLE) {
             return Err(ParseError::at(format!("bad world item {} (a text entry is state.key:\"…\")", restore(item)), line));
         } else {
@@ -1243,6 +1255,7 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
                     defs.states.insert(m[1].to_string(), m[2].to_string());
                     match m.get(3).map(|v| v.as_str()) {
                         Some("Text") => defs.text_states.push(m[1].to_string()),
+                        Some("Account") => defs.account_states.push(m[1].to_string()),
                         Some("Int") | None => {}
                         // a record: one state per field, made by flatten_records
                         Some(r) => {
@@ -1405,10 +1418,10 @@ pub fn subst(e: &Expr, m: &IndexMap<String, Expr>) -> Expr {
 }
 
 /// Words that can't name a constant: they are keywords, or a constant would hide them.
-const RESERVED: [&str; 32] = [
+const RESERVED: [&str; 33] = [
     "and", "or", "else", "when", "as", "result", "body", "need", "keep", "ensure", "emit", "eg", "ok", "if", "for",
     "from", "to", "distinct", "sum", "of", "where", "const", "import", "state", "record", "channel", "invariant",
-    "handler", "ledger", "clock", "audit", "length",
+    "handler", "ledger", "clock", "audit", "length", "none",
 ];
 
 /// Substitutes named constants into a definition, collecting what it used.

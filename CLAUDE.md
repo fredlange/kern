@@ -263,8 +263,10 @@ The register of shortcomings, with evidence, kind and what counts as fixed: docs
 - Packages (a proposal, roadmap run P): `import a.b` brings a module's names in unqualified; names are unique
   per package; `use ../other` in kern.pkg brings in a sibling package as `other.<module>` (S5; examples
   share examples/money). Missing for
-  ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): Accounts as state values, iteration over
-  accounts, effects that return values, records as state values.
+  ordinary programs (gap table in docs/research/ROADMAP_RUN.md, P): iteration over accounts (lists, decimals
+  are open tasks). Accounts as state values: `state member Int -> Account`, an unset entry is `none` (-1 in the
+  prover, every Account parameter assumed another); each use of a non-parameter Account as an account is a
+  call-site `pre` goal (only in modules with such states).
 - Records: `record Name f:Int|Account|Text|Record …` (nested; a cycle is an error); record-typed parameters,
   flattened to their leaf fields at load time (`syntax::flatten_records`; `l:Line` is `l.a.x l.a.y …`); `eg` and
   counterexamples pass the fields positionally; `p = q` / `p != q` compare every field. Stored records:

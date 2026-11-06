@@ -528,7 +528,7 @@ pub fn kern_run(file: &str, call: &str, world: &str) -> T<Value> {
     let (_, defs) = load(file)?;
     let pe = |e: crate::syntax::ParseError| ToolError("ParseError", e.0);
     // Text in the call or the world: parse both as an `eg` line does (quote-aware)
-    let (mut w, name, args): (World, String, Vec<V>) = if call.contains('"') || world.contains('"') {
+    let (mut w, name, args): (World, String, Vec<V>) = if call.contains('"') || world.contains('"') || !defs.account_states.is_empty() {
         let ex = crate::syntax::parse_call(world, call).map_err(pe)?;
         need_def(&defs, &ex.call.0)?;
         let args: Vec<V> = ex.call.1.iter().map(|k| match k { Key::Int(n) => V::Int(*n), Key::Str(s) => V::Str(s.clone()) }).collect();

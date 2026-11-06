@@ -310,6 +310,8 @@ pub struct Prover<'m> {
     sums: IndexMap<String, (z3::RecFuncDecl, Option<Int>, Option<Int>)>,
     /// the definition's Text parameters, as String constants (counterexamples read them from the model)
     text_params: IndexMap<String, ZStr>,
+    /// the Account parameters of the definition being proved (never `none`)
+    acct_params: BTreeSet<String>,
     /// while its body runs: the definition being proved and its measure at its own parameters (`decreases`)
     measuring: Option<(String, Option<ZInt>)>,
     /// scoring a mutant: how many more solver calls may come back unknown before the proof stops (each one spends
@@ -318,6 +320,10 @@ pub struct Prover<'m> {
     /// the body called itself (directly): its proofs used its own spec, licensed only by its measure
     self_called: bool,
 }
+
+/// `none` (an unset entry of an Account-valued state) in the prover, where accounts are Ints; every Account
+/// parameter is assumed to be another one.
+const NONE_ID: i128 = -1;
 
 /// A `for j from A to B` whose bounds are literals at most this far apart is expanded into a conjunction.
 const EXPAND_UP_TO: i128 = 16;
@@ -462,6 +468,7 @@ impl<'m> Prover<'m> {
             witness_draws: IndexMap::new(),
             sums: IndexMap::new(),
             text_params: IndexMap::new(),
+            acct_params: BTreeSet::new(),
             measuring: None,
             unknowns_left: None,
             self_called: false,
@@ -554,6 +561,9 @@ impl<'m> Prover<'m> {
                 if let Some(v) = env.get(n) {
                     return v.clone();
                 }
+                if n == crate::run::NONE {
+                    return SV::I(zz::val(NONE_ID));
+                }
                 if let Some(v) = self.field_of(env, n) {
                     return v;
                 }
@@ -562,6 +572,7 @@ impl<'m> Prover<'m> {
             }
             Expr::App(name, primed, args) => {
                 let vals: Vec<SV> = args.iter().map(|a| self.sev(a, env, cur, post)).collect();
+                self.accounts_used(name, args, &vals);
                 let s = if *primed { post.expect("a primed read needs a post-state") } else { cur };
                 self.scall_read(name, vals, s)
             }
@@ -678,7 +689,48 @@ impl<'m> Prover<'m> {
             return self.sev(e, env, s, None);
         }
         let vals: Vec<SV> = args.iter().map(|a| self.sev(a, env, s, None)).collect();
+        self.accounts_used(name, args, &vals);
         self.scall_write(name, vals, s)
+    }
+
+    /// In a module with Account-valued states, each Account a call uses as an account (a ledger op, an
+    /// Account-keyed state, an Account parameter) that isn't one of this definition's parameters is a call-site
+    /// goal: it isn't `none`, which the interpreter refuses to use (DECISIONS.md, Accounts as state values).
+    fn accounts_used(&mut self, name: &str, args: &[Expr], vals: &[SV]) {
+        if self.defs.account_states.is_empty() {
+            return;
+        }
+        let positions: Vec<usize> = if ["ledger.balance", "ledger.owner", "ledger.debit", "ledger.credit"].contains(&name) {
+            vec![0]
+        } else if let Some((_, _, "Account")) = state_op(self.defs, name) {
+            vec![0]
+        } else if let Some(d) = self.defs.defs.get(name).or_else(|| assumed_op(self.defs, name)) {
+            d.params.iter().enumerate().filter(|(_, (_, t))| t == "Account").map(|(i, _)| i).collect()
+        } else {
+            vec![]
+        };
+        for i in positions {
+            let (Some(a), Some(SV::I(v))) = (args.get(i), vals.get(i)) else { continue };
+            if matches!(a, Expr::Name(p, false) if self.acct_params.contains(p)) {
+                continue;
+            }
+            let cond = Expr::Bin("!=", Box::new(a.clone()), Box::new(Expr::Name(crate::run::NONE.into(), false)));
+            let c = zz::ne_int(v, &zz::val(NONE_ID));
+            let premise = snapshot(&self.pc);
+            let text = format!("{} is an account, not none (where it is used as one)", code(a));
+            let case = Case { goal: c.clone(), pc: premise, draws: None };
+            // one goal per account expression, every place it is used a case
+            match self.loop_goals.iter_mut().find(|g| g.kind == "pre" && g.text == text) {
+                Some(g) => g.cases.push(case),
+                None => self.loop_goals.push(Goal {
+                    kind: "pre".into(),
+                    expr: GoalExpr::Pre(name.to_string(), cond.clone()),
+                    text,
+                    cases: vec![case],
+                }),
+            }
+            self.pc.borrow_mut().push(c);
+        }
     }
 
     /// `p.x` where p holds a record value (a constructor value, its leaves in order): that leaf.
@@ -1560,6 +1612,12 @@ impl<'m> Prover<'m> {
         self.bind(&start);
         self.call_pre = Some(pre.clone());
         self.loop_goals = vec![];
+        self.acct_params = d.params.iter().filter(|(_, t)| t == "Account").map(|(p, _)| p.clone()).collect();
+        if !self.defs.account_states.is_empty() {
+            for p in &self.acct_params {
+                self.pc.borrow_mut().push(zz::ne_int(&params[p.as_str()], &zz::val(NONE_ID)));
+            }
+        }
         let has_loop = flat(&d.body).iter().any(|s| matches!(s, Stmt::For(..)))
             || callees(self.defs, d).iter().any(|c| writes(self.defs, &self.defs.defs[c.as_str()]).iter().any(|w| w.contains('[')));
         if has_loop {
@@ -1946,6 +2004,8 @@ impl<'m> Prover<'m> {
         // an invariant may read states the definition never touches (`hold <= cap + 100`): show them all then
         let shown = if kind == "invariant" { self.defs.states.clone() } else { relevant_states(self.defs, d) };
         for (x, arr) in &pre.maps {
+            // an Account-valued state: every entry shown (0 is an account there, an unset entry is none)
+            let acct_state = self.defs.account_states.contains(x);
             if !shown.contains_key(x) {
                 continue;
             }
@@ -1999,7 +2059,7 @@ impl<'m> Prover<'m> {
                 }
                 keys.push((x.clone(), key.clone()));
                 let val = long(&zz::select(arr, &params[p.as_str()]));
-                if val != 0 {
+                if val != 0 || acct_state {
                     maps.entry(x.clone()).or_default().insert(key, val);
                 }
             }
@@ -2008,7 +2068,7 @@ impl<'m> Prover<'m> {
                 for (zk, val) in zz::array_entries(m, &whole, 50) {
                     if !keys.contains(&(x.clone(), Key::Int(zk))) && zk.abs() <= 1_000_000 {
                         keys.push((x.clone(), Key::Int(zk)));
-                        if val != 0 {
+                        if val != 0 || acct_state {
                             maps.entry(x.clone()).or_default().insert(Key::Int(zk), val);
                         }
                     }
@@ -2016,11 +2076,33 @@ impl<'m> Prover<'m> {
                 for zk in probe {
                     if !keys.contains(&(x.clone(), Key::Int(*zk))) {
                         keys.push((x.clone(), Key::Int(*zk)));
-                        if let Some(val) = zz::eval_long(m, &zz::select(arr, &zz::val(*zk))).filter(|v| *v != 0) {
+                        if let Some(val) = zz::eval_long(m, &zz::select(arr, &zz::val(*zk))).filter(|v| *v != 0 || acct_state) {
                             maps.entry(x.clone()).or_default().insert(Key::Int(*zk), val);
                         }
                     }
                 }
+            }
+        }
+        // an Account-valued state's entries are accounts (or none): named like parameters, added to the world
+        for x in &self.defs.account_states {
+            let Some(kv) = maps.shift_remove(x) else { continue };
+            for (k, v) in kv {
+                let name = if v as i128 == NONE_ID {
+                    crate::run::NONE.to_string()
+                } else {
+                    let v = v as i128;
+                    if !letters.contains_key(&v) {
+                        let letter = "ABCDEFGH".chars().nth(letters.len()).expect("at most 8 accounts").to_string();
+                        letters.insert(v, letter.clone());
+                        let bal = long(&zz::select(&pre.bal, &zz::val(v)));
+                        let o = long(&zz::select(&pre.own, &zz::val(v)));
+                        let next = format!("u{}", owners.len() + 1);
+                        owners.entry(o).or_insert(next);
+                        world.insert(letter, (bal, owners[&o].clone()));
+                    }
+                    letters[&v].clone()
+                };
+                texts.entry(x.clone()).or_default().insert(k, name);
             }
         }
         let key_text = |k: &Key| match k {
@@ -2037,8 +2119,11 @@ impl<'m> Prover<'m> {
             }
         }
         for (x, kv) in &texts {
+            let acct = self.defs.account_states.contains(x);
             for (k, v) in kv {
-                world_src += &format!(" {}.{}:{}", x, key_text(k), crate::syntax::quote(v));
+                // an account's name (or none) as it is; a Text quoted
+                let shown = if acct { v.clone() } else { crate::syntax::quote(v) };
+                world_src += &format!(" {}.{}:{}", x, key_text(k), shown);
             }
         }
         // a Text argument is quoted (an account name isn't): the line must parse back to the same call
@@ -2079,7 +2164,7 @@ impl<'m> Prover<'m> {
                     eg,
                     emitted: "nothing".into(),
                     // a measure that doesn't decrease: the replay recursing past the depth limit is the evidence
-                    confirmed_by_interpreter: (kind == "pre" && e.contains("need of"))
+                    confirmed_by_interpreter: (kind == "pre" && (e.contains("need of") || e.contains(crate::run::NONE_USED)))
                         || (kind == "measure" && e.starts_with(crate::run::TOO_DEEP)),
                 };
             }

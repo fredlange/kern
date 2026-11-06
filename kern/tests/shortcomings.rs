@@ -311,6 +311,68 @@ body
     assert!(reports(&defs)["f"].clean);
 }
 
+#[test]
+fn s5_accounts_as_state_values_check() {
+    // closed (S5, part 1 of Accounts, DECISIONS.md 2026-11-06): `state member Int -> Account`; an unset entry is
+    // `none`; pay_fine pays from the loan's member (ROADMAP P: "only the borrower pays" can now be stated)
+    must_check("gap S5 Accounts as state values", "state member Int -> Account
+state fine Int
+
+lend loan:Int m:Account
+  need member.get loan = none else LoanExists
+  ok otherwise
+  ensure member.get' loan = m
+  eg M:0@u1 | lend 4 M -> ok | member.4:M
+  eg M:0@u1 member.4:M | lend 4 M -> LoanExists
+body
+  member.set loan m
+
+pay_fine loan:Int library:Account
+  need member.get loan != none else NoLoan
+  need fine.get loan > 0 else NoFine
+  need ledger.balance (member.get loan) >= fine.get loan else Insufficient
+  need member.get loan != library else SelfPay
+  ok otherwise
+  ensure ledger.balance' (member.get loan) = ledger.balance (member.get loan) - fine.get loan
+  ensure fine.get' loan = 0
+  eg M:20@u1 L:0@u9 member.4:M fine.4:15 | pay_fine 4 L -> ok | M:5 L:15 fine.4:0
+  eg M:20@u1 L:0@u9 fine.4:15 | pay_fine 4 L -> NoLoan
+body
+  m = member.get loan
+  ledger.debit m (fine.get loan)
+  ledger.credit library (fine.get loan)
+  fine.set loan 0
+
+close loan:Int
+  ok otherwise
+  ensure member.get' loan = none
+body
+  member.set loan none
+");
+}
+
+#[test]
+fn s5_using_none_as_an_account_is_refuted_with_a_run_that_replays() {
+    use kern::report::Status;
+    let src = "state member Int -> Account\n\npay loan:Int\n  ok otherwise\nbody\n  ledger.debit (member.get loan) 1\n";
+    let reps = reports(&parse(src));
+    let g = reps["pay"].guarantees.iter().find(|g| g.kind == "pre").expect("a goal that the account isn't none");
+    assert_eq!(g.status, Status::Refuted, "{g:?}");
+    let cex = g.counterexample.as_ref().unwrap();
+    assert!(cex.confirmed_by_interpreter && cex.eg.contains(":none"), "{}", cex.eg);
+    // guarded, it is proven; a world naming an account it doesn't hold is an error
+    let ok = src.replace("  ok otherwise\n", "  need member.get loan != none else NoLoan\n  ok otherwise\n");
+    assert!(reports(&parse(&ok))["pay"].clean);
+    let defs = parse(&ok);
+    let mut w = kern::run::World::from_example(&IndexMap::new(), 0, &IndexMap::new())
+        .with_texts(&[("member".to_string(), [(Key::Int(1), "Z".to_string())].into_iter().collect())].into_iter().collect());
+    let e = kern::run::Interp::new(&defs).run("pay", &[Value::Int(1)], &mut w).unwrap_err();
+    assert!(e.to_string().contains("not an account in the world"), "{e}");
+    // modules without Account-valued states get no such goals
+    let plain = reports(&parse("pay a:Account\n  ok otherwise\nbody\n  ledger.debit a 1\n"));
+    assert!(plain["pay"].guarantees.iter().all(|g| g.kind != "pre"));
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int

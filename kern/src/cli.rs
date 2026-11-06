@@ -251,7 +251,7 @@ pub fn main_with(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
             };
             let call = a.name.clone().unwrap_or_default();
             // Text in the call or the world: parse both as an `eg` line does (quote-aware)
-            let (mut world, name, args): (World, String, Vec<Value>) = if call.contains('"') || world.contains('"') {
+            let (mut world, name, args): (World, String, Vec<Value>) = if call.contains('"') || world.contains('"') || !defs.account_states.is_empty() {
                 match crate::syntax::parse_call(world, &call) {
                     Ok(ex) => (
                         World::from_example(&ex.world, ex.now, &ex.maps).with_texts(&ex.texts),

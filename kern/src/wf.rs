@@ -114,6 +114,10 @@ impl<'a> Checker<'a> {
                     }
                     return ANY.into();
                 }
+                // the Account an unset entry of an Account-valued state holds
+                if name == "none" && !scope.contains_key(name) {
+                    return "Account".into();
+                }
                 self.apply(name, *primed, &[], scope, place, spec, primed_ok)
             }
             Expr::App(name, primed, args) => self.apply(name, *primed, args, scope, place, spec, primed_ok),
@@ -221,7 +225,14 @@ impl<'a> Checker<'a> {
                 (vec!["Event".into()], "Unit")
             } else if let Some((_, op, kt)) = st {
                 // a state's values are Int, or Text when declared `-> Text`
-                let vt = if defs.text_states.iter().any(|x| Some(x.as_str()) == st.map(|s| s.0)) { "Text" } else { "Int" };
+                let x = st.map(|s| s.0);
+                let vt = if defs.text_states.iter().any(|t| Some(t.as_str()) == x) {
+                    "Text"
+                } else if defs.account_states.iter().any(|t| Some(t.as_str()) == x) {
+                    "Account"
+                } else {
+                    "Int"
+                };
                 if op == "get" {
                     (vec![kt.to_string()], vt)
                 } else {

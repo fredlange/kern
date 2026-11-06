@@ -105,7 +105,7 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
         }
         ok = ok
             && ex.after_maps.iter().all(|(x, kv)| kv.iter().all(|(k, v)| w.maps.get(x).and_then(|m| m.get(k)).copied().unwrap_or(0) == *v))
-            && ex.after_texts.iter().all(|(x, kv)| kv.iter().all(|(k, v)| w.text_get(x, k) == *v));
+            && ex.after_texts.iter().all(|(x, kv)| kv.iter().all(|(k, v)| text_or_account(defs, &w, x, k) == *v));
         // the events section: the exact sequence on audit, and on each channel it names
         if ok {
             if let Some(evs) = &ex.events {
@@ -139,7 +139,9 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
             }
             for (x, kv) in &ex.after_texts {
                 for k in kv.keys() {
-                    items.push(format!("{}.{}:{}", x, key_text(k), crate::syntax::quote(&w.text_get(x, k))));
+                    let v = text_or_account(defs, &w, x, k);
+                    let shown = if defs.account_states.contains(x) { v } else { crate::syntax::quote(&v) };
+                    items.push(format!("{}.{}:{}", x, key_text(k), shown));
                 }
             }
             got = format!("{} | {}", got, items.join(" "));
@@ -147,6 +149,16 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
         out.push(ExampleResult { src: ex.src.clone(), pass: ok, got });
     }
     Ok(out)
+}
+
+/// A Text state's entry, or an Account-valued state's (its account's name; `none` when unset).
+fn text_or_account(defs: &Module, w: &World, x: &str, k: &Key) -> String {
+    let v = w.text_get(x, k);
+    if defs.account_states.iter().any(|a| a == x) && v.is_empty() {
+        crate::run::NONE.to_string()
+    } else {
+        v
+    }
 }
 
 /// Whether an appended event is `ctor keys` (an `eg` event: integers, account names and Text).
@@ -275,6 +287,13 @@ pub fn proptest(defs: &Module, d: &Def, n: u64, seed: i128) -> Result<Props, Cra
             let r = per_state.entry(x.clone()).or_insert_with(|| Random::from_str(&format!("{seed}:{x}")));
             if defs.text_states.contains(x) {
                 let m: IndexMap<Key, String> = keys.into_iter().map(|k| (k, r.choice(&TEXT_POOL).to_string())).collect();
+                w.texts.insert(x.clone(), m);
+                continue;
+            }
+            if defs.account_states.contains(x) {
+                // the world's accounts, or none (unset), in its own stream
+                let pool = [crate::run::NONE, "A", "B", "C"];
+                let m: IndexMap<Key, String> = keys.into_iter().map(|k| (k, r.choice(&pool).to_string())).collect();
                 w.texts.insert(x.clone(), m);
                 continue;
             }

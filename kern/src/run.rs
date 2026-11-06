@@ -275,6 +275,7 @@ impl World {
 
     fn acct(&self, a: &Value) -> RResult<String> {
         match a {
+            Value::Str(s) if s == NONE => kern(format!("{NONE_USED} (an unset entry of an Account-valued state)")),
             Value::Str(s) if self.stored_balance(s).is_some() => Ok(s.clone()),
             _ => kern(format!("unknown account {}", a.repr())),
         }
@@ -383,6 +384,11 @@ pub fn handler(name: &str) -> Option<(usize, &'static str)> {
 }
 
 /// `X.get` / `X.set` for a module's `state X Key` declaration: (X, op, key type).
+/// What an unset entry of an Account-valued state (`state member Int -> Account`) holds.
+pub const NONE: &str = "none";
+/// The interpreter's error when `none` is used as an account; the prover rules it out (a call-site goal).
+pub const NONE_USED: &str = "none is not an account";
+
 pub fn state_op<'a>(defs: &'a Module, name: &'a str) -> Option<(&'a str, &'a str, &'a str)> {
     let (x, op) = name.rsplit_once('.')?;
     match defs.states.get(x) {
@@ -627,6 +633,9 @@ impl<'m, 'p> Interp<'m, 'p> {
                 if let Some(v) = env.get(n) {
                     return Ok(v.clone());
                 }
+                if n == NONE {
+                    return Ok(Value::Str(NONE.into()));
+                }
                 // `p.x` where p holds a record value (a constructor value, its leaves in order)
                 let mut at = n.len();
                 while let Some(i) = n[..at].rfind('.') {
@@ -753,13 +762,20 @@ impl<'m, 'p> Interp<'m, 'p> {
             }
             let key = first.as_key().ok_or_else(|| RunError::Type(format!("unhashable type: '{}'", first.type_name())))?;
             let text = defs.text_states.iter().any(|t| t == x);
+            let account = defs.account_states.iter().any(|t| t == x);
+            if op == "get" && account {
+                // kept with the Text entries, as a name; unset = none
+                let v = world.texts.get(x).and_then(|m| m.get(&key)).cloned();
+                let v = v.or_else(|| world.backing.as_ref().and_then(|b| b.0.text_cell(x, &key)));
+                return Ok(Value::Str(v.filter(|v| !v.is_empty()).unwrap_or_else(|| NONE.into())));
+            }
             if op == "get" {
                 return Ok(if text { Value::Str(world.text_get(x, &key)) } else { Value::Int(world.map_get(x, &key)) });
             }
             let Some(v) = args.get(1) else {
                 return Err(RunError::Other("IndexError".into(), "list index out of range".into()).into());
             };
-            if text {
+            if text || account {
                 let Value::Str(t) = v else { return Err(RunError::Type(format!("state {} holds Text, got {}", x, v.repr())).into()) };
                 world.text_set(x, key, t.clone());
                 return Ok(Value::None);
@@ -808,6 +824,9 @@ impl<'m, 'p> Interp<'m, 'p> {
     fn call_def_body(&mut self, d: &Def, args: Vec<Value>, world: &mut World) -> SResult<Option<Value>> {
         if args.len() != d.params.len() {
             return Err(RunError::Kern(format!("{} takes {} argument(s), got {}", d.name, d.params.len(), args.len())).into());
+        }
+        if let Some((p, _)) = d.params.iter().zip(&args).find(|((_, t), a)| t == "Account" && **a == Value::Str(NONE.into())).map(|x| x.0) {
+            return Err(RunError::Kern(format!("{NONE_USED}: {} got none for `{}`", d.name, p)).into());
         }
         let mut env: Env = d.params.iter().map(|(p, _)| p.clone()).zip(args).collect();
         for n in &d.needs {
@@ -959,6 +978,13 @@ impl<'m, 'p> Interp<'m, 'p> {
                 return kern(format!("bad call: `{}` must be a Text, got {}", p, a.repr()));
             }
         }
+        for x in &defs.account_states {
+            for (k, v) in world.texts.get(x).into_iter().flatten() {
+                if v != NONE && !world.has_account(&Value::Str(v.clone())) {
+                    return kern(format!("bad world: {}.{} holds {}, which is not an account in the world", x, match k { Key::Int(n) => n.to_string(), Key::Str(a) => a.clone() }, v));
+                }
+            }
+        }
         let snap = world.clone();
         self.call_pre = Some(snap.clone());
         let outcome = match self.call_def(d, args.to_vec(), world) {
@@ -987,17 +1013,25 @@ impl<'m, 'p> Interp<'m, 'p> {
             env.insert("result".into(), self.last_result.clone().unwrap_or(Value::None));
         }
         let mut bad = vec![];
+        // a clause that uses `none` as an account can't be evaluated: the run broke it (the prover's goal that the
+        // account isn't none says the same)
+        let none_used = |e: &RunError| matches!(e, RunError::Kern(m) if m.starts_with(NONE_USED));
         for c in &d.keeps {
-            let a = self.ev(c, &env, pre, None).map_err(stop_err)?;
-            let b = self.ev(c, &env, post, None).map_err(stop_err)?;
-            if a != b {
-                bad.push(("keep".to_string(), code(c)));
+            let ab = self.ev(c, &env, pre, None).map_err(stop_err).and_then(|a| Ok((a, self.ev(c, &env, post, None).map_err(stop_err)?)));
+            match ab {
+                Ok((a, b)) if a != b => bad.push(("keep".to_string(), code(c))),
+                Ok(_) => {}
+                Err(e) if none_used(&e) => bad.push(("keep".to_string(), code(c))),
+                Err(e) => return Err(e),
             }
         }
         for c in &d.ensures {
-            if !self.ev(c, &env, pre, Some(post)).map_err(stop_err)?.truthy() {
-                let kind = if matches!(c, Expr::Frame(..)) { "keep" } else { "ensure" };
-                bad.push((kind.to_string(), code(c)));
+            let kind = if matches!(c, Expr::Frame(..)) { "keep" } else { "ensure" };
+            match self.ev(c, &env, pre, Some(post)).map_err(stop_err) {
+                Ok(v) if !v.truthy() => bad.push((kind.to_string(), code(c))),
+                Ok(_) => {}
+                Err(e) if none_used(&e) => bad.push((kind.to_string(), code(c))),
+                Err(e) => return Err(e),
             }
         }
         for ch in emit_channels(d) {
