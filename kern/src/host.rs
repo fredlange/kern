@@ -1071,7 +1071,8 @@ impl<'m> Host<'m> {
                         res.insert("out".into(), J::Object(out));
                     }
                     if has_ret {
-                        res.insert("result".into(), interp.last_result.as_ref().map(value_json).unwrap_or(J::Null));
+                        let v = interp.last_result.as_ref().map(|v| result_json(defs, v)).unwrap_or(J::Null);
+                        res.insert("result".into(), v);
                     }
                 }
             }
@@ -1607,11 +1608,48 @@ fn parse_args(text: &[&str]) -> Vec<Value> {
         .collect()
 }
 
-fn said(r: &CallResult) -> String {
+/// A call's result as JSON: an Int, or a record (the interpreter's constructor of its leaves) as an object with its
+/// field names, nested as a record argument is (`{"x": 2, "y": 3}`).
+fn result_json(defs: &Module, v: &Value) -> J {
+    let Value::Ctor(r, vals) = v else { return value_json(v) };
+    if !defs.records.contains_key(r) {
+        return value_json(v);
+    }
+    let mut out = J::Object(Map::new());
+    for ((path, _), x) in crate::syntax::record_leaves(&defs.records, r).iter().zip(vals) {
+        let parts: Vec<&str> = path.split('.').collect();
+        let mut node = &mut out;
+        for p in &parts[..parts.len() - 1] {
+            node = node.as_object_mut().unwrap().entry(p.to_string()).or_insert_with(|| J::Object(Map::new()));
+        }
+        node.as_object_mut().unwrap().insert(parts[parts.len() - 1].to_string(), value_json(x));
+    }
+    out
+}
+
+/// A result as an `eg` line asserts it: an Int, or a record's leaves in order (`2 3`; a Text leaf quoted).
+fn result_text(defs: &Module, name: &str, v: &J) -> String {
+    match defs.defs.get(name).and_then(|d| d.ret.as_ref()).filter(|r| defs.records.contains_key(*r)) {
+        Some(r) => crate::syntax::record_leaves(&defs.records, r)
+            .iter()
+            .map(|(path, t)| {
+                let x = path.split('.').fold(v, |j, p| &j[p]);
+                match (x.as_str(), t.as_str()) {
+                    (Some(s), "Text") => line_quote(s),
+                    _ => json_value(x).str(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+        None => json_value(v).str(),
+    }
+}
+
+fn said(defs: &Module, name: &str, r: &CallResult) -> String {
     match r["status"].as_str() {
-        // a definition that returns a value shows it, as an `eg` line asserts it (`-> ok N`)
+        // a definition that returns a value shows it, as an `eg` line asserts it (`-> ok N`, `-> ok 2 3`)
         Some("ok") => match r.get("result") {
-            Some(v) if !v.is_null() => format!("ok {}", json_value(v).str()),
+            Some(v) if !v.is_null() => format!("ok {}", result_text(defs, name, v)),
             _ => "ok".into(),
         },
         Some("refused") => {
@@ -1642,13 +1680,14 @@ pub fn run_replies(host: &mut Host, out: &mut dyn FnMut(String)) -> Result<(), H
             for (name, args, r) in results {
                 // a Text argument quoted as the console reads it, newlines escaped, so one reply is one line
                 let tys: Vec<String> = host.defs.defs.get(&name).map(|d| d.params.iter().map(|(_, t)| t.clone()).collect()).unwrap_or_default();
+                let shown = said(host.defs, &name, &r);
                 let mut call = vec![name];
                 call.extend(args.iter().enumerate().map(|(j, a)| match (a, tys.get(j).map(String::as_str)) {
                     (Value::Str(t), Some("Text")) => line_quote(t),
                     _ => a.str(),
                 }));
                 let how = if r.contains_key("timeout") { "timeout" } else { "reply" };
-                out(format!("{} {} -> {}", how, call.join(" "), said(&r)));
+                out(format!("{} {} -> {}", how, call.join(" "), shown));
             }
             Ok(())
         }
@@ -1692,13 +1731,7 @@ pub fn repl(host: &mut Host, lines: impl Iterator<Item = String>, out: &mut dyn 
             }
             Err(e) => return Err(e),
             Ok(r) => {
-                out(match r["status"].as_str() {
-                    Some("ok") => match r.get("result") {
-                        Some(v) => format!("ok {}", json_value(v).str()),
-                        None => "ok".into(),
-                    },
-                    _ => said(&r),
-                });
+                out(said(host.defs, name, &r));
             }
         }
         host.flush()?;
@@ -2623,6 +2656,30 @@ body
         assert_eq!(rows, 6); // the 4 Int fields of key 1, a.x of 3, b.y of 5
         assert_eq!(host_effect(&defs, "seg"), "SQLite tables `cell` (Int fields) and `textcell` (Text fields), one transaction per call");
         assert_eq!(host_effect(&defs, "n"), "SQLite table `cell`, one transaction per call");
+        drop(h);
+        assert!(open().replay().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_record_result_is_an_object_over_http_and_its_leaves_on_the_console() {
+        let src = "record Point x:Int y:Int\nrecord Tag who:Account t:Text at:Point\nstate n Int\n\n\
+                   tag who:Account t:Text -> Tag\n  ok otherwise\nbody\n  n.set 0 (n.get 0 + 1)\n  \
+                   result = Tag who (t + \"!\") (Point (n.get 0) 7)\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let dir = std::env::temp_dir().join(format!("kern-recret-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("t.db").to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&db);
+        let open = || Host::new(&defs, IndexMap::new(), Options { db: db.clone(), sinks: Some(vec![]), gate: false, ..Default::default() }).unwrap();
+        let mut h = open();
+        h.init("A:0@u1").unwrap();
+        let r = h.call("tag", &[Value::Str("A".into()), Value::Str("a b".into())]).unwrap();
+        assert_eq!(r["result"], json!({"who": "A", "t": "a b!", "at": {"x": 1, "y": 7}}));
+        let mut out = vec![];
+        repl(&mut h, ["tag A \"say \\\"hi\\\"\""].iter().map(|l| l.to_string()), &mut |l| out.push(l)).unwrap();
+        assert_eq!(out, [r#"ok A "say \"hi\"!" 2 7"#]);
         drop(h);
         assert!(open().replay().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);

@@ -53,6 +53,11 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   `"order": {"7": {"item": 3, "qty": 2, "note": "rush"}}`, nested records nested, each key any field has shown with
   every field (absent ones at 0 or `""`); the shape a record argument has (DECISIONS 2026-11-06). The manifest
   and the page say which tables a state uses (`cell`, `textcell` or both); before, a Text state was shown as `cell`.
+- **Record results (2026-11-06).** A definition returning a record (`mid p:Point q:Point -> Point`) answers HTTP
+  with the record as an object, nested as a record argument is: `"result": {"x": 2, "y": 3}`. `repl` prints its
+  leaves as an `eg` line asserts them, `ok 2 3` (a Text leaf quoted, an Account by name). Replay is unchanged (the
+  value is recomputed). `kern build` returns it as a tuple of its leaves and binds `r = f a` / `q = Point a b` as one
+  local per leaf; the binary's script protocol prints `ok result=2 3`.
 - **Recursion (2026-11-05).** A recursive definition runs once its `decreases` measure is proven; calls nest at
   most 200 deep in one call, the top-level one included (the interpreter's `MAX_CALL_DEPTH`; kern-rt's is the same
   number). Deeper is a resource error, like the iteration limit: undone, logged, skipped by replay.

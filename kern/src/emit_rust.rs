@@ -375,7 +375,12 @@ impl<'a> Gen<'a> {
         }
         if let Some(d) = self.defs.defs.get(name) {
             let fmt = format!("{}(tx{}{})?", ident(name), sep, ph);
-            return Ok((Self::hoist(&fmt, &vals), if d.ret.is_some() { "Int" } else { "Unit" }.into()));
+            // a record result's type is the record's name: only a let binds it (block), anything else won't type
+            return Ok((Self::hoist(&fmt, &vals), d.ret.clone().unwrap_or_else(|| "Unit".into())));
+        }
+        if self.defs.records.contains_key(name) {
+            // a record value is bound by a let (block) or set as `result`; nowhere else does it have a Rust form
+            return unsupported(format!("record value {} outside `x = …` / `result = …`", name));
         }
         if name == "distinct" {
             let temps: Vec<String> = (0..vals.len()).map(|i| format!("__d{}", i)).collect();
@@ -422,6 +427,7 @@ impl<'a> Gen<'a> {
         for s in stmts {
             match s {
                 Stmt::Need(c, ctor, args) => out.extend(self.need(c, ctor, args, sc, ind, d)?),
+                Stmt::Let(x, e) if self.record_of(e).is_some() => out.extend(self.let_record(x, e, sc, ind, d)?),
                 Stmt::Let(x, e) => {
                     let (c, t) = self.expr(e, sc)?;
                     if x == "result" && d.ret.is_some() {
@@ -467,21 +473,102 @@ impl<'a> Gen<'a> {
 
     /// A parameter or result type the runtime has no representation for (Text, until it does) is refused loudly,
     /// never compiled as something else.
-    fn types_supported(d: &Def, what: &str) -> G<()> {
+    fn types_supported(&self, d: &Def, what: &str) -> G<()> {
         if let Some((p, t)) = d.params.iter().find(|(_, t)| rust_type(t).is_none()) {
             return unsupported(format!("{}: {} parameter {} of type {}", d.name, what, p, t));
         }
         match d.ret.as_deref() {
-            Some(t) if t != "Int" => unsupported(format!("{}: {} result of type {}", d.name, what, t)),
-            _ => Ok(()),
+            None | Some("Int") => Ok(()),
+            Some(r) if what == "definition" && self.leaves(r).map_or(false, |ls| ls.iter().all(|(_, t)| rust_type(t).is_some())) => Ok(()),
+            Some(t) => unsupported(format!("{}: {} result of type {}", d.name, what, t)),
         }
     }
 
+    /// A record type's leaf fields in order (`a.x`, `a.y`, `name`), as the interpreter's constructor value holds them.
+    fn leaves(&self, r: &str) -> Option<Vec<(String, String)>> {
+        self.defs.records.contains_key(r).then(|| crate::syntax::record_leaves(&self.defs.records, r))
+    }
+
+    /// The Rust type of a definition's result: i64, or a tuple of a record's leaves.
+    fn ret_type(&self, d: &Def) -> String {
+        match d.ret.as_deref() {
+            None => "()".into(),
+            Some("Int") => "i64".into(),
+            Some(r) => format!("({},)", self.leaves(r).unwrap().iter().map(|(_, t)| rust_type(t).unwrap()).collect::<Vec<_>>().join(", ")),
+        }
+    }
+
+    /// The record type a let's value has: a constructor of leaves (`Point a b`, the load-time form of `q = p` and
+    /// `o = order.get k`) or a call to a definition returning one.
+    fn record_of(&self, e: &Expr) -> Option<String> {
+        match e {
+            Expr::App(n, false, _) if self.defs.records.contains_key(n) => Some(n.clone()),
+            Expr::App(n, false, _) | Expr::Name(n, false) => {
+                self.defs.defs.get(n).and_then(|f| f.ret.clone()).filter(|r| self.defs.records.contains_key(r))
+            }
+            _ => None,
+        }
+    }
+
+    /// `x = <record>`: one Rust local per leaf (`x.a.x` is ident("x.a.x")), so `x.f` reads like any name; `result =
+    /// <record>` sets the result tuple. Leaves evaluate left to right, as the interpreter builds the constructor.
+    fn let_record(&mut self, x: &str, e: &Expr, sc: &mut Scope, ind: &str, d: &Def) -> G<Vec<String>> {
+        let r = self.record_of(e).unwrap();
+        let leaves = self.leaves(&r).unwrap();
+        let is_result = x == "result" && d.ret.as_deref() == Some(r.as_str());
+        if x == "result" && !is_result {
+            return unsupported(format!("{}: result = a {} in a definition returning {:?}", d.name, r, d.ret));
+        }
+        let mut out = vec![];
+        let names: Vec<String> = leaves.iter().map(|(f, _)| format!("{}.{}", x, f)).collect();
+        match e {
+            Expr::App(n, _, args) if *n == r => {
+                if args.len() != leaves.len() {
+                    return unsupported(format!("{}: {} built from {} values, it has {} leaves", d.name, r, args.len(), leaves.len()));
+                }
+                let mut codes = vec![];
+                for (i, (a, (_, t))) in args.iter().zip(&leaves).enumerate() {
+                    let (c, at) = self.expr(a, sc)?;
+                    if at != *t {
+                        return unsupported(format!("{}: leaf {} of {} is {}, given {}", d.name, leaves[i].0, r, t, at));
+                    }
+                    codes.push(c);
+                }
+                if is_result {
+                    out.push(format!("{}result = ({},);", ind, codes.join(", ")));
+                } else {
+                    // through temporaries: a leaf may read a name this let is about to shadow
+                    for (i, c) in codes.iter().enumerate() {
+                        out.push(format!("{}let __l{} = {};", ind, i, c));
+                    }
+                    for (i, n) in names.iter().enumerate() {
+                        out.push(format!("{}let {} = __l{};", ind, ident(n), i));
+                    }
+                }
+            }
+            _ => {
+                let (c, _) = self.expr(e, sc)?;
+                if is_result {
+                    out.push(format!("{}result = {};", ind, c));
+                } else {
+                    let pat: Vec<String> = names.iter().map(|n| ident(n)).collect();
+                    out.push(format!("{}let ({},) = {};", ind, pat.join(", "), c));
+                }
+            }
+        }
+        if !is_result {
+            for (n, (_, t)) in names.iter().zip(&leaves) {
+                sc.insert(n.clone(), t.clone());
+            }
+        }
+        Ok(out)
+    }
+
     fn definition(&mut self, d: &Def) -> G<Vec<String>> {
-        Self::types_supported(d, "definition")?;
+        self.types_supported(d, "definition")?;
         let mut sc: Scope = d.params.iter().cloned().collect();
         let params: String = d.params.iter().map(|(p, t)| format!(", {}: {}", ident(p), rust_type(t).unwrap())).collect();
-        let ret = if d.ret.is_some() { "i64" } else { "()" };
+        let ret = self.ret_type(d);
         let mut out = vec![
             format!("/// {}", d.src_lines["header"][0]),
             "#[inline]".to_string(),
@@ -490,7 +577,7 @@ impl<'a> Gen<'a> {
         // nesting depth, as the interpreter counts it (MAX_CALL_DEPTH); recursion is allowed when proven to end
         out.push("    tx.enter()?;".into());
         if d.ret.is_some() {
-            out.push("    let mut result: i64;".into());
+            out.push(format!("    let mut result: {};", self.ret_type(d)));
         }
         let mut stmts = vec![];
         for n in &d.needs {
@@ -510,7 +597,7 @@ impl<'a> Gen<'a> {
     /// An assumed handler: check its needs, ask the provider, check its ensures (a broken assumption is a fault,
     /// never a refusal).
     fn handler(&mut self, h: &Def) -> G<Vec<String>> {
-        Self::types_supported(h, "handler")?;
+        self.types_supported(h, "handler")?;
         let mut sc: Scope = h.params.iter().cloned().collect();
         let params: String = h.params.iter().map(|(p, t)| format!(", {}: {}", ident(p), rust_type(t).unwrap())).collect();
         let vals: Vec<String> = h
@@ -654,7 +741,7 @@ impl<'a> Gen<'a> {
                 json_str(&d.name),
                 json_str(&d.hash()),
                 ps.join(", "),
-                if d.ret.is_some() { "true" } else { "false" },
+                d.ret.as_ref().map_or("None".to_string(), |r| format!("Some({})", json_str(r))),
                 us.join(", ")
             ));
         }
@@ -667,7 +754,7 @@ impl<'a> Gen<'a> {
         out.push(format!("    const MAPS: &'static [MapInfo] = &[{}];", maps.join(", ")));
         let chans: Vec<String> = self.channels.iter().map(|c| json_str(c)).collect();
         out.push(format!("    const CHANNELS: &'static [&'static str] = &[{}];", chans.join(", ")));
-        out.push("    fn call(exec: &mut Exec<Event>, w: &mut World, prov: &mut dyn Provider, def: usize, args: &[Val]) -> R<Option<i64>> {".into());
+        out.push("    fn call(exec: &mut Exec<Event>, w: &mut World, prov: &mut dyn Provider, def: usize, args: &[Val]) -> R<Option<Vec<Val>>> {".into());
         out.push("        match def {".into());
         for (i, d) in defs.defs.values().enumerate() {
             let conv: Vec<String> = d
@@ -676,7 +763,21 @@ impl<'a> Gen<'a> {
                 .enumerate()
                 .map(|(j, (_, t))| format!("rt::{}(&args[{}])", match t.as_str() { "Account" => "acct", "Text" => "text", _ => "int" }, j))
                 .collect();
-            let wrap = if d.ret.is_some() { ".map(Some)" } else { ".map(|_| None)" };
+            // the result as the interpreter's value: an Int, or a record's leaves in order
+            let wrap = match d.ret.as_deref() {
+                None => ".map(|_| None)".to_string(),
+                Some("Int") => ".map(|v| Some(vec![Val::Int(v)]))".to_string(),
+                Some(r) => {
+                    let ls = self.leaves(r).unwrap();
+                    let pat: Vec<String> = (0..ls.len()).map(|i| format!("__{}", i)).collect();
+                    let vals: Vec<String> = ls
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (_, t))| format!("Val::{}(__{})", match t.as_str() { "Account" => "Acct", "Text" => "Text", _ => "Int" }, i))
+                        .collect();
+                    format!(".map(|({},)| Some(vec![{}]))", pat.join(", "), vals.join(", "))
+                }
+            };
             let call = format!("{}(tx{}{})", ident(&d.name), if conv.is_empty() { "" } else { ", " }, conv.join(", "));
             let call = if self.check.contains_key(&d.name) {
                 format!("{{ let __r = {}?; __inv_{}(tx)?; Ok(__r) }}", call, ident(&d.name))
@@ -946,6 +1047,27 @@ body
         let e = super::Gen::new(&b, "t").module().unwrap_err().0;
         assert!(e.contains("get: definition result of type Text"), "{e}");
         assert!(super::Gen::new(&base, "t").module().is_ok());
+    }
+
+    #[test]
+    fn a_record_result_is_a_tuple_of_its_leaves_and_a_bound_record_one_local_per_leaf() {
+        let src = "record Point x:Int y:Int\nrecord Tag n:Int t:Text p:Point\n\nmid p:Point q:Point -> Point\nbody\n  \
+                   result = Point (p.x + q.x) (p.y + q.y)\n\ntag n:Int -> Tag\nbody\n  m = mid (Point n n) (Point 1 2)\n  \
+                   result = Tag m.x \"a\" m\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let rs = super::Gen::new(&defs, "t").module().unwrap();
+        let has = |s: &str| assert!(rs.contains(s), "missing {s:?} in\n{rs}");
+        has("-> R<(i64, i64,)> {");
+        has("let mut result: (i64, String, i64, i64,);");
+        has("let (_m_0x, _m_0y,) = mid(tx, ");
+        has("result = (_m_0x, String::from(\"a\"), _m_0x, _m_0y,);");
+        has(".map(|(__0, __1, __2, __3,)| Some(vec![Val::Int(__0), Val::Text(__1), Val::Int(__2), Val::Int(__3)]))");
+        has("ret: Some(\"Tag\")");
+        // a record type the runtime can't hold is still refused, not mistranslated
+        let mut b = defs.clone();
+        b.records.get_mut("Point").unwrap()[0].1 = "List".into();
+        assert!(super::Gen::new(&b, "t").module().unwrap_err().0.contains("result of type"));
     }
 
     #[test]

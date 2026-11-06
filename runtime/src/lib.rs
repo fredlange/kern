@@ -81,7 +81,8 @@ pub struct DefInfo {
     pub name: &'static str,
     pub hash: &'static str,
     pub params: &'static [(&'static str, KeyType)],
-    pub ret: bool,
+    /// the result type, `Int` or a record's name (the binary returns a record as its leaves in order)
+    pub ret: Option<&'static str>,
     pub uses: &'static [&'static str],
 }
 
@@ -582,7 +583,7 @@ pub trait Module {
         prov: &mut dyn Provider,
         def: usize,
         args: &[Val],
-    ) -> Result<Option<i64>, Stop<Self::Refusal>>;
+    ) -> Result<Option<Vec<Val>>, Stop<Self::Refusal>>;
     fn show_refusal(r: &Self::Refusal, w: &World) -> String;
     fn show_event(e: &Self::Event, w: &World) -> String;
 

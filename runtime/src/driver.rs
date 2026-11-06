@@ -20,7 +20,7 @@ pub fn main_with<M: Module>(argv: Vec<String>) {
         Some("defs") => {
             for d in M::DEFS {
                 let ps: Vec<String> = d.params.iter().map(|(p, t)| format!("{p}:{t:?}")).collect();
-                println!("{} {} {}{} uses {}", d.hash, d.name, ps.join(" "), if d.ret { " -> Int" } else { "" }, d.uses.join(" "));
+                println!("{} {} {}{} uses {}", d.hash, d.name, ps.join(" "), d.ret.map(|r| format!(" -> {r}")).unwrap_or_default(), d.uses.join(" "));
             }
         }
         Some("run") => {
@@ -164,6 +164,15 @@ pub fn parse_args<M: Module>(w: &World, def: usize, raw: &[&str]) -> Result<Vec<
         .collect()
 }
 
+/// A value as script lines write it: an Int, an account by name, a Text quoted.
+fn show_val(v: &Val, w: &World) -> String {
+    match v {
+        Val::Int(n) => n.to_string(),
+        Val::Acct(a) => w.names.get(a.0).to_string(),
+        Val::Text(t) => quote(t),
+    }
+}
+
 pub fn run_script<M: Module>(input: Box<dyn BufRead>, out: &mut dyn Write) {
     let mut w = M::new_world();
     let mut exec: Exec<M::Event> = Exec::default();
@@ -188,7 +197,8 @@ pub fn run_script<M: Module>(input: Box<dyn BufRead>, out: &mut dyn Write) {
                         prov.0.clear(); // each call gets exactly the values its `obs` line gave
                         let mut s = match r {
                             Ok(None) => "ok".to_string(),
-                            Ok(Some(v)) => format!("ok result={v}"),
+                            // an Int, or a record's leaves in order as an `eg` line writes them (`-> ok 2 3`)
+                            Ok(Some(vs)) => format!("ok result={}", vs.iter().map(|v| show_val(v, &w)).collect::<Vec<_>>().join(" ")),
                             Err(Stop::Refused(r)) => format!("refused {}", M::show_refusal(&r, &w)),
                             Err(Stop::Fault(_)) => "fault".to_string(),
                         };
