@@ -72,6 +72,7 @@ fn rust_type(t: &str) -> Option<&'static str> {
         "Owner" => "Owner",
         "Bool" => "bool",
         "Text" => "String",
+        "List" => "Vec<i64>",
         _ => return None,
     })
 }
@@ -173,10 +174,12 @@ impl<'a> Gen<'a> {
     pub fn new(defs: &'a Module, modname: &str) -> Self {
         let mut channels = vec!["audit".to_string()];
         channels.extend(defs.channels.iter().cloned());
-        let (mut maps, mut slots) = (vec![], IndexMap::<(String, bool), usize>::new());
+        // slots per (key type, value kind): Int (and Account-valued) maps, Text maps and List maps are apart
+        let (mut maps, mut slots) = (vec![], IndexMap::<(String, bool, bool), usize>::new());
         for (name, key) in &defs.states {
             let text = defs.text_states.contains(name);
-            let s = slots.entry((key.clone(), text)).or_insert(0);
+            let list = defs.list_states.contains(name);
+            let s = slots.entry((key.clone(), text, list)).or_insert(0);
             maps.push((name.clone(), key.clone(), *s, text));
             *s += 1;
         }
@@ -277,7 +280,7 @@ impl<'a> Gen<'a> {
                     return unsupported(format!("after-state read {}' outside a spec", name));
                 }
                 if let Some(t) = sc.get(name) {
-                    let clone = if t == "Event" || t == "Text" { ".clone()" } else { "" };
+                    let clone = if t == "Event" || t == "Text" || t == "List" { ".clone()" } else { "" };
                     return Ok((format!("{}{}", ident(name), clone), t.clone()));
                 }
                 self.apply(name, &[], sc)
@@ -382,6 +385,13 @@ impl<'a> Gen<'a> {
                 vals = self.used_as_accounts(vals);
                 vals.extend(rest);
             }
+            if self.defs.list_states.iter().any(|a| a == x) {
+                // a List-valued state: a missing entry reads []
+                if op == "get" {
+                    return Ok((Self::hoist(&format!("tx.{}lget({}, {{}})", pre, slot), &vals), "List".into()));
+                }
+                return Ok((Self::hoist(&format!("tx.{}lset({}, {{}}, {{}})", pre, slot), &vals), "Unit".into()));
+            }
             if self.defs.account_states.iter().any(|a| a == x) {
                 // an Account-valued state: an Int map of rt::store'd accounts (0 = none)
                 if op == "get" {
@@ -399,8 +409,21 @@ impl<'a> Gen<'a> {
             }
             return Ok((Self::hoist(&format!("tx.{}{}set({}, {{}}, {{}})", pre, t, slot), &vals), "Unit".into()));
         }
+        if name == "length" && vals.first().map_or(false, |(_, t)| t == "List") {
+            return Ok((Self::hoist("({}.len() as i64)", &vals), "Int".into()));
+        }
         if name == "length" {
             return Ok((Self::hoist("rt::length(&{})", &vals), "Int".into()));
+        }
+        // lists (run.rs: LIST constructor values): [], at (outside the list an error), append
+        if name == "[]" && vals.is_empty() {
+            return Ok(("Vec::<i64>::new()".into(), "List".into()));
+        }
+        if name == "at" && vals.len() == 2 && vals[0].1 == "List" {
+            return Ok((Self::hoist("rt::at(&{}, {})?", &vals), "Int".into()));
+        }
+        if name == "append" && vals.len() == 2 && vals[0].1 == "List" {
+            return Ok((Self::hoist("rt::append({}, {})", &vals), "List".into()));
         }
         if let Some(d) = self.defs.defs.get(name) {
             // an Account argument is used as an account: the interpreter's call_def_body refuses `none` there
@@ -640,6 +663,7 @@ impl<'a> Gen<'a> {
             .map(|(p, t)| match t.as_str() {
                 "Int" => format!("Val::Int({})", ident(p)),
                 "Text" => format!("Val::Text({}.clone())", ident(p)),
+                "List" => format!("Val::List({}.clone())", ident(p)),
                 _ => format!("Val::Acct({})", ident(p)),
             })
             .collect();
@@ -767,7 +791,7 @@ impl<'a> Gen<'a> {
             let ps: Vec<String> = d
                 .params
                 .iter()
-                .map(|(p, t)| format!("({}, KeyType::{})", json_str(p), match t.as_str() { "Account" => "Account", "Text" => "Text", _ => "Int" }))
+                .map(|(p, t)| format!("({}, KeyType::{})", json_str(p), match t.as_str() { "Account" => "Account", "Text" => "Text", "List" => "List", _ => "Int" }))
                 .collect();
             let us: Vec<String> = infer_uses(defs, d).iter().map(|u| json_str(u)).collect();
             out.push(format!(
@@ -785,7 +809,8 @@ impl<'a> Gen<'a> {
             .iter()
             .map(|(n, k, s, t)| {
                 let acct = self.defs.account_states.contains(n);
-                format!("MapInfo {{ name: {}, key: KeyType::{}, slot: {}, text: {}, acct: {} }}", json_str(n), k, s, t, acct)
+                let list = self.defs.list_states.contains(n);
+                format!("MapInfo {{ name: {}, key: KeyType::{}, slot: {}, text: {}, list: {}, acct: {} }}", json_str(n), k, s, t, list, acct)
             })
             .collect();
         out.push(format!("    const MAPS: &'static [MapInfo] = &[{}];", maps.join(", ")));
@@ -798,7 +823,7 @@ impl<'a> Gen<'a> {
                 .params
                 .iter()
                 .enumerate()
-                .map(|(j, (_, t))| format!("rt::{}(&args[{}])", match t.as_str() { "Account" => "acct", "Text" => "text", _ => "int" }, j))
+                .map(|(j, (_, t))| format!("rt::{}(&args[{}])", match t.as_str() { "Account" => "acct", "Text" => "text", "List" => "list", _ => "int" }, j))
                 .collect();
             // the result as the interpreter's value: an Int, or a record's leaves in order
             let wrap = match d.ret.as_deref() {
@@ -1076,9 +1101,9 @@ body
         let src = "state hold Int\n\nput k:Int\nbody\n  hold.set k 1\n\nget k:Int -> Int\nbody\n  result = k\n";
         let base = crate::syntax::parse_module(src, true).unwrap();
         let mut a = base.clone();
-        a.defs.get_mut("put").unwrap().params[0].1 = "List".into();
+        a.defs.get_mut("put").unwrap().params[0].1 = "Matrix".into();
         let e = super::Gen::new(&a, "t").module().unwrap_err().0;
-        assert!(e.contains("put: definition parameter k of type List"), "{e}");
+        assert!(e.contains("put: definition parameter k of type Matrix"), "{e}");
         let mut b = base.clone();
         b.defs.get_mut("get").unwrap().ret = Some("Text".into());
         let e = super::Gen::new(&b, "t").module().unwrap_err().0;
@@ -1103,7 +1128,7 @@ body
         has("ret: Some(\"Tag\")");
         // a record type the runtime can't hold is still refused, not mistranslated
         let mut b = defs.clone();
-        b.records.get_mut("Point").unwrap()[0].1 = "List".into();
+        b.records.get_mut("Point").unwrap()[0].1 = "Matrix".into();
         assert!(super::Gen::new(&b, "t").module().unwrap_err().0.contains("result of type"));
     }
 
@@ -1122,6 +1147,23 @@ body
         // a module without Account-valued states has no check
         let plain = crate::syntax::parse_module("state score Account\n\ngive a:Account\nbody\n  score.set a 5\n", true).unwrap();
         assert!(!super::Gen::new(&plain, "t").module().unwrap().contains("rt::some("));
+    }
+
+    #[test]
+    fn lists_compile_to_vectors_and_at_outside_is_an_error() {
+        let src = "state cart Int -> List\n\nadd k:Int v:Int\nbody\n  cart.set k (append (cart.get k) v)\n\n\
+                   first xs:List -> Int\nbody\n  ys = append xs 1\n  result = at ys 0 + length xs\n\nclear k:Int\nbody\n  cart.set k []\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let rs = super::Gen::new(&defs, "t").module().unwrap();
+        let has = |s: &str| assert!(rs.contains(s), "missing {s:?} in\n{rs}");
+        has("let __a0 = tx.ilget(0, k); let __a1 = v; rt::append(__a0, __a1) }; tx.ilset(0, __a0, __a1)");
+        has("pub fn first(tx: &mut Tx<Event>, xs: Vec<i64>) -> R<i64> {");
+        has("rt::at(&ys.clone(), 0i64)?");
+        has("(xs.clone().len() as i64)");
+        has("tx.ilset(0, k, Vec::<i64>::new())");
+        has("list: true");
+        has("rt::list(&args[0])");
     }
 
     #[test]

@@ -92,6 +92,7 @@ pub enum Val {
     Int(i64),
     Acct(Acct),
     Text(String),
+    List(Vec<i64>),
 }
 
 /// A parameter's type (and a map's key type: Int or Account only).
@@ -100,6 +101,8 @@ pub enum KeyType {
     Int,
     Account,
     Text,
+    /// a parameter only: a list of Ints
+    List,
 }
 
 /// What the compiler knows about a definition.
@@ -119,6 +122,8 @@ pub struct MapInfo {
     pub key: KeyType,
     pub slot: usize,
     pub text: bool,
+    /// a List-valued state (`state cart Int -> List`)
+    pub list: bool,
     /// an Account-valued state (`state member Int -> Account`): an Int map of `store`d accounts
     pub acct: bool,
 }
@@ -235,6 +240,10 @@ pub struct World {
     pub atexts: Vec<HashMap<u32, String>>,
     /// `state X Int -> Text`: sparse; missing = ""
     pub itexts: Vec<HashMap<i64, String>>,
+    /// `state X Account -> List`: sparse by account id; missing = []
+    pub alists: Vec<HashMap<u32, Vec<i64>>>,
+    /// `state X Int -> List`: sparse; missing = []
+    pub ilists: Vec<HashMap<i64, Vec<i64>>>,
     pub clock: i64,
 }
 
@@ -250,6 +259,8 @@ impl World {
             imaps: vec![HashMap::new(); n_imaps],
             atexts: Vec::new(),
             itexts: Vec::new(),
+            alists: Vec::new(),
+            ilists: Vec::new(),
             clock: 0,
         }
     }
@@ -351,6 +362,8 @@ enum Undo {
     I(u16, i64, Option<i64>),
     TA(u16, u32, Option<String>),
     TI(u16, i64, Option<String>),
+    LA(u16, u32, Option<Vec<i64>>),
+    LI(u16, i64, Option<Vec<i64>>),
 }
 
 /// Loop and sum iterations one top-level call may start (S21), charged as the interpreter charges its budget: `hi - lo`
@@ -456,6 +469,21 @@ impl<'a, E> Tx<'a, E> {
         let old = self.w.itexts[slot].insert(k, v);
         self.undo.push(Undo::TI(slot as u16, k, old));
     }
+    /// List maps: a missing entry reads [] (a clone, as the interpreter's value is one)
+    pub fn alget(&self, slot: usize, a: Acct) -> Vec<i64> {
+        self.w.alists[slot].get(&a.0).cloned().unwrap_or_default()
+    }
+    pub fn alset(&mut self, slot: usize, a: Acct, v: Vec<i64>) {
+        let old = self.w.alists[slot].insert(a.0, v);
+        self.undo.push(Undo::LA(slot as u16, a.0, old));
+    }
+    pub fn ilget(&self, slot: usize, k: i64) -> Vec<i64> {
+        self.w.ilists[slot].get(&k).cloned().unwrap_or_default()
+    }
+    pub fn ilset(&mut self, slot: usize, k: i64, v: Vec<i64>) {
+        let old = self.w.ilists[slot].insert(k, v);
+        self.undo.push(Undo::LI(slot as u16, k, old));
+    }
     #[inline(always)]
     pub fn emit(&mut self, channel: u16, e: E) {
         self.events.push((channel, e));
@@ -480,7 +508,8 @@ impl<'a, E> Tx<'a, E> {
             let a = match u {
                 Undo::Bal(i, _) | Undo::A(_, i, _) => *i,
                 Undo::TA(_, i, _) => *i,
-                Undo::I(..) | Undo::TI(..) => continue,
+                Undo::LA(_, i, _) => *i,
+                Undo::I(..) | Undo::TI(..) | Undo::LI(..) => continue,
             };
             if seen.insert(a) {
                 out.push(Acct(a));
@@ -492,7 +521,7 @@ impl<'a, E> Tx<'a, E> {
     pub fn written_ints(&self) -> Vec<i64> {
         let (mut out, mut seen): (Vec<i64>, std::collections::HashSet<i64>) = (Vec::new(), Default::default());
         for u in self.undo.iter() {
-            if let Undo::I(_, k, _) | Undo::TI(_, k, _) = u {
+            if let Undo::I(_, k, _) | Undo::TI(_, k, _) | Undo::LI(_, k, _) = u {
                 if seen.insert(*k) {
                     out.push(*k);
                 }
@@ -588,6 +617,22 @@ impl<E> Exec<E> {
                             w.itexts[m as usize].remove(&k);
                         }
                     },
+                    Undo::LA(m, a, v) => match v {
+                        Some(v) => {
+                            w.alists[m as usize].insert(a, v);
+                        }
+                        None => {
+                            w.alists[m as usize].remove(&a);
+                        }
+                    },
+                    Undo::LI(m, k, v) => match v {
+                        Some(v) => {
+                            w.ilists[m as usize].insert(k, v);
+                        }
+                        None => {
+                            w.ilists[m as usize].remove(&k);
+                        }
+                    },
                 }
             }
             self.events.clear();
@@ -619,10 +664,12 @@ pub trait Module {
     fn show_event(e: &Self::Event, w: &World) -> String;
 
     fn new_world() -> World {
-        let count = |key: KeyType, text: bool| Self::MAPS.iter().filter(|m| m.key == key && m.text == text).count();
-        let mut w = World::new(count(KeyType::Account, false), count(KeyType::Int, false));
-        w.atexts = vec![HashMap::new(); count(KeyType::Account, true)];
-        w.itexts = vec![HashMap::new(); count(KeyType::Int, true)];
+        let count = |key: KeyType, text: bool, list: bool| Self::MAPS.iter().filter(|m| m.key == key && m.text == text && m.list == list).count();
+        let mut w = World::new(count(KeyType::Account, false, false), count(KeyType::Int, false, false));
+        w.atexts = vec![HashMap::new(); count(KeyType::Account, true, false)];
+        w.itexts = vec![HashMap::new(); count(KeyType::Int, true, false)];
+        w.alists = vec![HashMap::new(); count(KeyType::Account, false, true)];
+        w.ilists = vec![HashMap::new(); count(KeyType::Int, false, true)];
         w
     }
 }
@@ -651,6 +698,34 @@ pub fn int(v: &Val) -> i64 {
         _ => unreachable!("checked at the boundary"),
     }
 }
+pub fn list(v: &Val) -> Vec<i64> {
+    match v {
+        Val::List(xs) => xs.clone(),
+        _ => unreachable!("checked at the boundary"),
+    }
+}
+/// `at xs i`: the i-th element from 0; outside the list an error, as the interpreter's run::AT_OUTSIDE.
+#[inline(always)]
+pub fn at(xs: &[i64], i: i64) -> Result<i64, Fault> {
+    match usize::try_from(i).ok().and_then(|i| xs.get(i)) {
+        Some(v) => Ok(*v),
+        None => Err(Fault::Error(format!("index outside the list: at {} in a list of {}", i, xs.len()))),
+    }
+}
+/// `append xs v`: a new list (xs is the caller's copy).
+#[inline(always)]
+pub fn append(mut xs: Vec<i64>, v: i64) -> Vec<i64> {
+    xs.push(v);
+    xs
+}
+/// A list as `eg` lines write it: `[1 2 3]`.
+pub fn show_list(xs: &[i64]) -> String {
+    format!("[{}]", xs.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(" "))
+}
+/// `[1 2 3]` (a script token) as a list; None if it isn't one.
+pub fn parse_list(tok: &str) -> Option<Vec<i64>> {
+    tok.strip_prefix('[')?.strip_suffix(']')?.split_whitespace().map(|x| x.parse().ok()).collect()
+}
 pub fn text(v: &Val) -> String {
     match v {
         Val::Text(t) => t.clone(),
@@ -668,9 +743,11 @@ pub fn quote(t: &str) -> String {
     format!("\"{}\"", t.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// Split a script line on whitespace outside `"…"` (escapes `\"` and `\\`); a quoted token keeps its quotes.
+/// Split a script line on whitespace outside `"…"` (escapes `\"` and `\\`) and outside `[…]`; a quoted token keeps
+/// its quotes, a list its brackets.
 pub fn tokens(line: &str) -> Vec<String> {
-    let (mut out, mut cur, mut quoted, mut esc) = (Vec::new(), String::new(), false, false);
+    // a list `[1 2 3]` (an argument, or a world entry `cart.4:[1 2]`) is one token too
+    let (mut out, mut cur, mut quoted, mut esc, mut depth) = (Vec::new(), String::new(), false, false, 0u32);
     for c in line.chars() {
         if quoted {
             cur.push(c);
@@ -681,13 +758,16 @@ pub fn tokens(line: &str) -> Vec<String> {
             } else if c == '"' {
                 quoted = false;
             }
-        } else if c.is_whitespace() {
+        } else if c.is_whitespace() && depth == 0 {
             if !cur.is_empty() {
                 out.push(std::mem::take(&mut cur));
             }
         } else {
-            if c == '"' {
-                quoted = true;
+            match c {
+                '"' => quoted = true,
+                '[' => depth += 1,
+                ']' => depth = depth.saturating_sub(1),
+                _ => {}
             }
             cur.push(c);
         }

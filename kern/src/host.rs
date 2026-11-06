@@ -48,6 +48,8 @@ create table if not exists cell(state text not null, key text not null, value in
                                 primary key(state, key));
 create table if not exists textcell(state text not null, key text not null, value text not null,
                                     primary key(state, key));
+create table if not exists listcell(state text not null, key text not null, value text not null,
+                                    primary key(state, key));
 create table if not exists log(seq integer primary key, name text not null, args text not null,
                                now integer not null, outcome text not null, observed text not null default '[]');
 create table if not exists outbox(seq integer primary key, call integer not null, event text not null,
@@ -100,6 +102,27 @@ pub fn value_json(v: &Value) -> J {
     }
 }
 
+fn key_value(k: &Key) -> J {
+    match k {
+        Key::Int(n) => json!(*n as i64),
+        Key::Str(s) => json!(s),
+    }
+}
+
+/// A Kern list as a JSON array of integers.
+fn list_json(xs: &[Int]) -> J {
+    J::Array(xs.iter().map(|x| json!(*x as i64)).collect())
+}
+
+/// A JSON array of i64 integers as a list; None for anything else (a fraction, a string, a number past i64).
+fn list_from_json(j: &J) -> Option<Vec<Int>> {
+    j.as_array()?.iter().map(|x| x.as_i64().map(|n| n as Int)).collect()
+}
+
+fn lists_json(l: &IndexMap<String, IndexMap<Key, Vec<Int>>>) -> J {
+    J::Object(l.iter().map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, xs)| (key_str(k), list_json(xs))).collect()))).collect())
+}
+
 /// JSON gives lists back; events and constructor values are tuples in the interpreter (Python's `_tuplify`).
 pub fn json_value(j: &J) -> Value {
     match j {
@@ -144,6 +167,13 @@ fn out_of_range(world: &World, result: Option<&Value>) -> Option<String> {
         for (k, v) in m {
             if matches!(k, Key::Int(n) if !fits(*n)) || !fits(*v) {
                 return Some(format!("{}.{} = {}", x, key_str(k), v));
+            }
+        }
+    }
+    for (x, m) in &world.lists {
+        for (k, xs) in m {
+            if let Some(v) = xs.iter().find(|v| !fits(**v)) {
+                return Some(format!("{}.{} holds {}", x, key_str(k), v));
             }
         }
     }
@@ -807,7 +837,7 @@ impl<'m> Host<'m> {
         }
         // the eg world grammar: accounts, `state.key:N`, Text entries `state.key:"…"` (quoted)
         let ex = crate::syntax::parse_call(world_src, "genesis").map_err(|e| e.0)?;
-        let mut w = World::from_example(&ex.world, 0, &ex.maps).with_texts(&ex.texts);
+        let mut w = World::from_example(&ex.world, 0, &ex.maps).with_texts(&ex.texts).with_lists(&ex.list_maps);
         if let Some(what) = out_of_range(&w, None) {
             return Err(format!("genesis world: Int out of the host's range (i64): {}", what));
         }
@@ -847,6 +877,15 @@ impl<'m> Host<'m> {
                 .map(|(s, m)| {
                     (s.clone(), J::Array(m.iter().map(|(k, v)| json!([match k { Key::Int(n) => json!(*n as i64), Key::Str(s) => json!(s) }, v])).collect()))
                 })
+                .collect::<Map<String, J>>()
+                .into();
+        }
+        if w.lists.values().any(|m| !m.is_empty()) {
+            // only when there is List state, as for texts
+            d["lists"] = w
+                .lists
+                .iter()
+                .map(|(s, m)| (s.clone(), J::Array(m.iter().map(|(k, xs)| json!([key_value(k), list_json(xs)])).collect())))
                 .collect::<Map<String, J>>()
                 .into();
         }
@@ -892,7 +931,50 @@ impl<'m> Host<'m> {
                 m.insert(k, p[1].as_str().unwrap_or("").to_string());
             }
         }
+        for (s, kv) in d.get("lists").and_then(|t| t.as_object()).into_iter().flatten() {
+            let m = w.lists.entry(s.clone()).or_default();
+            for p in kv.as_array().into_iter().flatten() {
+                let k = match &p[0] {
+                    J::Number(n) => Key::Int(n.as_i64().unwrap_or(0) as Int),
+                    J::String(s) => Key::Str(s.clone()),
+                    _ => continue,
+                };
+                m.insert(k, list_from_json(&p[1]).unwrap_or_default());
+            }
+        }
         w
+    }
+
+    /// Every List state entry. The interpreter reads list states from the world itself (not on demand, as Int and
+    /// Text cells), so a call's world starts with them all: a module with list states pays for their size per call.
+    fn all_lists(&self) -> Result<IndexMap<String, IndexMap<Key, Vec<Int>>>, rusqlite::Error> {
+        let mut out: IndexMap<String, IndexMap<Key, Vec<Int>>> = IndexMap::new();
+        if self.defs.list_states.is_empty() {
+            return Ok(out);
+        }
+        let mut st = self.db.prepare("select state, key, value from listcell")?;
+        for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))? {
+            let (s, k, v) = row?;
+            let xs = serde_json::from_str::<J>(&v).ok().and_then(|j| list_from_json(&j)).unwrap_or_default();
+            out.entry(s).or_default().insert(key_from_json(&k), xs);
+        }
+        Ok(out)
+    }
+
+    fn write_lists(&self, before: &IndexMap<String, IndexMap<Key, Vec<Int>>>, after: &IndexMap<String, IndexMap<Key, Vec<Int>>>) -> Result<(), rusqlite::Error> {
+        for (s, m) in after {
+            let old = before.get(s);
+            for (k, xs) in m {
+                if old.and_then(|o| o.get(k)) != Some(xs) {
+                    let v = dumps(&list_json(xs));
+                    self.db.execute(
+                        "insert into listcell values(?,?,?) on conflict(state, key) do update set value=?",
+                        params![s, key_json(k), v, v],
+                    )?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The world for one call, read on demand inside the call's transaction.
@@ -942,6 +1024,7 @@ impl<'m> Host<'m> {
             let (s, k, v) = row?;
             w.texts.entry(s).or_default().insert(key_from_json(&k), v);
         }
+        w.lists = self.all_lists()?;
         Ok(w)
     }
 
@@ -977,7 +1060,7 @@ impl<'m> Host<'m> {
                 }
             }
         }
-        Ok(())
+        self.write_lists(&before.lists, &after.lists)
     }
 
     // --- one top-level call: the only way anything changes
@@ -1008,6 +1091,8 @@ impl<'m> Host<'m> {
         let defs = self.defs;
         let mut world = self.lazy();
         world.clock = now;
+        world.lists = self.all_lists().map_err(sql)?;
+        let lists_before = world.lists.clone();
         let providers = &mut self.providers;
         let provider: Provider = Box::new(move |n: &str, a: &[Value]| match providers.get_mut(n) {
             Some(p) => p(a),
@@ -1112,6 +1197,7 @@ impl<'m> Host<'m> {
         if res["status"] == "ok" {
             self.answer(name, args, seq).map_err(sql)?;
             self.write_dirty(&world).map_err(sql)?;
+            self.write_lists(&lists_before, &world.lists).map_err(sql)?;
             if world.clock > now + 1 {
                 // the call used clock.tick (Interp::run steps the clock on by 1 after every call, so more than that
                 // is ticks): the next call starts after its last instant, as in the interpreter
@@ -1328,6 +1414,16 @@ impl<'m> Host<'m> {
             };
             bad.push(format!("text state differs: db {}, replay {}", texts(&now.texts), texts(&replay_texts)));
         }
+        // a missing list entry reads [], so [] entries count as absent on both sides
+        let nonempty = |l: &IndexMap<String, IndexMap<Key, Vec<Int>>>| -> IndexMap<String, IndexMap<Key, Vec<Int>>> {
+            l.iter()
+                .map(|(s, m)| (s.clone(), m.iter().filter(|(_, xs)| !xs.is_empty()).map(|(k, xs)| (k.clone(), xs.clone())).collect::<IndexMap<_, _>>()))
+                .filter(|(_, m)| !m.is_empty())
+                .collect()
+        };
+        if nonempty(&now.lists) != nonempty(&w.lists) {
+            bad.push(format!("list state differs: db {}, replay {}", dumps(&lists_json(&now.lists)), dumps(&lists_json(&w.lists))));
+        }
         if now.bal != w.bal || now.maps != replay_maps {
             let bal = |w: &World| dict_repr(w.bal.iter(), |a| repr_str(a), |b| b.to_string());
             let maps = |m: &IndexMap<String, IndexMap<Key, Int>>| {
@@ -1385,12 +1481,16 @@ pub fn host_effect(defs: &Module, root: &str) -> String {
     let dotted = format!("{}.", root);
     let parts: Vec<&String> = defs.states.keys().filter(|x| *x == root || x.starts_with(&dotted)).collect();
     if !parts.is_empty() {
-        // Text states and Account-valued ones (kept as names, as the interpreter's world keeps them) are in textcell
+        // Text states and Account-valued ones (kept as names, as the interpreter's world keeps them) are in textcell,
+        // List states in listcell (a JSON array per entry)
         let text = parts.iter().filter(|x| defs.text_states.contains(x) || defs.account_states.contains(x)).count();
-        let tables = match (parts.len() - text, text) {
-            (_, 0) => "table `cell`",
-            (0, _) => "table `textcell`",
-            _ => "tables `cell` (Int fields) and `textcell` (Text fields)",
+        let list = parts.iter().filter(|x| defs.list_states.contains(x)).count();
+        let tables = match (parts.len() - text - list, text, list) {
+            (_, 0, 0) => "table `cell`",
+            (0, _, 0) => "table `textcell`",
+            (0, 0, _) => "table `listcell`",
+            (_, _, 0) => "tables `cell` (Int fields) and `textcell` (Text fields)",
+            _ => "tables `cell`, `textcell` and `listcell`",
         };
         return format!("SQLite {}, one transaction per call", tables);
     }
@@ -1570,6 +1670,7 @@ fn state_json(w: &World, defs: &Module) -> J {
         .iter()
         .map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), json!(*v as i64))).collect())))
         .chain(w.texts.iter().map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, v)| (key_str(k), json!(v))).collect()))))
+        .chain(w.lists.iter().map(|(s, m)| (s.clone(), J::Object(m.iter().map(|(k, xs)| (key_str(k), list_json(xs))).collect()))))
         .collect();
     for r in defs.record_states.keys() {
         let prefix = format!("{}.", r);
@@ -1717,10 +1818,10 @@ pub fn repl(host: &mut Host, lines: impl Iterator<Item = String>, out: &mut dyn 
             continue;
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
-        let (name, args) = if line.contains('"') {
-            // a quoted Text argument: the eg grammar (`post 3 "hello world"`)
+        let (name, args) = if line.contains('"') || line.contains('[') {
+            // a quoted Text or a list argument: the eg grammar (`post 3 "hello world"`, `total [1 2 3]`)
             match crate::syntax::parse_call("", line) {
-                Ok(ex) => (ex.call.0.clone(), ex.call.1.iter().map(Value::from_key).collect()),
+                Ok(ex) => (ex.call.0.clone(), crate::run::example_args(&ex)),
                 Err(e) => {
                     out(format!("error: {}", e.0));
                     continue;
@@ -1796,7 +1897,18 @@ pub fn http_args(params: &[(String, String)], body: &J) -> Result<Vec<Value>, St
         }
         return Err(msg);
     }
-    Ok(params.iter().map(|(p, _)| json_value(p.split('.').fold(body, |v, part| &v[part]))).collect())
+    let mut out = vec![];
+    for (p, t) in params {
+        let v = p.split('.').fold(body, |v, part| &v[part]);
+        if t == "List" {
+            // a list is a JSON array of integers (each an i64)
+            let xs = list_from_json(v).ok_or_else(|| format!("{} must be a JSON array of integers, got {}", repr_str(p), dumps(v)))?;
+            out.push(Value::Ctor(crate::run::LIST.into(), xs.into_iter().map(Value::Int).collect()));
+        } else {
+            out.push(json_value(v));
+        }
+    }
+    Ok(out)
 }
 
 /// One HTTP request; Err only for a host fault outside a call.
@@ -2718,6 +2830,38 @@ body
         assert_eq!(host_effect(&defs, "member"), "SQLite table `textcell`, one transaction per call");
         drop(h);
         assert!(open().replay().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_state_is_stored_replayed_and_served_and_a_list_argument_is_a_json_array() {
+        let src = "state cart Int -> List\nstate paid Int\n\nadd k:Int v:Int\n  ok otherwise\nbody\n  \
+                   cart.set k (append (cart.get k) v)\n\npay k:Int xs:List\n  need length xs > 0 else Empty\n  \
+                   ok otherwise\nbody\n  paid.set k (sum i from 0 to (length xs) of at xs i)\n  cart.set k []\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let dir = std::env::temp_dir().join(format!("kern-lists-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("t.db").to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&db);
+        let open = || Host::new(&defs, IndexMap::new(), Options { db: db.clone(), sinks: Some(vec![]), gate: false, ..Default::default() }).unwrap();
+        let mut h = open();
+        h.init("cart.4:[7] cart.5:[1 2]").unwrap();
+        let mut out = vec![];
+        repl(&mut h, ["add 4 2", "pay 5 [3 4]", "pay 6 []"].iter().map(|l| l.to_string()), &mut |l| out.push(l)).unwrap();
+        assert_eq!(out, ["ok", "ok", "refused Empty"]);
+        let args = http_args(&defs.defs["pay"].params, &json!({"k": 9, "xs": [10, 20]})).unwrap();
+        assert_eq!(h.call("pay", &args).unwrap()["status"], "ok");
+        assert!(http_args(&defs.defs["pay"].params, &json!({"k": 9, "xs": [1.5]})).is_err());
+        let st = state_json(&h.load().unwrap(), &defs)["state"].clone();
+        assert_eq!(st["cart"], json!({"4": [7, 2], "5": [], "9": []}));
+        assert_eq!(st["paid"], json!({"5": 7, "9": 30}));
+        assert_eq!(host_effect(&defs, "cart"), "SQLite table `listcell`, one transaction per call");
+        drop(h);
+        let h = open();
+        assert!(h.replay().unwrap().is_empty(), "{:?}", h.replay());
+        h.db.execute("update listcell set value='[7]' where key='4'", []).unwrap();
+        assert!(h.replay().unwrap().iter().any(|m| m.contains("list state differs")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

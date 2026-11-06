@@ -53,6 +53,15 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   `"order": {"7": {"item": 3, "qty": 2, "note": "rush"}}`, nested records nested, each key any field has shown with
   every field (absent ones at 0 or `""`); the shape a record argument has (DECISIONS 2026-11-06). The manifest
   and the page say which tables a state uses (`cell`, `textcell` or both); before, a Text state was shown as `cell`.
+- **Lists (2026-11-06).** A List parameter is a JSON array of integers over HTTP (`{"xs": [1, 2, 3]}`; a fraction,
+  a string or a number past i64 is a 400) and `[1 2 3]` in `repl`, as in `eg` lines. A List state (`state cart Int
+  -> List`) is stored per entry in table `listcell` as a JSON array; `GET /state` shows arrays, replay compares them
+  (an empty list is the same as no entry), and a list element outside i64 is the range fault. The interpreter reads
+  list states from its world, not on demand as Int and Text cells, so the host loads **every** list entry into a
+  call's world before it runs and writes back the entries that changed: a module's list states cost their whole
+  size per call (fine for carts and logs; a large one wants a different store). `at` outside the list is an error,
+  undone. `kern build`: a list is a `Vec<i64>`, a List state an `Int`/`Account`-keyed map of them with rollback,
+  `at` is `rt::at` (the same error); the binary's script protocol writes lists `[1 2]`.
 - **Accounts in state (2026-11-06).** `state member Int -> Account` is kept as the interpreter's world keeps it:
   account names in table `textcell`, a cleared entry as `none` (an entry nobody set has no row and reads `none`).
   `GET /state` shows the names, `"member": {"4": "M", "5": "none"}`; replay compares them. A genesis world may store

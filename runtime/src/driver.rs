@@ -71,6 +71,19 @@ pub fn parse_world<M: Module>(items: &[&str]) -> Result<World, String> {
         let (k, v) = it.split_once(':').ok_or(format!("bad item {it}"))?;
         let (m, key) = k.rsplit_once('.').ok_or(format!("bad item {it}"))?;
         let mi = M::MAPS.iter().find(|x| x.name == m).ok_or(format!("no state {m}"))?;
+        if mi.list {
+            let xs = parse_list(v).ok_or(format!("bad list {it}"))?;
+            match mi.key {
+                KeyType::Account => {
+                    let a = w.acct(key).ok_or(format!("no account {key}"))?;
+                    w.alists[mi.slot].insert(a.0, xs);
+                }
+                _ => {
+                    w.ilists[mi.slot].insert(key.parse().map_err(|_| format!("bad key {it}"))?, xs);
+                }
+            }
+            continue;
+        }
         if mi.text {
             let t = unquote(v).ok_or(format!("bad text {it}"))?;
             match mi.key {
@@ -118,6 +131,20 @@ pub fn dump<M: Module>(w: &World) -> String {
     let mut maps: Vec<&MapInfo> = M::MAPS.iter().collect();
     maps.sort_by_key(|m| m.name);
     for m in maps {
+        if m.list {
+            // as the interpreter's dump: entries that aren't [], sorted by key, `[1 2]`
+            let mut ks: Vec<(String, i64, &Vec<i64>)> = match m.key {
+                KeyType::Account => w.alists[m.slot].iter().map(|(a, xs)| (w.names.get(*a).to_string(), 0, xs)).collect(),
+                _ => w.ilists[m.slot].iter().map(|(k, xs)| (String::new(), *k, xs)).collect(),
+            };
+            ks.retain(|(_, _, xs)| !xs.is_empty());
+            ks.sort();
+            for (a, k, xs) in ks {
+                let key = if m.key == KeyType::Account { a } else { k.to_string() };
+                s += &format!(" {}.{key}:{}", m.name, show_list(xs));
+            }
+            continue;
+        }
         if m.text {
             // as the interpreter's dump: entries that aren't the default (""), sorted by key, quoted
             let mut ks: Vec<(String, i64, &String)> = match m.key {
@@ -171,6 +198,7 @@ pub fn parse_args<M: Module>(w: &World, def: usize, raw: &[&str]) -> Result<Vec<
             KeyType::Account => w.acct(s).map(Val::Acct).ok_or(format!("account {s:?} for `{p}` is not in the world")),
             KeyType::Int => s.parse().map(Val::Int).map_err(|_| format!("`{p}` must be an Int, got {s:?}")),
             KeyType::Text => unquote(s).map(Val::Text).ok_or(format!("`{p}` must be a quoted Text, got {s}")),
+            KeyType::List => parse_list(s).map(Val::List).ok_or(format!("`{p}` must be a list [1 2 3], got {s}")),
         })
         .collect()
 }
@@ -181,6 +209,7 @@ fn show_val(v: &Val, w: &World) -> String {
         Val::Int(n) => n.to_string(),
         Val::Acct(a) => w.name(*a).to_string(),
         Val::Text(t) => quote(t),
+        Val::List(xs) => show_list(xs),
     }
 }
 
@@ -278,6 +307,7 @@ fn bench<M: Module>(def: &str, n: u32, calls: u64) {
                 }
                 KeyType::Int => Val::Int(((x >> 40) % 1500) as i64 - 10),
                 KeyType::Text => Val::Text(String::new()),
+                KeyType::List => Val::List(Vec::new()),
             };
         }
         match M::call(&mut exec, &mut w, &mut prov, d, &args) {
