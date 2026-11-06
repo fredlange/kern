@@ -186,6 +186,19 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   `s7_lifting_still_stops_where_the_after_state_is_not_exact`.
 - **Next:** none planned. Each needs a merge of after-states, which is the same machinery as S16's
   path merging.
+- **Done, 2026-11-06 (`1e9f158`, #75HG3VEWQS; .party/DECISIONS.md, S19):** an `if` whose branches wrote is now
+  lifted (each branch's writes under its guard, in pre-state terms; a later read splits on the guard as on
+  aliasing, at most 8 cases), and so is a callee that pins a written entry under complementary `when`s
+  (`R' = E1 when C`, `R' = E2 when not C`). `s7_lifting_still_stops_where_the_after_state_is_not_exact` now
+  lifts its `via_if` case; `s17_…` adds both `when` cases. Tester (`1f6cd17`): nested writing `if`s right,
+  callers prove exactly what the lifted need implies, gen_lift catches swapped branches (691); fuzz seeds 1–3
+  0 contradictions; digests unchanged; suite 419/0.
+  - Measured first, over every `lifted()` call in examples/ and tests/probes/: 1,751 of 1,768 attempts
+    succeed, before and after; the 17 misses are all in escrow_s3 after `purchase_order`, whose spec leaves
+    `seller`/`house` unpinned (a stronger spec fixes it, no merge can). examples/apps: 4 of 4. So this half
+    changes no measured result; it removes a stop no program in the corpus hit yet.
+  - Still stops (declined, with that measurement): a `>=` ensure (no exact value), a single `when`, a
+    `for`-quantified ensure, a loop with effects. Stays open for those.
 
 ## Closed
 
