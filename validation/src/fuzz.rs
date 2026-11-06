@@ -1390,6 +1390,39 @@ pub fn lemma_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         .collect()
 }
 
+// ---------------------------------------------------------------- lifting through ifs that write (S19, 1e9f158)
+
+/// A callee whose `if` (sometimes nested) writes x.k differently per branch, then `need x.get k > 0`; a caller whose
+/// claims follow from the callee having succeeded (so from the lifted condition) or don't. Own stream (`lift_jobs`).
+pub fn gen_lift(rnd: &mut Random) -> String {
+    let nested = rnd.random() < 0.4;
+    let mut lines: Vec<String> = vec!["state x Int".into(), "state y Int".into(), String::new()];
+    if nested {
+        lines.extend(["g k:Int c:Int d:Int a:Int".to_string(), "body".into(), "  if c > 0".into(), "    if d > 0".into(),
+                      "      x.set k a".into(), "    else".into(), "      x.set k (0 - 1)".into(), "  else".into(), "    x.set k 2".into(),
+                      "  need x.get k > 0 else Bad".into(), String::new()]);
+        let claim = choice_str(rnd, &["d > 0 when c > 0", "a > 0 when c > 0", "a > 0 when c > 0 and d > 0", "c > 0", "d > 0", "a > 0"]);
+        lines.extend(["f k:Int c:Int d:Int a:Int".to_string(), format!("  ensure {claim}"), "body".into(), "  g k c d a".into(), "  y.set 0 1".into()]);
+    } else {
+        lines.extend(["g k:Int c:Int a:Int b:Int".to_string(), "body".into(), "  if c > 0".into(), "    x.set k a".into(), "  else".into(),
+                      "    x.set k b".into(), "  need x.get k > 0 else Bad".into(), String::new()]);
+        let claim = choice_str(rnd, &["a > 0 when c > 0", "b > 0 when c <= 0", "b > 0 when c > 0", "a > 0 when c <= 0", "a > 0 or b > 0", "a > 0"]);
+        lines.extend(["f k:Int c:Int a:Int b:Int".to_string(), format!("  ensure {claim}"), "body".into(), "  g k c a b".into(), "  y.set 0 1".into()]);
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `n` lifting programs from their own stream, labelled `lift#i`.
+pub fn lift_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 19);
+    (0..n)
+        .map(|i| {
+            let src = gen_lift(&mut rnd);
+            Job { label: format!("lift#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -2011,7 +2044,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
         "nested_record_variant_well_formed": fam("sumn#"), "state_record_variant_well_formed": fam("sums#"),
         "frame_record_well_formed": fam("framer#"), "ret_record_well_formed": fam("retr#"),
-        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"), "acct_well_formed": fam("acct#"), "list_well_formed": fam("list#"), "dec_well_formed": fam("dec#"), "lemma_well_formed": fam("lemma#"),
+        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"), "acct_well_formed": fam("acct#"), "list_well_formed": fam("list#"), "dec_well_formed": fam("dec#"), "lemma_well_formed": fam("lemma#"), "lift_well_formed": fam("lift#"),
         "variant_mismatches": variant_mismatches(results),
     })
 }
@@ -2024,12 +2057,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--rets" | "--accts" | "--lists" | "--decs" | "--lemmas" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--rets" | "--accts" | "--lists" | "--decs" | "--lemmas" | "--lifts" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--rets N] [--accts N] [--lists N] [--decs N] [--lemmas N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--rets N] [--accts N] [--lists N] [--decs N] [--lemmas N] [--lifts N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -2071,6 +2104,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(list_jobs(num("seed", 1) as i128, num("lists", 100) as usize, num("runs", 300)));
     js.extend(dec_jobs(num("seed", 1) as i128, num("decs", 100) as usize, num("runs", 300)));
     js.extend(lemma_jobs(num("seed", 1) as i128, num("lemmas", 100) as usize, num("runs", 300)));
+    js.extend(lift_jobs(num("seed", 1) as i128, num("lifts", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));

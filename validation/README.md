@@ -57,6 +57,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 | `--lists N` | lists (`gen_list`, default 100; was 0 until f3af834 fixed a "Never succeeds" label): appends to a list state, reads near both ends guarded or not, totals by `sum`, equality. An `at` outside the list contradicts the page only if every "is inside the list" goal is proven |
 | `--decs N` | decimals (`gen_dec`, default 100, own stream): products and quotients of literals (negatives too) claimed equal to their floor value or to a near miss (toward zero, ceiling, half up), an accumulating Decimal state, Int promotion, a floor bound on `x / n` |
 | `--lemmas N` | sums under `invariant o:Int price.get o >= 0` (`gen_lemma`, default 100, own stream): a total, a zero count, a sum after a write that may break the invariant, a body that breaks and restores it, sometimes another definition breaking it |
+| `--lifts N` | lifting through `if`s that write (`gen_lift`, default 100, own stream): a callee writing x.k per branch (sometimes nested) then `need x.get k > 0`, a caller whose claims follow from the callee's success or don't |
 | `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`), a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`) a package variant (`agg` in a package `lib` the program's package `use`s), a nested-record variant (`Span` inside `record Wrap s:Span tag:Int`, `w.s` passed whole) and a record-state variant (`hold`/`flag` as the fields of `state cell Int -> Cell`). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (fatal since 7d011af fixed the record counterexamples) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
@@ -150,6 +151,9 @@ Planting the sign check's premise as true instead makes the prover weaker (31 ->
 **2026-11-06, `%`** (a884adb, 79fbb0a). `gen_dec` also claims literal remainders (negatives too) equal to the floor
 remainder or to the truncating one. Teeth: a truncating `%` in the prover (planted) gives 600 contradictions in 2 of
 100; a truncating `rt::rem` is a sensitivity plant, seen through tests/probes/remainder.k.
+
+**2026-11-06, S19 lifting through `if`s** (1e9f158; `--lifts`). Teeth: the branches swapped in the lift (infer.rs,
+not committed) give 691 contradictions in 25 of 100. Clean: 47 proven, 53 refuted.
 
 **2026-11-06, short-circuit guards** (9e0c650). `gen_list` also emits `and`/`or` guards in the right and the wrong
 order around an `at`. Teeth: an `or` guarded by its left side instead of its negation (prove.rs, not committed) gives

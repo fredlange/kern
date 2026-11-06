@@ -56,7 +56,7 @@ fn an_injected_prover_fault_is_found() {
         .args(["--loops", "0", "--handlers", "20", "--runs", "60", "--no-mutants", "--jobs", "2", "--fault", "b"])
         // the generators added since (each defaults to 100+) stay off here: this test is about fault (b) only
         .args(["--sums", "0", "--variants", "0", "--texts", "0", "--nests", "0", "--matches", "0", "--ticks", "0"])
-        .args(["--frames", "0", "--ckeys", "0", "--recs", "0", "--lits", "0", "--rets", "0", "--accts", "0", "--lists", "0", "--decs", "0", "--lemmas", "0"])
+        .args(["--frames", "0", "--ckeys", "0", "--recs", "0", "--lits", "0", "--rets", "0", "--accts", "0", "--lists", "0", "--decs", "0", "--lemmas", "0", "--lifts", "0"])
         .arg("--save")
         .arg(&out)
         .output()
@@ -448,4 +448,16 @@ fn a_small_sum_lemma_fuzz_run_is_clean() {
     assert_eq!(s["lemma_well_formed"], "40/40");
     assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
     assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+}
+
+#[test]
+fn a_small_lifting_fuzz_run_is_clean() {
+    // gen_lift (S19, 1e9f158: a need after an if whose branches wrote is lifted, split on the guard). Teeth
+    // (2026-11-06): the branches swapped in the lift (planted in infer.rs) -> 691 contradictions in 25 of 100.
+    let results: Vec<_> = kern_validation::fuzz::lift_jobs(5, 40, 60).iter().map(check_program).collect();
+    let s = summarise(&results);
+    assert_eq!(s["lift_well_formed"], "40/40");
+    assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
+    let e = &s["tiers"]["ensure"];
+    assert!(e["proven"].as_u64().unwrap_or(0) > 5 && e["refuted"].as_u64().unwrap_or(0) > 5, "{e}");
 }
