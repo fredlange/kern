@@ -273,9 +273,9 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   `a_guarantee_that_rests_on_an_unproven_call_site_condition_is_conditional` pass as ordinary tests (82 passed at
   `64c39c0`). Tester: unguarded `none` use shows `!` (relies on the call-site condition); gen_acct on by default;
   seeds 1–3 0 contradictions; difftest 0 divergences; digests unchanged. GUIDE: "A collection of accounts".
-- **What remains:** "count = 0 means no element matches" isn't provable yet, so payroll's `ok otherwise` is `?`
-  and a raffle's "winner is an account" is `◐` (task FPCP2UCC36, prover; not on the party's board). No Account
-  fields in stored records.
+- **What remains:** ~~"count = 0 means no element matches" wasn't provable~~ fixed in `df05911` (#VELBJ6SSUP,
+  sum lemmas): the raffle's "winner is an account" and payroll's pay_all are ✔ (a prefix-sum part stays `?`).
+  No Account fields in stored records.
 
 ### S5, records, second cut (one row of S5)
 - **Kind:** code gap. **Closed** 2026-11-06 in `00fedb4` (nested records, equality), `6506a42` (records as state
