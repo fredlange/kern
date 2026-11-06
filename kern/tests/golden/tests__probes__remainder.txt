@@ -1,0 +1,158 @@
+$ kern check tests/probes/remainder.k   (exit 1)
+rem [3615a7f7]  All guarantees proven
+  ✔ ensure result >= 0 and result < 7
+  ✔ ensure a = a / 7 * 7 + result
+  examples 2/2   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 2/2 (prover 2, random tests 2); examples 2/2; together 2/2
+
+rem_bad [8794951f]  Broken guarantees
+  ✗ ensure result <= 0 when a < 0
+      counterexample: eg  | rem_bad -6 -> ok | 
+  examples 0/0   random tests 500/500 reached success, 3 violations
+
+trunc_claim [7aec50c6]  Broken guarantees
+  ✗ ensure result = 0 - 1
+      counterexample: eg  now:8 | trunc_claim -> ok | 
+  examples 0/0   random tests 500/500 reached success, 3 violations
+
+slot [f02cfa7f]  All guarantees proven
+  ✔ ok otherwise
+  ✔ ensure out.get' (r * 7 + d) = 22
+  writes out.*   (no guarantee about the new value of out.*)
+  examples 0/0   random tests 99/500 reached success, 0 violations
+  spec strength: guarantees 7/7 (prover 7, random tests 7); examples 0/7; together 7/7
+  spec refusals: 0/1 changes caught (examples 0, guarantees 0)
+      unpinned: need d >= 0 and d < 7 else Bad (dropped)
+
+dsum [fca072c5]  All guarantees proven
+  ✔ ensure result = price.get k + price.get (k + 1)
+  examples 0/0   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 0/0 (prover 0, random tests 0); examples 0/0; together 0/0
+
+dint [8a479ec0]  All guarantees proven
+  ✔ ensure result = n
+  examples 1/1   random tests 500/500 reached success, 0 violations
+  spec strength: guarantees 0/0 (prover 0, random tests 0); examples 0/0; together 0/0
+
+
+$ kern view tests/probes/remainder.k rem --as iface   (exit 0)
+rem a:Int -> Int
+  uses 
+
+$ kern view tests/probes/remainder.k rem --as spec   (exit 0)
+rem a:Int -> Int
+  uses 
+  ensure result >= 0 and result < 7
+  ensure a = (a / 7) * 7 + result
+  proof ok
+
+$ kern view tests/probes/remainder.k rem --as editor   (exit 0)
+rem a:Int -> Int
+  uses 
+  const days 7
+  ensure result >= 0 and result < 7
+  ensure a = (a / 7) * 7 + result
+  eg | rem -1 -> ok 6
+  eg | rem 15 -> ok 1
+body
+  result = a % days
+
+$ kern view tests/probes/remainder.k rem_bad --as iface   (exit 0)
+rem_bad a:Int -> Int
+  uses 
+
+$ kern view tests/probes/remainder.k rem_bad --as spec   (exit 0)
+rem_bad a:Int -> Int
+  uses 
+  ensure result <= 0 when a < 0
+  proof 1 open
+
+$ kern view tests/probes/remainder.k rem_bad --as editor   (exit 0)
+rem_bad a:Int -> Int
+  uses 
+  ensure result <= 0 when a < 0
+body
+  result = a % 7
+
+$ kern view tests/probes/remainder.k trunc_claim --as iface   (exit 0)
+trunc_claim -> Int
+  uses 
+
+$ kern view tests/probes/remainder.k trunc_claim --as spec   (exit 0)
+trunc_claim -> Int
+  uses 
+  ensure result = 0 - 1
+  proof 1 open
+
+$ kern view tests/probes/remainder.k trunc_claim --as editor   (exit 0)
+trunc_claim -> Int
+  uses 
+  ensure result = 0 - 1
+body
+  result = (0 - 8) % 7
+
+$ kern view tests/probes/remainder.k slot --as iface   (exit 0)
+slot r:Int d:Int
+  uses out.write
+  writes out.*
+  fails Bad
+
+$ kern view tests/probes/remainder.k slot --as spec   (exit 0)
+slot r:Int d:Int
+  uses out.write
+  writes out.*
+  fails Bad
+  const days 7
+  const slots 22
+  need d >= 0 and d < days else Bad
+  ok otherwise
+  ensure out.get' (r * days + d) = slots
+  proof ok
+
+$ kern view tests/probes/remainder.k slot --as editor   (exit 0)
+slot r:Int d:Int
+  uses out.write
+  writes out.*
+  fails Bad
+  const days 7
+  const slots 22
+  need d >= 0 and d < days else Bad
+  ok otherwise
+  ensure out.get' (r * days + d) = slots
+body
+  out.set (r * days + d) slots
+
+$ kern view tests/probes/remainder.k dsum --as iface   (exit 0)
+dsum k:Int -> Decimal
+  uses price.read
+
+$ kern view tests/probes/remainder.k dsum --as spec   (exit 0)
+dsum k:Int -> Decimal
+  uses price.read
+  ensure result = price.get k + price.get (k + 1)
+  proof ok
+
+$ kern view tests/probes/remainder.k dsum --as editor   (exit 0)
+dsum k:Int -> Decimal
+  uses price.read
+  ensure result = price.get k + price.get (k + 1)
+body
+  result = sum j from k to (k + 2) of price.get j
+
+$ kern view tests/probes/remainder.k dint --as iface   (exit 0)
+dint n:Int -> Decimal
+  uses 
+
+$ kern view tests/probes/remainder.k dint --as spec   (exit 0)
+dint n:Int -> Decimal
+  uses 
+  ensure result = n
+  proof ok
+
+$ kern view tests/probes/remainder.k dint --as editor   (exit 0)
+dint n:Int -> Decimal
+  uses 
+  ensure result = n
+  eg | dint 3 -> ok 3.0
+body
+  result = n
