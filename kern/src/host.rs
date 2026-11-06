@@ -102,6 +102,24 @@ pub fn value_json(v: &Value) -> J {
     }
 }
 
+/// Every key a whole world holds, by key type: accounts, and the keys of its Int, Text, Account-valued and List
+/// states. (run.rs's broken_invariants with no keys looks at Int maps only, so a Text or List entry would go
+/// unchecked at genesis and in the startup audit.)
+fn every_key(w: &World, defs: &Module) -> IndexMap<String, indexmap::IndexSet<Key>> {
+    let mut keys: IndexMap<String, indexmap::IndexSet<Key>> = IndexMap::new();
+    keys.insert("Account".into(), w.bal.keys().map(|a| Key::Str(a.clone())).collect());
+    keys.insert("Int".into(), Default::default());
+    let all = w.maps.iter().map(|(x, m)| (x, m.keys().cloned().collect::<Vec<_>>()))
+        .chain(w.texts.iter().map(|(x, m)| (x, m.keys().cloned().collect())))
+        .chain(w.lists.iter().map(|(x, m)| (x, m.keys().cloned().collect())));
+    for (x, ks) in all {
+        if let Some(t) = defs.states.get(x) {
+            keys.entry(t.clone()).or_default().extend(ks);
+        }
+    }
+    keys
+}
+
 fn key_value(k: &Key) -> J {
     match k {
         Key::Int(n) => json!(*n as i64),
@@ -786,7 +804,8 @@ impl<'m> Host<'m> {
         // the induction also has to start right: a database from elsewhere is audited in full before serving
         if h.has_genesis().map_err(|e| ConfigError(e.to_string()))? {
             let mut w = h.load().map_err(|e| ConfigError(e.to_string()))?;
-            let broken = Interp::new(defs).broken_invariants(&mut w, None).map_err(|e| ConfigError(e.to_string()))?;
+            let keys = every_key(&w, defs);
+            let broken = Interp::new(defs).broken_invariants(&mut w, Some(&keys)).map_err(|e| ConfigError(e.to_string()))?;
             if let Some((text, key)) = broken.first() {
                 return Err(ConfigError(format!(
                     "startup audit: invariant {} is broken at {}; not serving",
@@ -850,7 +869,8 @@ impl<'m> Host<'m> {
                 }
             }
         }
-        let broken = Interp::new(self.defs).broken_invariants(&mut w, None).map_err(|e| e.to_string())?;
+        let keys = every_key(&w, self.defs);
+        let broken = Interp::new(self.defs).broken_invariants(&mut w, Some(&keys)).map_err(|e| e.to_string())?;
         if let Some((text, key)) = broken.first() {
             return Err(format!("genesis world breaks invariant {} at {}", text, key.str()));
         }
@@ -1140,7 +1160,15 @@ impl<'m> Host<'m> {
                 let broken = if skip {
                     vec![]
                 } else {
-                    let keys = world.written_keys(&defs.states);
+                    let mut keys = world.written_keys(&defs.states);
+                    // run.rs's written_keys has no lists; the host knows each list entry before the call, so the
+                    // entries that changed are the list keys this call wrote
+                    for (x, m) in &world.lists {
+                        let Some(t) = defs.states.get(x) else { continue };
+                        let old = lists_before.get(x);
+                        let changed = m.iter().filter(|(k, xs)| old.and_then(|o| o.get(*k)).map_or(!xs.is_empty(), |o| o != *xs));
+                        keys.entry(t.clone()).or_default().extend(changed.map(|(k, _)| k.clone()));
+                    }
                     interp
                         .broken_invariants(&mut world, Some(&keys))
                         .map_err(|e| HostError::Fault("KernError".into(), e.to_string()))?
@@ -2862,6 +2890,30 @@ body
         assert!(h.replay().unwrap().is_empty(), "{:?}", h.replay());
         h.db.execute("update listcell set value='[7]' where key='4'", []).unwrap();
         assert!(h.replay().unwrap().iter().any(|m| m.contains("list state differs")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_invariant_over_a_list_state_is_checked_after_a_call_at_genesis_and_at_startup() {
+        let src = "state cart Int -> List\n\ninvariant k:Int length (cart.get k) < 3\n\nadd k:Int v:Int\nbody\n  \
+                   cart.set k (append (cart.get k) v)\n";
+        let defs = crate::syntax::parse_module(src, true).unwrap();
+        crate::wf::check_module(&defs).unwrap();
+        let dir = std::env::temp_dir().join(format!("kern-listinv-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("t.db").to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&db);
+        let open = || Host::new(&defs, IndexMap::new(), Options { db: db.clone(), sinks: Some(vec![]), gate: false, ..Default::default() });
+        let mut h = open().unwrap();
+        assert!(h.init("cart.4:[1 2 3]").unwrap_err().contains("breaks invariant"));
+        h.init("cart.4:[1]").unwrap();
+        assert_eq!(h.call("add", &[Value::Int(4), Value::Int(2)]).unwrap()["status"], "ok");
+        let r = h.call("add", &[Value::Int(4), Value::Int(3)]).unwrap();
+        assert_eq!((&r["status"], &r["fault"]), (&json!("error"), &json!("module")), "{r:?}");
+        assert_eq!(state_json(&h.load().unwrap(), &defs)["state"]["cart"], json!({"4": [1, 2]}));
+        h.db.execute("update listcell set value='[1,2,3]' where key='4'", []).unwrap();
+        drop(h);
+        assert!(open().err().unwrap().0.contains("startup audit"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

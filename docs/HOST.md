@@ -61,7 +61,10 @@ kern host replay   examples/escrow/escrow_s2.k --db e.db
   call's world before it runs and writes back the entries that changed: a module's list states cost their whole
   size per call (fine for carts and logs; a large one wants a different store). `at` outside the list is an error,
   undone. `kern build`: a list is a `Vec<i64>`, a List state an `Int`/`Account`-keyed map of them with rollback,
-  `at` is `rt::at` (the same error); the binary's script protocol writes lists `[1 2]`.
+  `at` is `rt::at` (the same error); the binary's script protocol writes lists `[1 2]`. A module invariant over a
+  list state is checked at the list entries a call changed (run.rs's written keys have no lists; the host compares
+  the entries it loaded), and the genesis world and the startup audit check every key the world holds, Text and List
+  entries included (run.rs's whole-world check looks at Int-map keys only).
 - **Accounts in state (2026-11-06).** `state member Int -> Account` is kept as the interpreter's world keeps it:
   account names in table `textcell`, a cleared entry as `none` (an entry nobody set has no row and reads `none`).
   `GET /state` shows the names, `"member": {"4": "M", "5": "none"}`; replay compares them. A genesis world may store
