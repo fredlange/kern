@@ -976,7 +976,11 @@ impl<'m, 'p> Interp<'m, 'p> {
             }
         }
         self.block(&d.body, &mut env, world)?;
-        Ok(env.get("result").cloned())
+        // `result = 3` in a `-> Decimal` is 3.0
+        Ok(env.get("result").cloned().map(|r| match (&r, d.ret.as_deref()) {
+            (Value::Int(n), Some("Decimal")) => n.checked_mul(crate::syntax::UNIT).map(decimal).unwrap_or(r),
+            _ => r,
+        }))
     }
 
     fn need(&mut self, c: &Expr, ctor: &str, args: &[Expr], env: &Env, world: &mut World) -> SResult<()> {

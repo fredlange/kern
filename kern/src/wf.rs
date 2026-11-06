@@ -192,13 +192,16 @@ impl<'a> Checker<'a> {
                 }
                 let mut scope = scope.clone();
                 scope.insert(j.clone(), "Int".into());
+                // a sum of Decimals is a Decimal
                 let t = self.ty(body, &scope, place, spec, primed_ok, false);
-                self.expect(place, &t, "Int");
-                if let Some(c) = cond {
-                    let t = self.ty(c, &scope, place, spec, primed_ok, false);
-                    self.expect(place, &t, "Bool");
+                if t != "Decimal" {
+                    self.expect(place, &t, "Int");
                 }
-                "Int".into()
+                if let Some(c) = cond {
+                    let ct = self.ty(c, &scope, place, spec, primed_ok, false);
+                    self.expect(place, &ct, "Bool");
+                }
+                if t == "Decimal" { "Decimal".into() } else { "Int".into() }
             }
         }
     }

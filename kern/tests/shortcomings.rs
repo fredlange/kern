@@ -650,6 +650,26 @@ fn a_sum_knows_its_terms_from_invariants_and_a_zero_count_means_no_match() {
     assert!(reports(&parse(neg))["low"].clean);
 }
 
+#[test]
+fn decimal_sums_results_and_kern_run_arguments() {
+    // runtime on #HX4U2ZT3EK (#X3SDEXEV24): a sum of Decimal terms was typed Int (`-> Decimal` rejected it),
+    // `result = 3` in a `-> Decimal` stayed an Int (printed 3, not 3.0), and `kern run` refused `vat 2.5`
+    let src = "state price Int -> Decimal\n\nthree -> Decimal\n  ensure result = 3\n  eg | three -> ok 3.0\nbody\n  result = 3\n\ntotal n:Int -> Decimal\n  ensure result = sum k from 0 to n of price.get k\n  eg price.0:1.5 price.2:2 | total 3 -> ok 3.5\nbody\n  result = sum k from 0 to n of price.get k\n";
+    let reps = reports(&parse(src));
+    for n in ["three", "total"] {
+        assert!(reps[n].clean, "{n}: {:?} {:?}", reps[n].guarantees, reps[n].examples);
+    }
+    let dir = tmp("dec-run");
+    let f = dir.join("vat.k");
+    std::fs::write(&f, "vat a:Decimal -> Decimal\n  ensure result = a * 1.25\nbody\n  result = a * 1.25\n").unwrap();
+    let (mut out, mut err) = (vec![], vec![]);
+    let argv: Vec<String> = ["run", f.to_str().unwrap(), "vat 2.5", "--world", ""].iter().map(|s| s.to_string()).collect();
+    let code = kern::cli::main_with(&argv, &mut out, &mut err);
+    let out = String::from_utf8(out).unwrap();
+    assert_eq!(code, 0, "{}", String::from_utf8(err).unwrap());
+    assert!(out.starts_with("('ok', 3.125)"), "{out}");
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int

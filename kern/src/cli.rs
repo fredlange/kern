@@ -303,7 +303,7 @@ pub fn main_with(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
                         let digits = x.trim_start_matches('-');
                         match x.parse::<crate::Int>() {
                             Ok(n) if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) => Value::Int(n),
-                            _ => Value::Str(x.to_string()),
+                            _ => crate::syntax::decimal_value(x).map(crate::run::decimal).unwrap_or_else(|_| Value::Str(x.to_string())),
                         }
                     })
                     .collect();
