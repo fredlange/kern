@@ -1176,6 +1176,61 @@ pub fn acct_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         .collect()
 }
 
+// ---------------------------------------------------------------- lists (792389e)
+
+/// A list program: append to a list state (claims on the new length and last element), read near the ends (index
+/// 0, length - 1, length, -1; guarded or not), a total by `sum`, equality after appends. Claims right or off by one.
+/// Own stream (`list_jobs`).
+pub fn gen_list(rnd: &mut Random) -> String {
+    let wrong = rnd.random() < 0.4;
+    let mut lines: Vec<String> = vec!["state cart Int -> List".into(), "state out Int".into(), String::new()];
+    match choice_str(rnd, &["push", "read", "total", "eq"]) {
+        "push" => {
+            lines.extend(["f k:Int v:Int".to_string(), "  ok otherwise".into()]);
+            lines.push(format!("  ensure length (cart.get' k) = length (cart.get k) + {}", if wrong && rnd.random() < 0.5 { 2 } else { 1 }));
+            lines.push(format!("  ensure at (cart.get' k) (length (cart.get k){}) = v", if wrong { " - 1" } else { "" }));
+            lines.extend(["body".to_string(), "  cart.set k (append (cart.get k) v)".into()]);
+        }
+        "read" => {
+            let idx = choice_str(rnd, &["0", "(length xs - 1)", "(length xs)", "(0 - 1)", "(length xs - 1)"]);
+            let guard = rnd.random() < 0.6;
+            lines.push("f xs:List".into());
+            if guard {
+                lines.push("  need length xs > 0 else Empty".into());
+            }
+            lines.push("  ok otherwise".into());
+            lines.push(format!("  ensure out.get' 0 = at xs {idx}"));
+            lines.push("body".into());
+            if guard {
+                lines.push("  need length xs > 0 else Empty".into());
+            }
+            lines.push(format!("  out.set 0 (at xs {idx})"));
+        }
+        "total" => {
+            let hi = if wrong { "(length xs + 1)" } else { "(length xs)" };
+            lines.extend(["total xs:List -> Int".to_string(), format!("  ensure result = sum i from 0 to {hi} of at xs i"),
+                          "body".into(), "  result = sum i from 0 to (length xs) of at xs i".into()]);
+        }
+        _ => {
+            lines.extend(["f xs:List ys:List v:Int".to_string(), "  ok otherwise".into()]);
+            lines.push(if wrong { "  ensure out.get' 0 = 1".into() } else { "  ensure out.get' 0 = 1 when xs = ys".into() });
+            lines.extend(["body".to_string(), "  if append xs v = append ys v".into(), "    out.set 0 1".into(), "  else".into(), "    out.set 0 0".into()]);
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `n` list programs from their own stream, labelled `list#i`.
+pub fn list_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 79);
+    (0..n)
+        .map(|i| {
+            let src = gen_list(&mut rnd);
+            Job { label: format!("list#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -1357,6 +1412,14 @@ fn world(defs: &Module, d: &kern::syntax::Def, rnd: &mut Random) -> (World, Vec<
     let mut w = World::new(bal, own, rnd.randint(0, 20) as kern::Int);
     let neg = defs.invariants.is_empty() && rnd.random() < 0.3;
     for (x, key_type) in relevant_states(defs, d) {
+        if defs.list_states.contains(&x) {
+            // List states (792389e): 0 to 3 small Ints per key, only in modules that have them
+            let keys: Vec<Key> = if key_type == "Account" { accts.iter().map(|a| Key::Str(a.to_string())).collect() } else { (-3..11).map(Key::Int).collect() };
+            let m: IndexMap<Key, Vec<kern::Int>> =
+                keys.into_iter().map(|k| (k, (0..rnd.randint(0, 3)).map(|_| rnd.randint(-3, 9) as kern::Int).collect())).collect();
+            w.lists.insert(x, m);
+            continue;
+        }
         if defs.account_states.contains(&x) {
             // Account-valued states (4a9d41d): an account of the world or none, drawn only for modules that have them
             let keys: Vec<Key> = if key_type == "Account" { accts.iter().map(|a| Key::Str(a.to_string())).collect() } else { (-3..11).map(Key::Int).collect() };
@@ -1396,6 +1459,9 @@ fn world(defs: &Module, d: &kern::syntax::Def, rnd: &mut Random) -> (World, Vec<
                 Value::Str(rnd.choice(&accts).to_string())
             } else if t == "Text" {
                 Value::Str(rnd.choice(&TEXTS).to_string())
+            } else if t == "List" {
+                let n = rnd.randint(0, 4);
+                Value::Ctor(kern::run::LIST.into(), (0..n).map(|_| Value::Int(rnd.randint(-3, 9) as kern::Int)).collect())
             } else {
                 let big = rnd.randint(-3, 12) as kern::Int;
                 let mut opts: Vec<kern::Int> = (-2..9).collect();
@@ -1489,6 +1555,23 @@ pub fn oracle(defs: &Module, reports: &IndexMap<String, Report>, rnd: Rnd, runs:
                 Err(RunError::Kern(msg)) => {
                     if msg.contains(" gave no value for ") {
                         stats.skipped += 1;
+                        continue;
+                    }
+                    if msg.starts_with(kern::run::AT_OUTSIDE) {
+                        // an `at` outside the list (792389e): contradicts the page only if every "is inside the list"
+                        // goal of this definition is claimed
+                        let pres: Vec<&kern::report::Guarantee> =
+                            r.guarantees.iter().filter(|g| g.kind == "pre" && g.clause.contains("is inside the list")).collect();
+                        if !pres.is_empty() && pres.iter().all(|g| claimed(g.status)) {
+                            let mut e = ev.clone();
+                            e["def"] = json!(name);
+                            e["kind"] = json!("pre");
+                            e["clause"] = json!(msg);
+                            e["status"] = json!("proven");
+                            found.push(e);
+                        } else {
+                            stats.skipped += 1;
+                        }
                         continue;
                     }
                     if msg.starts_with(kern::run::NONE_USED) {
@@ -1761,7 +1844,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
         "nested_record_variant_well_formed": fam("sumn#"), "state_record_variant_well_formed": fam("sums#"),
         "frame_record_well_formed": fam("framer#"), "ret_record_well_formed": fam("retr#"),
-        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"), "acct_well_formed": fam("acct#"),
+        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"), "acct_well_formed": fam("acct#"), "list_well_formed": fam("list#"),
         "variant_mismatches": variant_mismatches(results),
     })
 }
@@ -1774,12 +1857,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--rets" | "--accts" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--rets" | "--accts" | "--lists" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--rets N] [--accts N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--rets N] [--accts N] [--lists N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -1818,6 +1901,9 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(lit_jobs(num("seed", 1) as i128, num("lits", 100) as usize, num("runs", 300)));
     js.extend(ret_jobs(num("seed", 1) as i128, num("rets", 100) as usize, num("runs", 300)));
     js.extend(acct_jobs(num("seed", 1) as i128, num("accts", 100) as usize, num("runs", 300)));
+    // default 0 until #Y4TVGF6C7A's 'Never succeeds' label is fixed: a spec-only out-of-range `at` (the total
+    // shape) shows ∅ while every run succeeds, 3,300 contradictions in 11 of 100 (2026-11-06). Run with --lists 100.
+    js.extend(list_jobs(num("seed", 1) as i128, num("lists", 0) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));

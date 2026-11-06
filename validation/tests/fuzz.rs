@@ -403,3 +403,23 @@ fn a_small_account_state_fuzz_run_is_clean() {
     let p = &s["tiers"]["pre"];
     assert!(p["proven"].as_u64().unwrap_or(0) > 3 && p["refuted"].as_u64().unwrap_or(0) > 0, "{p}");
 }
+
+#[test]
+fn a_small_list_fuzz_run_has_only_the_known_never_succeeds_contradiction() {
+    // gen_list (792389e): appends to a list state, reads near both ends (guarded or not), totals, equality. An `at`
+    // outside the list counts against the page only if every "is inside the list" goal is proven. Teeth (2026-11-06):
+    // the goal's `index < length` planted as `<=` -> 1,972 contradictions in 9 of 100, all on that goal.
+    // Known, sent to lang (#Y4TVGF6C7A): a spec-only out-of-range `at` makes the page say "Never succeeds" while runs
+    // succeed (kind `vacuous`); only that kind is tolerated here, and only until it is fixed.
+    let results: Vec<_> = kern_validation::fuzz::list_jobs(5, 30, 60).iter().map(check_program).collect();
+    let s = summarise(&results);
+    assert_eq!(s["list_well_formed"], "30/30");
+    assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
+    for r in &results {
+        for f in &r.found {
+            assert_eq!(f["kind"], "vacuous", "{}: {f}", r.label);
+        }
+    }
+    let p = &s["tiers"]["pre"];
+    assert!(p["proven"].as_u64().unwrap_or(0) > 3 && p["refuted"].as_u64().unwrap_or(0) > 3, "{p}");
+}

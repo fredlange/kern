@@ -54,6 +54,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 | `--lits N` | literal-range claims (`gen_lit`, default 100, own stream): `for j from A to A + W`, W 1..17, sometimes `when`, over a body writing every key, all but the first or last, or one more |
 | `--rets N` | returning procedures (`gen_ret`, default 100, own stream): an allocator `alloc -> Int` (spec exact or loose), its id used as a key, two calls chained, calls in a loop, a returning procedure that refuses; claims right, off by one, or true only if the value were 0 |
 | `--accts N` | Accounts as state values (`gen_acct`, default 100, own stream): join, pay through a stored member with the `!= none` guard sometimes dropped, move, leave, a boss chain. The oracle draws Account-valued entries from the world's accounts and `none`; a 'none is not an account' run contradicts the page only if every "is an account, not none" goal of the definition is proven |
+| `--lists N` | lists (`gen_list`, **default 0** until #Y4TVGF6C7A's "Never succeeds" label is fixed; run with `--lists 100`): appends to a list state, reads near both ends guarded or not, totals by `sum`, equality. An `at` outside the list contradicts the page only if every "is inside the list" goal is proven |
 | `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`), a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`) a package variant (`agg` in a package `lib` the program's package `use`s), a nested-record variant (`Span` inside `record Wrap s:Span tag:Int`, `w.s` passed whole) and a record-state variant (`hold`/`flag` as the fields of `state cell Int -> Cell`). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (fatal since 7d011af fixed the record counterexamples) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
@@ -129,4 +130,9 @@ mismatches. Writing it found a type hole (an Int assigned to a `-> Point` result
 **2026-11-06, Accounts as state values** (4a9d41d; `--accts`). Teeth: the "is an account, not none" goal planted as
 always true (prove.rs, not committed) gives 1,622 contradictions in 20 of 100. Clean: 0. Open (sent to lang): a
 definition whose none goal is refuted still shows `✔ ok otherwise`; the oracle doesn't count it until that is settled.
+
+**2026-11-06, lists** (792389e; `--lists`, default 0 for now). Teeth: the "is inside the list" goal planted as
+`index <= length` (prove.rs, not committed) gives 1,972 contradictions in 9 of 100. Clean run: 3,300 contradictions
+in 11 of 100, every one a "Never succeeds" (∅) on a definition whose only bad `at` is in its spec while every run
+succeeds: the label bug sent to lang, which is why the default is 0.
 
