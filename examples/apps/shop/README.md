@@ -7,6 +7,7 @@ Stock and prices live in their own package, `../catalog` (`kern.pkg` says `use .
 shop/
 ├── kern.pkg             `use ../catalog`
 ├── orders.k             place, advance (match on the phase), cancel (restocks), quote (price * qty + shipping)
+├── cart.k               order lines as a list: add_line, empty_cart, lines, line_item, cart_value (`state cart Int -> List`)
 ├── shipping.k           parcels (recursive, `decreases weight`) and shipping
 └── proof-pages/shop.html
 ```
@@ -18,7 +19,7 @@ cargo run --release -p kern -- check examples/apps/shop
 cargo run --release -p kern -- build examples/apps/shop
 ```
 
-## What `check` says (HEAD at recording: 4b44b2f (clean tree), `--cache ''`)
+## What `check` says (recorded at 64c39c0, built from a clean checkout of that commit, `--cache ''`)
 
 | definition | status | spec strength |
 |---|---|---|
@@ -29,8 +30,16 @@ cargo run --release -p kern -- build examples/apps/shop
 | `quote` | All guarantees proven | 3/3 |
 | `parcels` (recursive) | All guarantees proven, incl. `measure decreases weight` and the closed form `(weight + 4) / 5` | 11/12; the survivor `<=` → `<` is equivalent (weight 5 gives 1 either way) |
 | `shipping` | All guarantees proven | 2/2 |
+| `add_line` (`cart.get' c = append (cart.get c) item`, length +1, last element), `empty_cart` | All guarantees proven | 4/4, 1/1; spec refusals 8/8, 2/2 |
+| `lines`, `cart_value` (`sum i … of price.get (at (cart.get c) i)`) | All guarantees proven | 0/0 |
+| `line_item` (guarded `at`) | All guarantees proven | 8/10 |
 
 `kern build` compiles the package. What the app found:
+- Lists (792389e) fit order lines: `invariant c:Int length (cart.get c) <= max_lines` is proven for `add_line`, which
+  appends and refuses a full cart; sums over `at xs i` work. Two gaps: `cart_value` cannot prove `result >= 0` although
+  `price.get k >= 0` is an invariant (counterexample has price -1: the invariant isn't assumed at the computed key
+  `at xs i` inside a sum), and `ensure result = at xs i when i >= 0 and i < length xs` reads `? pre at … is inside the list`
+  (the `when` doesn't guard the `at` in the same line), so `line_item` states the out-of-range case only.
 - `cancel`'s spec first omitted that it calls `restock`, so its `emit` was wrong (✗, replayed): the exact event
   sequence is `Restocked …, Cancelled …`.
 - `place` accepted item 0 until a cross-map invariant made the prover refute it.

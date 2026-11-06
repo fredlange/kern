@@ -16,7 +16,89 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 .ic{font-weight:700;width:16px;flex:none}li.proven .ic{color:var(--ok)}li.refuted .ic{color:var(--fail)}li.conditional .ic,li.unknown .ic{color:var(--warn)}
 .how{color:var(--muted);font-size:14px}.src{margin-top:2px;font-size:12px}ul.ex{margin:4px 0;padding-left:18px}
 .okc{color:var(--ok)}.failc{color:var(--fail)}.warnc{color:var(--warn)}details{margin-top:16px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;font-weight:600}
-</style></head><body><main><h1>Proof page · shop</h1><p class='sub'>Generated from verifier results by fixed templates — no text here was written by a model.</p><section class="card"><header><h2><code>restock</code><span class="muted"> in catalog.stock</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 7853290c</span></header>
+</style></head><body><main><h1>Proof page · shop</h1><p class='sub'>Generated from verifier results by fixed templates — no text here was written by a model.</p><section class="card"><header><h2><code>add_line</code><span class="muted"> in cart</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build ba2ce00c</span></header>
+<h3>Can touch</h3><p>state <code>cart</code> (read and write), state <code>price</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: cart.c. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<h3>Refuses when</h3><table><tr><td><code>c</code> ≤ 0</td><td class='fail-name'>→ <code>BadCart</code></td></tr><tr><td><code>item</code> ≤ 0</td><td class='fail-name'>→ <code>NoSuchItem</code></td></tr><tr><td>price of <code>item</code> ≤ 0</td><td class='fail-name'>→ <code>NotForSale</code></td></tr><tr><td><code>length cart of <code>c</code></code> ≥ 10</td><td class='fail-name'>→ <code>CartFull</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>cart of <code>c</code> <em>after</em> = <code>append cart of <code>c</code> <em>before</em> <code>item</code></code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure cart.get&#x27; c = append (cart.get c) item</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div><code>length cart of <code>c</code> <em>after</em></code> = <code>length cart of <code>c</code> <em>before</em></code> + 1</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure length (cart.get&#x27; c) = length (cart.get c) + 1</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div><code>at cart of <code>c</code> <em>after</em> <code>length cart of <code>c</code> <em>before</em></code></code> = <code>item</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure at (cart.get&#x27; c) (length (cart.get c)) = item</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>None</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>pre at (cart.get&#x27; c) (length (cart.get c)) is inside the list (0 &lt;= index &lt; length) (in the spec)</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>c</code> (Int): <code>length cart of <code>c</code></code> ≤ 10</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant c:Int length (cart.get c) &lt;= 10</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>7/7 pass, executed against build ba2ce00c</span></h3><ul class='ex'>
+<li><code>price.3:100 | add_line 1 3 -&gt; ok | cart.1:[3]</code> <span class='okc'>✔</span></li>
+<li><code>price.3:100 cart.1:[3] | add_line 1 3 -&gt; ok | cart.1:[3 3]</code> <span class='okc'>✔</span></li>
+<li><code>| add_line 1 3 -&gt; NotForSale</code> <span class='okc'>✔</span></li>
+<li><code>price.3:100 | add_line 0 3 -&gt; BadCart</code> <span class='okc'>✔</span></li>
+<li><code>price.0:100 | add_line 1 0 -&gt; NoSuchItem</code> <span class='okc'>✔</span></li>
+<li><code>price.3:100 cart.1:[1 1 1 1 1 1 1 1 1 1] | add_line 1 3 -&gt; CartFull</code> <span class='okc'>✔</span></li>
+<li><code>price.3:100 cart.1:[1 1 1 1 1 1 1 1 1] | add_line 1 3 -&gt; ok</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 26 succeeded and were checked against every guarantee; refused: NotForSale 304, BadCart 94, NoSuchItem 76.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 4/4 deliberate bugs (100%)</span></h3><p>Caught by the prover: 4; by random tests checking the guarantees: 4. The examples alone catch 4/4; everything together 4/4.</p>
+<p>Refusals in the spec: 8/8 changes caught, by examples 8, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section>
+<section class="card"><header><h2><code>empty_cart</code><span class="muted"> in cart</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build b215c024</span></header>
+<h3>Can touch</h3><p>state <code>cart</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<p>Changes: cart.c. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
+<h3>Refuses when</h3><table><tr><td><code>c</code> ≤ 0</td><td class='fail-name'>→ <code>BadCart</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div>succeeds whenever the needs above hold: it refuses for no other reason</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ok otherwise</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>cart of <code>c</code> <em>after</em> = <code>[]</code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure cart.get&#x27; c = []</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>keeps the module invariant for every <code>c</code> (Int): <code>length cart of <code>c</code></code> ≤ 10</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>invariant c:Int length (cart.get c) &lt;= 10</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>2/2 pass, executed against build b215c024</span></h3><ul class='ex'>
+<li><code>cart.1:[3 4] | empty_cart 1 -&gt; ok | cart.1:[]</code> <span class='okc'>✔</span></li>
+<li><code>| empty_cart 0 -&gt; BadCart</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 423 succeeded and were checked against every guarantee; refused: BadCart 77.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 1/1 deliberate bugs (100%)</span></h3><p>Caught by the prover: 1; by random tests checking the guarantees: 1. The examples alone catch 1/1; everything together 1/1.</p>
+<p>Refusals in the spec: 2/2 changes caught, by examples 2, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
+</section>
+<section class="card"><header><h2><code>lines</code><span class="muted"> in cart</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 52d3cfb1</span></header>
+<h3>Can touch</h3><p>state <code>cart</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div><code>result</code> = <code>length cart of <code>c</code></code></div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result = length (cart.get c)</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div><code>result</code> ≥ 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result &gt;= 0</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>1/1 pass, executed against build 52d3cfb1</span></h3><ul class='ex'>
+<li><code>cart.1:[3 4] | lines 1 -&gt; ok</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 0/0 deliberate bugs (100%)</span></h3><p>Caught by the prover: 0; by random tests checking the guarantees: 0. The examples alone catch 0/0; everything together 0/0.</p>
+</section>
+<section class="card"><header><h2><code>cart_value</code><span class="muted"> in cart</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build dd657b28</span></header>
+<h3>Can touch</h3><p>state <code>cart</code> (read only), state <code>price</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div><em>when</em> <code>length cart of <code>c</code> <em>before</em></code> = 0: <code>result</code> = 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result = 0 when length (cart.get c) = 0</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>None</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>pre at (cart.get c) i is inside the list (0 &lt;= index &lt; length)</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>2/2 pass, executed against build dd657b28</span></h3><ul class='ex'>
+<li><code>cart.2:[] | cart_value 2 -&gt; ok</code> <span class='okc'>✔</span></li>
+<li><code>price.3:100 price.4:50 cart.1:[3 4 3] | cart_value 1 -&gt; ok</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 0/0 deliberate bugs (100%)</span></h3><p>Caught by the prover: 0; by random tests checking the guarantees: 0. The examples alone catch 0/0; everything together 0/0.</p>
+</section>
+<section class="card"><header><h2><code>line_item</code><span class="muted"> in cart</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build b716b8b6</span></header>
+<h3>Can touch</h3><p>state <code>cart</code> (read only). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
+<h3>Guarantees</h3><ul class='g'>
+<li class='proven'><span class='ic'>✔</span><div><div><em>when</em> <code>i</code> &lt; 0 or <code>i</code> ≥ <code>length cart of <code>c</code> <em>before</em></code>: <code>result</code> = 0</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>ensure result = 0 when i &lt; 0 or i &gt;= length (cart.get c)</code></div></div></li>
+<li class='proven'><span class='ic'>✔</span><div><div>None</div><div class='how'>Proven for all inputs (Z3).</div><div class='src'><code>pre at (cart.get c) i is inside the list (0 &lt;= index &lt; length)</code></div></div></li>
+</ul>
+<h3>Examples <span class='muted'>3/3 pass, executed against build b716b8b6</span></h3><ul class='ex'>
+<li><code>cart.1:[7 8 9] | line_item 1 1 -&gt; ok</code> <span class='okc'>✔</span></li>
+<li><code>cart.1:[7 8 9] | line_item 1 3 -&gt; ok</code> <span class='okc'>✔</span></li>
+<li><code>cart.1:[7 8 9] | line_item 1 -1 -&gt; ok</code> <span class='okc'>✔</span></li>
+</ul>
+<h3>Random tests</h3><p>500 random worlds and inputs: 500 succeeded and were checked against every guarantee; refused: none.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 8/10 deliberate bugs (80%)</span></h3><p>Caught by the prover: 8; by random tests checking the guarantees: 6. The examples alone catch 4/10; everything together 8/10.</p>
+<p>No guarantee rules out these changes to the body. Either a guarantee is missing, or the code is unnecessary:</p><ul class='ex'><li>`&gt;=` → `&gt;` in `if i &gt;= 0 and i &lt; length (cart.get c)` <span class='failc'>(nothing catches it)</span></li><li>`0` → `1` in `if i &gt;= 0 and i &lt; length (cart.get c)` <span class='failc'>(nothing catches it)</span></li></ul>
+</section>
+<section class="card"><header><h2><code>restock</code><span class="muted"> in catalog.stock</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 7853290c</span></header>
 <h3>Can touch</h3><p>the audit log, state <code>stock</code> (read and write). <span class="muted">Inferred from the body; nothing else is reachable.</span></p>
 <p>Changes: stock.item. <span class='muted'>Inferred; every other balance and state entry is unchanged.</span></p>
 <h3>Refuses when</h3><table><tr><td><code>item</code> ≤ 0</td><td class='fail-name'>→ <code>NoSuchItem</code></td></tr><tr><td><code>qty</code> ≤ 0</td><td class='fail-name'>→ <code>BadQuantity</code></td></tr></table><p class='muted'>A refusal undoes everything the call did. It refuses for no other reason (see <code>ok otherwise</code> below).</p>
