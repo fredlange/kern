@@ -195,7 +195,20 @@ fn interp_call_plain(interp: &mut Interp, w: &mut World, defs: &Module, name: &s
         Ok(o) => o,
     };
     let mut line = match &outcome {
-        Outcome::Ok if d.ret.is_some() => format!("ok result={}", interp.last_result.as_ref().map(|v| v.str()).unwrap_or("None".into())),
+        // a record result as its leaves, as the binary prints it (`eg … -> ok 2 3`; Text quoted), runtime's 21e46f7
+        Outcome::Ok if d.ret.is_some() => format!("ok result={}", match interp.last_result.as_ref() {
+            Some(Value::Ctor(r, vs)) if defs.records.contains_key(r) => kern::syntax::record_leaves(&defs.records, r)
+                .iter()
+                .zip(vs)
+                .map(|((_, t), v)| match v {
+                    Value::Str(x) if t == "Text" => kern::syntax::quote(x),
+                    v => v.str(),
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+            Some(v) => v.str(),
+            None => "None".into(),
+        }),
         Outcome::Ok => "ok".into(),
         Outcome::Fail(c, a) => {
             let mut parts = vec!["refused".to_string(), c.clone()];
