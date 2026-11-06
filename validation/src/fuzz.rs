@@ -461,8 +461,8 @@ pub fn variant_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
 pub fn variant_mismatches(results: &[Outcome1]) -> Vec<String> {
     let base: BTreeMap<String, &Outcome1> = results
         .iter()
-        .filter(|r| r.label.starts_with("sum#") || r.label.starts_with("frame#"))
-        .map(|r| (r.label.replace("sum#", "s").replace("frame#", "f"), r))
+        .filter(|r| r.label.starts_with("sum#") || r.label.starts_with("frame#") || r.label.starts_with("ret#"))
+        .map(|r| (r.label.replace("sum#", "s").replace("frame#", "f").replace("ret#", "r"), r))
         .collect();
     results
         .iter()
@@ -470,7 +470,8 @@ pub fn variant_mismatches(results: &[Outcome1]) -> Vec<String> {
             let key = ["sumc#", "sumr#", "sump#", "sumn#", "sums#"]
                 .iter()
                 .find_map(|p| r.label.strip_prefix(p).map(|i| format!("s{i}")))
-                .or_else(|| r.label.strip_prefix("framer#").map(|i| format!("f{i}")))?;
+                .or_else(|| r.label.strip_prefix("framer#").map(|i| format!("f{i}")))
+                .or_else(|| r.label.strip_prefix("retr#").map(|i| format!("r{i}")))?;
             let b = base.get(&key)?;
             (b.wf != r.wf || b.tiers != r.tiers || b.found.len() != r.found.len()).then(|| r.label.clone())
         })
@@ -835,7 +836,7 @@ pub fn gen_frame(rnd: &mut Random) -> String {
     lines.join("\n") + "\n"
 }
 
-const FRAME_FIELD_VARIANTS: bool = false;
+const FRAME_FIELD_VARIANTS: bool = true; // field frames accepted since d3bc291
 
 /// `n` frame programs from their own stream, labelled `frame#i`, each followed (when FRAME_FIELD_VARIANTS) by its record-state variant
 /// (`hold`/`other` as fields of one stored record), labelled `framer#i`.
@@ -1054,15 +1055,54 @@ pub fn gen_ret(rnd: &mut Random) -> String {
     lines.join("\n") + "\n"
 }
 
-/// `n` returning-procedure programs from their own stream, labelled `ret#i`.
+/// The record-returning variant of a gen_ret program (1bb9cef, `-> Point`): `alloc` returns `record Slot id:Int
+/// tag:Int` (its spec on `result.id`), and every `X = alloc` binds the record and reads `.id`. Same verdicts expected.
+pub fn record_return_variant(src: &str) -> Option<String> {
+    if !src.contains("alloc -> Int") {
+        return None;
+    }
+    let mut out = String::new();
+    let mut in_alloc = false;
+    for line in src.lines() {
+        if line.starts_with("alloc -> Int") {
+            in_alloc = true;
+            out.push_str("alloc -> Slot\n");
+            continue;
+        }
+        if line.is_empty() {
+            in_alloc = false;
+        }
+        if in_alloc && line.starts_with("  ensure result ") {
+            out.push_str(&line.replacen("ensure result ", "ensure result.id ", 1));
+        } else if in_alloc && line == "  result = next.get 0" {
+            out.push_str("  result = Slot (next.get 0) 7");
+        } else if let Some((ind, var)) = line.split_once(" = alloc").and_then(|(l, r)| if r.is_empty() { Some(l) } else { None }).map(|l| {
+            let t = l.trim_start();
+            (&l[..l.len() - t.len()], t)
+        }) {
+            out.push_str(&format!("{ind}{var}_r = alloc\n{ind}{var} = {var}_r.id"));
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    Some(out.replacen("state next Int\n", "record Slot id:Int tag:Int\nstate next Int\n", 1))
+}
+
+/// `n` returning-procedure programs from their own stream, labelled `ret#i`, each followed by its record-returning
+/// variant `retr#i` (same seed).
 pub fn ret_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
     let mut rnd = Random::from_int(seed * 1_000_003 + 70);
-    (0..n)
-        .map(|i| {
-            let src = gen_ret(&mut rnd);
-            Job { label: format!("ret#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
-        })
-        .collect()
+    let mut out = vec![];
+    for i in 0..n {
+        let src = gen_ret(&mut rnd);
+        let job = Job { label: format!("ret#{i}"), src: Some(src.clone()), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs };
+        if let Some(v) = record_return_variant(&src) {
+            out.push(Job { label: format!("retr#{i}"), src: Some(v), ..job.clone() });
+        }
+        out.push(job);
+    }
+    out
 }
 
 // ---------------------------------------------------------------- random assumed-handler programs
@@ -1624,7 +1664,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"), "text_well_formed": fam("text#"), "nest_well_formed": fam("nest#"), "match_well_formed": fam("match#"),
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
         "nested_record_variant_well_formed": fam("sumn#"), "state_record_variant_well_formed": fam("sums#"),
-        "frame_record_well_formed": fam("framer#"),
+        "frame_record_well_formed": fam("framer#"), "ret_record_well_formed": fam("retr#"),
         "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"),
         "variant_mismatches": variant_mismatches(results),
     })

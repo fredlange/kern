@@ -121,5 +121,7 @@ verdict for verdict: 0 mismatches. A reversed leaf order for nested records (pla
 since fields are matched by name; it changes positional arguments, which `validation/tests/fuzz.rs`
 `a_nested_record_argument_is_positional_in_declaration_order` pins with an `eg` (the plant fails it). Record equality
 and whole-record sets are checked against their field expansions (same AST). Not yet: a record-state variant of the
-frame programs, since a frame on one field (`keep cell.hold except …`) isn't accepted (sent to lang).
+frame programs, since a frame on one field (`keep cell.hold except …`) isn't accepted (sent to lang). (Accepted since d3bc291: the frame programs' record-state variants run, 0 mismatches.)
+Returning procedures get a record-returning variant (`alloc -> Slot`, callers bind it and read `.id`, 1bb9cef): 0
+mismatches. Writing it found a type hole (an Int assigned to a `-> Point` result passes wf and panics the prover).
 

@@ -339,6 +339,9 @@ fn a_small_returning_procedure_fuzz_run_is_clean() {
     let results: Vec<_> = kern_validation::fuzz::ret_jobs(5, 30, 60).iter().map(check_program).collect();
     let s = summarise(&results);
     assert_eq!(s["ret_well_formed"], "30/30");
+    // each with its record-returning variant (alloc -> Slot, 1bb9cef): same verdicts
+    assert_eq!(s["ret_record_well_formed"], "30/30");
+    assert!(s["variant_mismatches"].as_array().unwrap().is_empty(), "{}", s["variant_mismatches"]);
     assert_eq!(s["contradictions"], 0, "{}", s["programs_with_contradictions"]);
     assert!(s["crashes"].as_array().unwrap().is_empty(), "{}", s["crashes"]);
     let e = &s["tiers"]["ensure"];
