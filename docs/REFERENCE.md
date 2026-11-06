@@ -66,7 +66,7 @@ body
 |---|---|
 | `state NAME Int` or `state NAME Account` | a map to Int (default 0): `NAME.get k` (specs may read it), `NAME.set k v` |
 | `state NAME Int -> Text` (or `Account -> Text`) | a map to Text (default `""`) |
-| `state NAME Int -> R` (R a record of Int and Text fields) | one map per field, `NAME.f`: `NAME.f.get k`, `NAME.f.set k v`. Whole: `NAME.get k` where an R goes (an argument, `=`), `NAME.set k r` (a statement), `keep NAME` |
+| `state NAME Int -> R` (R a record of Int and Text fields) | one map per field, `NAME.f`: `NAME.f.get k`, `NAME.f.set k v`. Whole: `NAME.get k` where an R goes (an argument, `=`), `NAME.set k r` (a statement), `keep NAME`; a record field likewise (`seg.b.get k`), and `keep NAME.f` frames one field |
 | `invariant x:Type COND` | COND holds for every key, before and after every call. It may read state only at `x` |
 | `record Name f:Type …` | a record type: Int, Account or Text fields. Views add its `record` line |
 | `const NAME N` | a named integer (N ≥ 0), usable wherever a literal is (`amount * rate` stays linear). Views add a `const NAME N` line |

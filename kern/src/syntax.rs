@@ -1119,7 +1119,7 @@ fn const_re() -> &'static Regex {
 /// `X` or `X except A to B` after `keep` (a bare name: whether it is a state is wf's question).
 fn frame_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    re(&R, &format!(r"^([a-z]\w*)(?: except {ATOM} to {ATOM})?$"))
+    re(&R, &format!(r"^([a-z]\w*(?:\.[a-z]\w*)*)(?: except {ATOM} to {ATOM})?$"))
 }
 fn record_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
@@ -1317,7 +1317,10 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
             d.decreases = Some(parse_expr(rest, no)?);
         } else if word == "keep" {
             // `keep X` / `keep X except A to B` over a state: a frame (a Bool claim, with the ensures)
-            if let Some(m) = frame_re().captures(rest.trim()) {
+            // a dotted name with no range (`keep ledger.total`, `keep order.qty`) stays a value; flatten_records makes
+            // a stored record's field state a frame
+            let m = frame_re().captures(rest.trim()).filter(|m| !m[1].contains('.') || m.get(2).is_some());
+            if let Some(m) = m {
                 let range = match (m.get(2), m.get(3)) {
                     (Some(a), Some(b)) => Some((Box::new(parse_expr(a.as_str(), no)?), Box::new(parse_expr(b.as_str(), no)?))),
                     _ => None,
@@ -1649,6 +1652,12 @@ impl Records<'_> {
             _ => None,
         }
     }
+        /// A stored record's field state, `order.qty` or `seg.b.x`.
+    fn field_state(&self, n: &str) -> bool {
+        self.stored.iter().any(|(x, r)| {
+            n.strip_prefix(x.as_str()).and_then(|f| f.strip_prefix('.')).is_some_and(|f| self.flat[r].iter().any(|(g, _)| g == f))
+        })
+    }
         /// `x.get` / `x.set` on a stored record x: x.
     fn stored_op<'b>(&self, h: &'b str, op: &str) -> Option<&'b str> {
         h.strip_suffix(&format!(".{op}")).filter(|x| self.stored.contains_key(*x))
@@ -1876,8 +1885,13 @@ impl Records<'_> {
         }
         d.needs = needs;
         let mut keeps = vec![];
+        let mut frames = vec![];
         for c in &d.keeps {
             match c {
+                // `keep order.qty` (one field's state) or `keep seg.b` (a stored sub-record): a frame, as `keep order`
+                Expr::Name(n, false) if self.stored.contains_key(n) || self.field_state(n) => {
+                    frames.push(Expr::Frame(n.clone(), None));
+                }
                 // `keep order.get k` (or any record): every field
                 c if self.record_type(c).is_some() => {
                     let r = self.record_type(c).unwrap();
@@ -1888,7 +1902,7 @@ impl Records<'_> {
         }
         d.keeps = keeps;
         let mut ensures = vec![];
-        for c in &d.ensures {
+        for c in frames.iter().chain(&d.ensures) {
             match c {
                 // `keep order [except A to B]` (a stated frame, kept with the ensures): every field state
                 Expr::Frame(x, range) if self.stored.contains_key(x) => {
@@ -2046,7 +2060,19 @@ pub fn flatten_records(defs: &mut Module) -> PResult<IndexMap<String, Vec<String
         .filter_map(|(n, d)| d.ret.clone().filter(|r| defs.records.contains_key(r)).map(|r| (n.clone(), r)))
         .collect();
     let records = defs.records.clone();
-    let stored = defs.record_states.clone();
+    // a stored record and its fields of a record type: `seg` is a Seg, `seg.b` a Point (read or set whole)
+    let mut stored = IndexMap::new();
+    fn sub(x: &str, r: &str, records: &IndexMap<String, Vec<(String, String)>>, out: &mut IndexMap<String, String>) {
+        out.insert(x.to_string(), r.to_string());
+        for (f, t) in &records[r] {
+            if records.contains_key(t) {
+                sub(&format!("{x}.{f}"), t, records, out);
+            }
+        }
+    }
+    for (x, r) in &defs.record_states {
+        sub(x, r, &defs.records, &mut stored);
+    }
     let mut used = IndexMap::new();
     for d in defs.defs.values_mut() {
         let mut k = Records {

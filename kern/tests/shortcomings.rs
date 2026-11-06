@@ -269,6 +269,48 @@ fn s5_a_returned_record_is_bound_before_use_and_eg_compares_its_leaves() {
     assert!(g.counterexample.as_ref().unwrap().confirmed_by_interpreter);
 }
 
+#[test]
+fn a_stored_sub_record_is_read_whole_and_a_field_state_can_be_framed() {
+    // runtime on #HLVOFR3BEM: `seg.b.get k` (a Point inside a stored Seg) couldn't be read whole; tester: `keep
+    // cell.hold [except lo to hi]` (one field's state) wasn't accepted, though `keep cell` was
+    must_check("stored sub-records", "record Point x:Int y:Int
+record Seg a:Point b:Point name:Text
+
+state seg Int -> Seg
+
+flip k:Int
+  ok otherwise
+  ensure seg.get' k = Seg (seg.b.get k) (seg.a.get k) (seg.name.get k)
+  keep seg.name
+body
+  seg.set k (Seg (seg.b.get k) (seg.a.get k) (seg.name.get k))
+
+move_b k:Int p:Point
+  ok otherwise
+  ensure seg.b.get' k = p
+  keep seg.a
+  keep seg.name.get k
+body
+  seg.b.set k p
+
+same_ends k:Int -> Int
+  ensure result = 1 when seg.a.get k = seg.b.get k
+  ensure result = 0 when seg.a.get k != seg.b.get k
+body
+  if seg.a.get k = seg.b.get k
+    result = 1
+  else
+    result = 0
+");
+    must_check(
+        "a field state's frame",
+        "record Cell hold:Int other:Int\nstate cell Int -> Cell\n\nf lo:Int hi:Int v:Int\n  ok otherwise\n  keep cell.hold except lo to hi\n  keep cell.other\nbody\n  for k from lo to hi\n    cell.hold.set k v\n",
+    );
+    // a dotted keep that isn't a state is still a value kept: `keep ledger.total`
+    let defs = parse("f a:Account\n  ok otherwise\n  keep ledger.total\nbody\n  ledger.credit a 0\n");
+    assert!(reports(&defs)["f"].clean);
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int
