@@ -114,32 +114,6 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   with another model family and with TypeScript and Go versions we didn't write.
 - **Next:** C5. It also produces the ranked list of language gaps that S5 needs.
 
-### S5. A small language
-- **Kind:** code gap. **Weakens:** bet 1 at scale, and every result outside the ledger domain.
-- **Evidence:** CLAUDE.md, "Known limitations"; ROADMAP_RUN.md, P (the gap table for ordinary
-  programs). The ledger, clock and audit handlers are built into the interpreter.
-  examples/random-portal showed joke ids, not jokes, because there was no text (it shows jokes since `e87651d`).
-- **Fixed when**, per feature (P = placeholder syntax). The last four rows joined the milestone on 2026-11-05
-  (.party/DECISIONS.md, planner 22:45, on Fredrik's go-ahead); each needs its gap test written first:
-
-  | Missing | Gap test |
-  |---|---|
-  | ~~records~~ first cut closed `b18367a` (Closed: "S5, records") | `s5_records_check` |
-  | ~~text~~ closed `135dfca` (Closed: "S5, text") | `s5_text_checks` |
-  | ~~`match`~~ closed `a8cee99` (Closed: "S5, match") | `s5_match_checks` |
-  | ~~recursion~~ closed `3700f8d` (Closed: "S5, recursion with a termination measure") | `s5_recursion_is_accepted` |
-  | ~~nested loops~~ closed `59c9e66` (Closed: "S5, nested loops and variable × variable") | `s5_nested_loops_check` |
-  | ~~variable × variable~~ closed `59c9e66` (same entry) | `s5_variable_times_variable_checks` |
-  | ~~named constants~~ closed `0acdb54` (Closed: "S5, named constants") | `s5_named_constants_check` |
-  | ~~imports across packages~~ closed `b71848b` (Closed: "S5, imports across packages") | `s5_import_across_packages_loads` |
-  | ~~effects that return values~~ closed `700e189` (Closed: "S5, effects that return values") | `s5_effects_that_return_values_check` |
-  | ~~records as state values, `-> Record`, nested records, record equality~~ closed `6ceca0a` (Closed: "S5, records, second cut") | `s5_records_as_state_values_check`, `s5_a_definition_returns_a_record`, `s5_nested_records_and_record_equality_check` |
-  | ~~Accounts as state values, iteration over accounts~~ closed `0b9932d` (Closed: "S5, Accounts as state values") | `s5_accounts_as_state_values_check`, `s5_iteration_over_a_collection_of_accounts` |
-  | ~~decimals~~ closed on the checker side `1bdc8b2` (Closed: "S5, decimals"); `kern build`/host pending (#OM2M7766M3) | `s5_decimals_check` |
-  | ~~lists~~ closed `792389e` (Closed: "S5, lists") | `s5_lists_check` |
-- **Next:** records, then `match`, then text (roadmap step 1), ranked by C5's gap list once it
-  exists.
-
 ### S9. The `why` obligation lint is a keyword heuristic
 - **Kind:** code gap (a measurement, not a test). **Weakens:** F6 (nothing that must be obeyed lives in
   prose).
@@ -218,11 +192,39 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
 
+### S5. A small language (every row closed)
+- **Kind:** code gap. **Weakens:** bet 1 at scale, and every result outside the ledger domain. **Closed**
+  2026-11-06: the last rows (records second cut, Accounts, lists, decimals) closed in their own entries below,
+  end to end (checker, `kern build`, host); runtime's #OM2M7766M3 accepted at `30fd761`.
+- **Evidence:** CLAUDE.md, "Known limitations"; ROADMAP_RUN.md, P (the gap table for ordinary
+  programs). The ledger, clock and audit handlers are built into the interpreter.
+  examples/random-portal showed joke ids, not jokes, because there was no text (it shows jokes since `e87651d`).
+- **Fixed when**, per feature (P = placeholder syntax). The last four rows joined the milestone on 2026-11-05
+  (.party/DECISIONS.md, planner 22:45, on Fredrik's go-ahead); each needs its gap test written first:
+
+  | Missing | Gap test |
+  |---|---|
+  | ~~records~~ first cut closed `b18367a` (Closed: "S5, records") | `s5_records_check` |
+  | ~~text~~ closed `135dfca` (Closed: "S5, text") | `s5_text_checks` |
+  | ~~`match`~~ closed `a8cee99` (Closed: "S5, match") | `s5_match_checks` |
+  | ~~recursion~~ closed `3700f8d` (Closed: "S5, recursion with a termination measure") | `s5_recursion_is_accepted` |
+  | ~~nested loops~~ closed `59c9e66` (Closed: "S5, nested loops and variable × variable") | `s5_nested_loops_check` |
+  | ~~variable × variable~~ closed `59c9e66` (same entry) | `s5_variable_times_variable_checks` |
+  | ~~named constants~~ closed `0acdb54` (Closed: "S5, named constants") | `s5_named_constants_check` |
+  | ~~imports across packages~~ closed `b71848b` (Closed: "S5, imports across packages") | `s5_import_across_packages_loads` |
+  | ~~effects that return values~~ closed `700e189` (Closed: "S5, effects that return values") | `s5_effects_that_return_values_check` |
+  | ~~records as state values, `-> Record`, nested records, record equality~~ closed `6ceca0a` (Closed: "S5, records, second cut") | `s5_records_as_state_values_check`, `s5_a_definition_returns_a_record`, `s5_nested_records_and_record_equality_check` |
+  | ~~Accounts as state values, iteration over accounts~~ closed `0b9932d` (Closed: "S5, Accounts as state values") | `s5_accounts_as_state_values_check`, `s5_iteration_over_a_collection_of_accounts` |
+  | ~~decimals~~ closed `1bdc8b2`, compiled path and host `60f4588` (Closed: "S5, decimals") | `s5_decimals_check` |
+  | ~~lists~~ closed `792389e` (Closed: "S5, lists") | `s5_lists_check` |
+- **What remains:** each row's entry lists its own; app's open requests (`.party/requests.md`) are the
+  next gaps for ordinary programs.
+
 ### S5, decimals (one row of S5)
-- **Kind:** code gap. **Closed** on the checker side 2026-11-06 in `1bdc8b2`, under delegation (.party/DECISIONS.md,
-  2026-11-06, decimals; Fredrik approved decimals for this milestone 2026-11-05); fuzzer `aaa8890` (tester).
-  `kern build` and the host don't take Decimal yet (runtime, #OM2M7766M3): the row's end-to-end part is open
-  until that lands.
+- **Kind:** code gap. **Closed** 2026-11-06 in `1bdc8b2`, under delegation (.party/DECISIONS.md, 2026-11-06,
+  decimals; Fredrik approved decimals for this milestone 2026-11-05); compiled path and host `60f4588` (runtime;
+  HOST.md: a Decimal is a JSON string over HTTP, exact at any size); fuzzer `aaa8890`, difftest `30fd761` (tester).
+  Follow-ups `296c75c` (a sum of Decimals is a Decimal, `kern run` takes Decimal arguments, #X3SDEXEV24).
 - **Was:** only Ints; money with cents had to be scaled by hand, and nothing stopped a 0.1 + 0.2 float.
 - **Decided by** F4 (one meaning across modules): one language-wide scale of 4 places, no per-module `scale`.
   F5: a literal with more than 4 places is a parse error, never a silent round; Decimal × Decimal and `/` round
@@ -234,6 +236,8 @@ to make decisions as long as they follow the fundamentals". Each one names the f
   digest tests green there. Tester: floor rounding with negatives, promotion, literal checks, `eg`,
   counterexample replay; gen_dec with ground-truth literal products catches a planted half-up rounding (3,000);
   seeds 1–3 2,477/2,477 programs, 0 contradictions. REFERENCE.md 3,425 → 3,444 of 3,500 tokens.
+  Compiled path (tester at `30fd761`): fuzzdiff compiles every generator, 110,400 calls 0 divergences; a
+  Decimal × Decimal product past i64 in the middle agrees; a planted Decimal emitter bug is caught.
 - **What remains:** no Decimal record fields; balances stay Int; no Decimal / Decimal; no half-even rounding.
 
 ### S5, lists (one row of S5)
