@@ -37,7 +37,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>price.3:100 cart.1:[1 1 1 1 1 1 1 1 1 1] | add_line 1 3 -&gt; CartFull</code> <span class='okc'>✔</span></li>
 <li><code>price.3:100 cart.1:[1 1 1 1 1 1 1 1 1] | add_line 1 3 -&gt; ok</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 26 succeeded and were checked against every guarantee; refused: NotForSale 304, BadCart 94, NoSuchItem 76.</p>
+<h3>Random tests</h3><p>1000 random worlds and inputs (500 of them near the eg lines, because few random ones succeeded): 133 succeeded and were checked against every guarantee; refused: NotForSale 515, BadCart 239, NoSuchItem 113.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 4/4 deliberate bugs (100%)</span></h3><p>Caught by the prover: 4; by random tests checking the guarantees: 4. The examples alone catch 4/4; everything together 4/4.</p>
 <p>Refusals in the spec: 8/8 changes caught, by examples 8, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 </section>
@@ -134,7 +134,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>stock.3:4 | take 3 5 -&gt; OutOfStock 1</code> <span class='okc'>✔</span></li>
 <li><code>| take 3 0 -&gt; BadQuantity</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 18 succeeded and were checked against every guarantee; refused: OutOfStock 390, BadQuantity 92.</p>
+<h3>Random tests</h3><p>1000 random worlds and inputs (500 of them near the eg lines, because few random ones succeeded): 68 succeeded and were checked against every guarantee; refused: OutOfStock 730, BadQuantity 202.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 5/5 deliberate bugs (100%)</span></h3><p>Caught by the prover: 5; by random tests checking the guarantees: 5. The examples alone catch 5/5; everything together 5/5.</p>
 <p>Refusals in the spec: 4/4 changes caught, by examples 4, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 </section>
@@ -184,7 +184,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>stock.3:5 price.3:100 | place 0 3 2 -&gt; BadOrder</code> <span class='okc'>✔</span></li>
 <li><code>stock.3:5 price.3:100 | place 1 3 0 -&gt; BadQuantity</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 1 succeeded and were checked against every guarantee; refused: NotForSale 311, BadOrder 77, NoSuchItem 70, OutOfStock 29, BadQuantity 8, OrderExists 4.</p>
+<h3>Random tests</h3><p>1000 random worlds and inputs (500 of them near the eg lines, because few random ones succeeded): 62 succeeded and were checked against every guarantee; refused: NotForSale 484, BadOrder 225, NoSuchItem 123, OutOfStock 66, BadQuantity 36, OrderExists 4.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 26/26 deliberate bugs (100%)</span></h3><p>Caught by the prover: 26; by random tests checking the guarantees: 26. The examples alone catch 19/26; everything together 26/26.</p>
 <p>Refusals in the spec: 12/12 changes caught, by examples 9, by guarantees 3. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 <h3>Relies on</h3><p><code>take</code> — through their specs only, not their code.</p>
@@ -207,8 +207,8 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>phase.1:3 | advance 1 -&gt; CannotAdvance</code> <span class='okc'>✔</span></li>
 <li><code>| advance 1 -&gt; CannotAdvance</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 0 succeeded and were checked against every guarantee; refused: CannotAdvance 500.</p>
-<h3>Spec strength <span class='muted'>guarantees catch 12/12 deliberate bugs (100%)</span></h3><p>Caught by the prover: 12; by random tests checking the guarantees: 0. The examples alone catch 12/12; everything together 12/12.</p>
+<h3>Random tests</h3><p>1000 random worlds and inputs (500 of them near the eg lines, because few random ones succeeded): 52 succeeded and were checked against every guarantee; refused: CannotAdvance 948.</p>
+<h3>Spec strength <span class='muted'>guarantees catch 12/12 deliberate bugs (100%)</span></h3><p>Caught by the prover: 12; by random tests checking the guarantees: 12. The examples alone catch 12/12; everything together 12/12.</p>
 <p>Refusals in the spec: 1/1 changes caught, by examples 1, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 </section>
 <section class="card"><header><h2><code>cancel</code><span class="muted"> in orders</span></h2><span class="badge ok">All guarantees proven</span><span class="hash">build 9ea8a4ff</span></header>
@@ -231,7 +231,7 @@ ul.g{list-style:none;padding:0;margin:0}ul.g li{display:flex;gap:10px;padding:8p
 <li><code>phase.1:1 item_of.1:3 qty_of.1:2 stock.3:5 | cancel 1 -&gt; ok | phase.1:4 stock.3:7</code> <span class='okc'>✔</span></li>
 <li><code>phase.1:3 | cancel 1 -&gt; CannotCancel</code> <span class='okc'>✔</span></li>
 </ul>
-<h3>Random tests</h3><p>500 random worlds and inputs: 7 succeeded and were checked against every guarantee; refused: CannotCancel 493.</p>
+<h3>Random tests</h3><p>1000 random worlds and inputs (500 of them near the eg lines, because few random ones succeeded): 147 succeeded and were checked against every guarantee; refused: CannotCancel 853.</p>
 <h3>Spec strength <span class='muted'>guarantees catch 4/4 deliberate bugs (100%)</span></h3><p>Caught by the prover: 4; by random tests checking the guarantees: 4. The examples alone catch 3/4; everything together 4/4.</p>
 <p>Refusals in the spec: 1/1 changes caught, by examples 1, by guarantees 0. <span class='muted'>Each spec <code>need</code> dropped, or its comparison flipped. These measure whether anything pins the refusal, not the body; callers' proofs aren't re-run.</span></p>
 <h3>Relies on</h3><p><code>restock</code> — through their specs only, not their code.</p>

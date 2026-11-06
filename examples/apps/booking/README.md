@@ -17,13 +17,13 @@ cargo run --release -p kern -- check examples/apps/booking/booking.k
 cargo run --release -p kern -- build examples/apps/booking/booking.k
 ```
 
-## What `check` says (recorded at a884adb (built from a clean checkout of that commit), `--cache ''`)
+## What `check` says (recorded at 7aaecdb (built from a clean checkout of that commit), `--cache ''`)
 
 | definition | status | spec strength |
 |---|---|---|
 | `book` (record with a Text field) | All guarantees proven (`ensure stay.get' k = b`, the whole record; every other key unchanged) | 45/45; spec refusals 14/14 |
-| `cancel` (`stay.set k (Booking room day 0 "")`) | All guarantees proven | 44/44; spec refusals 12/12 |
-| `clear_day` (loop over rooms, clears slot and name) | All guarantees proven | 14/16: survivors are loop bounds (prover 6 of 16 with `%`, was 10) |
+| `cancel` (random tests 4/1000 reach success; `stay.set k (Booking room day 0 "")`) | All guarantees proven | 44/44; spec refusals 12/12 |
+| `clear_day` (loop over rooms, clears slot and name) | All guarantees proven | 14/16: survivors are loop bounds (prover 6 of 16 with `%`, was 10; random tests now kill 13) |
 | `clear_all` (nested loops) | All guarantees proven | 14/22 (prover 10): bound and index mutants survive |
 | `seat` (`room * width + day`, variable × variable) | All guarantees proven | 14/14; spec refusals 8/8 |
 | `nights_booked`, `guest_nights`, `busy_on` (sums) | All guarantees proven | 0/0, nothing to mutate |

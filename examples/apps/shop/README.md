@@ -19,7 +19,7 @@ cargo run --release -p kern -- check examples/apps/shop
 cargo run --release -p kern -- build examples/apps/shop
 ```
 
-## What `check` says (recorded at df05911, built from a clean checkout of that commit, `--cache ''`)
+## What `check` says (recorded at 7aaecdb, built from a clean checkout of that commit, `--cache ''`)
 
 | definition | status | spec strength |
 |---|---|---|
@@ -44,8 +44,8 @@ cargo run --release -p kern -- build examples/apps/shop
 - `orders.k` states `phase = 0 or item_of > 0` and `phase = 0 or qty_of > 0` as module invariants (cross-map, read at one key). Until 8b85fc0
   random tests built worlds that broke them and `cancel` read "Broken guarantees" with every guarantee ✔ (request 0, closed by
   lang); the `need` workaround is gone.
-- Random testing reaches success rarely: `advance` 0/500, `place` 1/500 (worlds must satisfy the invariants and the needs); the
-  proofs carry these definitions, and `advance` went from 25/500 to 0/500 with the repair.
+- Random testing reaches success: since 7aaecdb half the runs start near the `eg` lines. `advance` 0 -> 52 of 1000 runs, `place`
+  1 -> 62, `cancel` 7 -> 147 (the per-guarantee strength of `advance` went from prover-only to 12/12 with random tests too).
 - `parcels` first had a `need weight >= 0`: refused, because `-> Int` functions are total. It now returns 0 for weight <= 0.
   The prover then proved the closed form `(weight + 4) / 5` by induction over the recursion, and refutes a wrong one
   (`result <= weight / 5` gives `✗ … parcels 1`) and a bad measure (`decreases 0 - weight` reads `? measure`).
