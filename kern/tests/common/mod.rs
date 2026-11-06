@@ -190,11 +190,21 @@ pub fn hoist_literals(src: &str, tag: &str) -> (String, usize) {
         if t.starts_with("eg ") || t.starts_with("const ") {
             out.push_str(line);
         } else {
-            out.push_str(&int.replace_all(line, |c: &regex::Captures| {
+            // an integer literal, not part of a Decimal literal (`0.0001`: digits next to a point stay as they are)
+            let b = line.as_bytes();
+            let mut last = 0;
+            for m in int.find_iter(line) {
+                let next_to_point = (m.start() > 0 && b[m.start() - 1] == b'.') || b.get(m.end()) == Some(&b'.');
+                if next_to_point {
+                    continue;
+                }
+                out.push_str(&line[last..m.start()]);
                 n += 1;
-                values.insert(c[0].to_string());
-                format!("kc_{tag}_{}", &c[0])
-            }));
+                values.insert(m.as_str().to_string());
+                out.push_str(&format!("kc_{tag}_{}", m.as_str()));
+                last = m.end();
+            }
+            out.push_str(&line[last..]);
         }
         out.push('\n');
     }

@@ -19,6 +19,7 @@ fn differential_small() {
     mods.push(format!("{ROOT}/tests/probes/invcheck.k"));
     mods.push(format!("{ROOT}/tests/probes/sums.k"));
     mods.push(format!("{ROOT}/tests/probes/texts.k"));
+    mods.push(format!("{ROOT}/tests/probes/decimals.k"));
     for m in mods {
         let r = run_module(&m, 100, 1, 5).unwrap_or_else(|e| panic!("{m}: {e}"));
         assert!(r.eg_failures.is_empty() && r.n_divergences == 0, "{m}: {r:?}");

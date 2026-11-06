@@ -1,7 +1,7 @@
 //! Differential test (port of validation/difftest.py): a compiled Kern module against the reference interpreter.
 //!
 //! ```text
-//! difftest [--per-def N] [--seed S] [MODULE.k ...]   (default: every example + tests/probes/{runtime,invcheck,sums,texts}.k)
+//! difftest [--per-def N] [--seed S] [MODULE.k ...]   (default: every example + tests/probes/{runtime,invcheck,sums,texts,decimals}.k)
 //! ```
 //!
 //! Scorecard C1 and C2 of docs/research/RUNTIME_PLAN.md:
@@ -27,6 +27,9 @@ const NAMES: [&str; 6] = ["A", "B", "C", "D", "E", "H"];
 const INTS: [i128; 14] = [-1, 0, 1, 2, 3, 5, 7, 50, 99, 100, 101, 150, 250, 1000];
 const BALANCES: [i128; 9] = [0, 1, 5, 50, 99, 100, 101, 250, 1000];
 const MAP_VALUES: [i128; 7] = [0, 1, 2, 5, 100, 250, -1];
+/// Decimal arguments and Decimal state entries (scaled, 0.0001 units): whole, halves, the smallest unit, negatives,
+/// a repeating third. Drawn only for modules with Decimals, so other scripts are unchanged (runtime's 60f4588).
+const DECIMALS: [i128; 9] = [0, 10000, 25000, 5000, 1, -1, -15000, 1250000, 3333];
 /// Text values for arguments and Text state entries (e7df085): empty, a space, the two escaped characters,
 /// non-ASCII, and a literal `\x41`. Drawn only for modules with Text, so other scripts are unchanged.
 const TEXTS: [&str; 10] = ["", "a", "ab", "x y", "hello world", "\\", "\"", "é", "😀", "\\x41"];
@@ -34,6 +37,7 @@ const TEXTS: [&str; 10] = ["", "a", "ab", "x y", "hello world", "\\", "\"", "é"
 /// A value the binary can print: a nested constructor isn't one.
 fn show(v: &Value) -> Result<String, String> {
     match v {
+        Value::Ctor(c, xs) if c == kern::run::DEC && xs.len() == 1 => Ok(kern::syntax::decimal_text(xs[0].num().unwrap_or(0))),
         Value::Bool(b) => Ok(if *b { "True" } else { "False" }.into()),
         Value::Int(n) => Ok(n.to_string()),
         Value::Str(s) => Ok(s.clone()),
@@ -66,7 +70,9 @@ fn world_line(bal: &IndexMap<String, i128>, own: &IndexMap<String, String>, maps
               texts: &kern::syntax::Texts, lists: &Lists, now: i128, defs: &Module) -> String {
     let mut items: Vec<String> = bal.iter().map(|(a, b)| format!("{}:{}@{}", a, b, own[a])).collect();
     for (m, kv) in maps {
-        items.extend(kv.iter().map(|(k, v)| format!("{}.{}:{}", m, key_str(k), v)));
+        // a Decimal state holds scaled values; the script writes them with the point
+        let dec = defs.decimal_states.contains(m);
+        items.extend(kv.iter().map(|(k, v)| format!("{}.{}:{}", m, key_str(k), if dec { kern::syntax::decimal_text(*v) } else { v.to_string() })));
     }
     for (m, kv) in texts {
         // an Account-valued state's entries are account names or `none`, bare, as eg worlds write them (40579da)
@@ -135,8 +141,9 @@ fn dump(w: &World, defs: &Module) -> String {
                 Key::Str(_) => 0,
             });
         }
+        let dec = defs.decimal_states.contains(m);
         for (k, v) in kv {
-            s.push_str(&format!(" {}.{}:{}", m, key_str(k), v));
+            s.push_str(&format!(" {}.{}:{}", m, key_str(k), if dec { kern::syntax::decimal_text(*v) } else { v.to_string() }));
         }
     }
     s
@@ -240,6 +247,9 @@ fn interp_call_plain(interp: &mut Interp, w: &mut World, defs: &Module, name: &s
     let mut line = match &outcome {
         // a record result as its leaves, as the binary prints it (`eg … -> ok 2 3`; Text quoted), runtime's 21e46f7
         Outcome::Ok if d.ret.is_some() => format!("ok result={}", match interp.last_result.as_ref() {
+            // a Decimal as the binary prints it; an Int result of a `-> Decimal` is that many units (the same value)
+            Some(Value::Ctor(c, xs)) if c == kern::run::DEC => show(&Value::Ctor(c.clone(), xs.clone()))?,
+            Some(Value::Int(n)) if d.ret.as_deref() == Some("Decimal") => kern::syntax::decimal_text(n * kern::syntax::UNIT),
             Some(Value::Ctor(r, vs)) if defs.records.contains_key(r) => kern::syntax::record_leaves(&defs.records, r)
                 .iter()
                 .zip(vs)
@@ -281,6 +291,11 @@ fn interp_args(d: &kern::syntax::Def, toks: &[String]) -> Vec<Value> {
         .map(|((_, t), tok)| match t.as_str() {
             "Int" => tok.parse().map(Value::Int).unwrap_or(Value::Str(tok.clone())),
             "Text" => Value::Str(kern_rt_unquote(tok)),
+            // `12.5`, or an Int the interpreter promotes at the boundary
+            "Decimal" => match tok.parse() {
+                Ok(n) => Value::Int(n),
+                Err(_) => kern::syntax::decimal_value(tok).map(kern::run::decimal).unwrap_or(Value::Str(tok.clone())),
+            },
             "List" => match tok.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
                 Some(inner) => Value::Ctor(kern::run::LIST.into(), inner.split_whitespace().filter_map(|x| x.parse().ok()).map(Value::Int).collect()),
                 None => Value::Str(tok.clone()),
@@ -422,7 +437,7 @@ fn random_world(rng: &mut Random, defs: &Module) -> (IndexMap<String, i128>, Ind
         let mut kv = IndexMap::new();
         for _ in 0..rng.randint(0, 3) {
             let k = if key == "Account" { Key::Str(rng.choice(&names).to_string()) } else { Key::Int(*rng.choice(&[0, 1, 2, 3, 7])) };
-            kv.insert(k, *rng.choice(&MAP_VALUES));
+            kv.insert(k, if defs.decimal_states.contains(m) { *rng.choice(&DECIMALS) } else { *rng.choice(&MAP_VALUES) });
         }
         if !kv.is_empty() {
             maps.insert(m.clone(), kv);
@@ -495,6 +510,8 @@ pub fn build_case<'m>(defs: &'m Module, checks: &Checks, rng: &mut Random, per_d
                     } else if t == "List" {
                         let n = rng.randint(0, 4);
                         list_tok(&(0..n).map(|_| *rng.choice(&INTS) as i128).collect::<Vec<_>>())
+                    } else if t == "Decimal" {
+                        kern::syntax::decimal_text(*rng.choice(&DECIMALS))
                     } else {
                         rng.choice(&INTS).to_string()
                     }
@@ -512,7 +529,7 @@ pub fn build_case<'m>(defs: &'m Module, checks: &Checks, rng: &mut Random, per_d
 }
 
 /// C1: the binary's own output against the eg line (not against the interpreter).
-fn eg_problems(ex: &Example, line: &str, world_dump: &str) -> Vec<String> {
+fn eg_problems(ex: &Example, line: &str, world_dump: &str, decimal_states: &[String]) -> Vec<String> {
     let want = match &ex.outcome {
         kern::syntax::Outcome::Ok => "ok".to_string(),
         kern::syntax::Outcome::Fail(c, a) => {
@@ -534,7 +551,9 @@ fn eg_problems(ex: &Example, line: &str, world_dump: &str) -> Vec<String> {
     }
     for (m, kv) in &ex.after_maps {
         for (k, v) in kv {
-            let item = format!("{}.{}:{}", m, key_str(k), v);
+            // a Decimal state's entries print with the point (the after-state holds scaled values)
+            let shown = if decimal_states.contains(m) { kern::syntax::decimal_text(*v) } else { v.to_string() };
+            let item = format!("{}.{}:{}", m, key_str(k), shown);
             let prefix = format!("{}.{}:", m, key_str(k));
             if (*v != 0 && !items.contains(&item.as_str())) || (*v == 0 && items.iter().any(|i| i.starts_with(&prefix))) {
                 out.push(format!("{}.{} should be {}: {}", m, key_str(k), v, world_dump));
@@ -628,7 +647,7 @@ pub fn run_module(path: &str, per_def: usize, seed: i128, show_max: usize) -> Re
         .collect();
     let mut eg_failures = vec![];
     for (i, ex) in &egs {
-        for p in eg_problems(ex, &got[*i], &got[*i + 1]) {
+        for p in eg_problems(ex, &got[*i], &got[*i + 1], &defs.decimal_states) {
             eg_failures.push(format!("{}: {}", ex.src, p));
         }
     }
@@ -692,6 +711,7 @@ pub fn main(argv: &[String]) -> i32 {
         mods.push(format!("{ROOT}/tests/probes/invcheck.k")); // compiled module-invariant checks that break
         mods.push(format!("{ROOT}/tests/probes/sums.k")); // sums and state-reading functions
         mods.push(format!("{ROOT}/tests/probes/texts.k")); // Text: lengths, joins, comparisons, Account-keyed Text
+        mods.push(format!("{ROOT}/tests/probes/decimals.k")); // Decimals: floor on negatives, promotion, a Decimal state
     }
     let (mut calls, mut divs, mut eg_fail, mut egs, mut failed) = (0, 0, 0, 0, 0usize);
     for m in &mods {
