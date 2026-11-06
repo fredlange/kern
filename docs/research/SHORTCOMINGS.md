@@ -134,9 +134,9 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
   | ~~imports across packages~~ closed `b71848b` (Closed: "S5, imports across packages") | `s5_import_across_packages_loads` |
   | ~~effects that return values~~ closed `700e189` (Closed: "S5, effects that return values") | `s5_effects_that_return_values_check` |
   | ~~records as state values, `-> Record`, nested records, record equality~~ closed `6ceca0a` (Closed: "S5, records, second cut") | `s5_records_as_state_values_check`, `s5_a_definition_returns_a_record`, `s5_nested_records_and_record_equality_check` |
-  | Accounts as state values, iteration over accounts | not written yet |
+  | ~~Accounts as state values, iteration over accounts~~ closed `0b9932d` (Closed: "S5, Accounts as state values") | `s5_accounts_as_state_values_check`, `s5_iteration_over_a_collection_of_accounts` |
   | decimals: exact fixed-point, not binary floats (added 2026-11-05) | not written yet |
-  | lists: a sequence type (added 2026-11-05) | not written yet |
+  | ~~lists~~ closed `792389e` (Closed: "S5, lists") | `s5_lists_check` |
 - **Next:** records, then `match`, then text (roadmap step 1), ranked by C5's gap list once it
   exists.
 
@@ -217,6 +217,43 @@ syntax; otherwise it keeps panicking for the wrong reason. The other tests flip 
 
 Decisions marked "under delegation" were made on 2026-11-05, when Fredrik handed them over: "you are free
 to make decisions as long as they follow the fundamentals". Each one names the fundamental that decided it.
+
+### S5, lists (one row of S5)
+- **Kind:** code gap. **Closed** 2026-11-06 in `792389e`, with `f3af834` (call-site conditions), under delegation
+  (.party/DECISIONS.md, 2026-11-06, lists; Fredrik approved lists for this milestone 2026-11-05); compiled path and
+  host `6264a7b` (runtime); fuzzer `b115597`, `64c39c0` (tester).
+- **Was:** no sequence type; a cart or a list of ids had to be an Int map with a separate count.
+- **Decided by** F4 (no new loop form): `List` of Ints as a parameter, local and state value (`state cart Int ->
+  List`, unset `[]`) with `[]`, `append`, `at`, `length`, `=`; walked with the existing `for` and `sum`. F5:
+  `at` outside the list is a run-time error, so each `at` is a call-site goal (0 <= i < length) that the prover
+  rules out or refutes with a run that replays. Z3 sequences of Int; unbounded.
+- **Evidence:** `s5_lists_check` and `s5_reading_a_list_outside_it_is_refuted_with_a_run_that_replays` pass as
+  ordinary tests (`cargo test -p kern --release --test shortcomings`, 82 passed at `64c39c0`); the gap module's
+  6 definitions all proven, full check 0.1 s. Tester: an unguarded `at` makes what follows `!` (relies on the
+  call-site condition), a spec-only `at` is stated "(in the spec)" with no false "never succeeds"; gen_list on
+  by default, the oracle also checks `✔ ok otherwise` (planted removal caught); seeds 1–3 0 contradictions
+  (was 3,300 in 11 of 100 at seed 1, before `f3af834`); suite 403/0; digests unchanged.
+- **What remains:** lists hold Ints only (no lists of Text, Accounts or records); no remove, slice or sort.
+
+### S5, Accounts as state values (one row of S5)
+- **Kind:** code gap. **Closed** 2026-11-06 in `4a9d41d` (Account-valued states, `none`) and `0b9932d`
+  (iteration over a collection of accounts), with `f3af834`, under delegation (.party/DECISIONS.md, 2026-11-06,
+  Accounts as state values); compiled path and host `40579da` (runtime); fuzzer `f0f68e8`, `86a722c` (tester).
+- **Was:** a state map held Ints, so "only the borrower pays" (ROADMAP P) couldn't be stated, and no program could
+  keep a set of accounts to pay.
+- **Decided by** F5: `state member Int -> Account`, an unset entry is `none`; using `none` as an account is a
+  run-time error, so each such use is a call-site goal (only in modules with Account-valued states: no new goals
+  elsewhere). Iteration: a collection a program builds is an Int-indexed Account map walked with `for`/`sum`;
+  no loop over the world's accounts (its set isn't program-defined, and a symbolic count would touch every
+  proof). 0 new tokens for iteration; `= none` 11 tokens.
+- **Evidence:** `s5_accounts_as_state_values_check`, `s5_using_none_as_an_account_is_refuted_with_a_run_that_replays`,
+  `s5_iteration_over_a_collection_of_accounts` and
+  `a_guarantee_that_rests_on_an_unproven_call_site_condition_is_conditional` pass as ordinary tests (82 passed at
+  `64c39c0`). Tester: unguarded `none` use shows `!` (relies on the call-site condition); gen_acct on by default;
+  seeds 1–3 0 contradictions; difftest 0 divergences; digests unchanged. GUIDE: "A collection of accounts".
+- **What remains:** "count = 0 means no element matches" isn't provable yet, so payroll's `ok otherwise` is `?`
+  and a raffle's "winner is an account" is `◐` (task FPCP2UCC36, prover; not on the party's board). No Account
+  fields in stored records.
 
 ### S5, records, second cut (one row of S5)
 - **Kind:** code gap. **Closed** 2026-11-06 in `00fedb4` (nested records, equality), `6506a42` (records as state
