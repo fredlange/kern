@@ -155,6 +155,11 @@ fn key_repr(k: &Key) -> String {
 
 /// The line `kern run` prints: Python's print(outcome, after.bal, "audit:", after.audit[, "state:", after.maps]).
 pub fn run_line(outcome: &Outcome, after: &World) -> String {
+    run_line_with(outcome, after, &[])
+}
+
+/// run_line, with the Decimal states' entries shown with their point (`12.5`, not the scaled 125000).
+pub fn run_line_with(outcome: &Outcome, after: &World, decimal_states: &[String]) -> String {
     let out = match outcome {
         Outcome::Ok => "('ok',)".to_string(),
         Outcome::Fail(c, a) => {
@@ -166,7 +171,16 @@ pub fn run_line(outcome: &Outcome, after: &World) -> String {
     let audit: Vec<String> = after.audit.iter().map(Value::repr).collect();
     let mut line = format!("{} {} audit: [{}]", out, bal, audit.join(", "));
     if !after.maps.is_empty() {
-        let maps = dict_repr(after.maps.iter(), |x| repr_str(x), |kv| dict_repr(kv.iter(), |k| key_repr(k), |v| v.to_string()));
+        let parts: Vec<String> = after
+            .maps
+            .iter()
+            .map(|(x, kv)| {
+                let dec = decimal_states.iter().any(|d| d == x);
+                let v = |v: &crate::Int| if dec { crate::syntax::decimal_text(*v) } else { v.to_string() };
+                format!("{}: {}", repr_str(x), dict_repr(kv.iter(), |k| key_repr(k), |n| v(n)))
+            })
+            .collect();
+        let maps = format!("{{{}}}", parts.join(", "));
         line.push_str(&format!(" state: {}", maps));
     }
     if !after.texts.is_empty() {
@@ -256,8 +270,11 @@ pub fn main_with(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
             };
             let call = a.name.clone().unwrap_or_default();
             // Text in the call or the world: parse both as an `eg` line does (quote-aware)
-            let (mut world, name, args): (World, String, Vec<Value>) = if call.contains('"') || world.contains('"') || call.contains('[') || world.contains('[') || !defs.account_states.is_empty() {
-                match crate::syntax::parse_call(world, &call) {
+            let (mut world, name, args): (World, String, Vec<Value>) = if call.contains('"') || world.contains('"') || call.contains('[') || world.contains('[') || !defs.account_states.is_empty() || !defs.decimal_states.is_empty() {
+                match crate::syntax::parse_call(world, &call).and_then(|mut ex| {
+                    crate::syntax::normalize_example(&defs.decimal_states, &mut ex)?;
+                    Ok(ex)
+                }) {
                     Ok(ex) => (
                         World::of_example(&ex),
                         ex.call.0.clone(),
@@ -295,10 +312,14 @@ pub fn main_with(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i
             let mut interp = Interp::new(&defs);
             match interp.run(&name, &args, &mut world) {
                 Ok(outcome) => {
-                    let mut line = run_line(&outcome, &world);
+                    let mut line = run_line_with(&outcome, &world, &defs.decimal_states);
                     // a definition with `-> Int` returned this: ('ok', 7)
                     if let (Outcome::Ok, true, Some(v)) = (&outcome, defs.defs[&name].ret.is_some(), &interp.last_result) {
-                        line = line.replacen("('ok',)", &format!("('ok', {})", v.repr()), 1);
+                        let shown = match v {
+                            Value::Ctor(c, xs) if c == crate::run::DEC => crate::syntax::decimal_text(xs[0].num().unwrap_or(0)),
+                            v => v.repr(),
+                        };
+                        line = line.replacen("('ok',)", &format!("('ok', {})", shown), 1);
                     }
                     let _ = writeln!(out, "{}", line);
                     0

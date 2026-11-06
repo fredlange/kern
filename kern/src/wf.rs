@@ -13,7 +13,7 @@ use crate::infer::{called_names, callees, calls_procedure, is_function, uses, wa
 use crate::run::{assumed_op, channel_op, is_handler, state_op};
 use crate::syntax::{code, Def, Emit, Expr, Module, Need, ParseError, Stmt};
 
-pub const PARAM_TYPES: [&str; 4] = ["Int", "Account", "Text", "List"];
+pub const PARAM_TYPES: [&str; 5] = ["Int", "Account", "Text", "List", "Decimal"];
 const ANY: &str = "Any";
 
 /// handler -> (argument types, result type)
@@ -85,6 +85,22 @@ impl<'a> Checker<'a> {
                 match *op {
                     // `+` on two Texts joins them
                     "+" if lt == "Text" || rt == "Text" => self.need_types(place, op, &[&lt, &rt], &["Text", "Text"], "Text"),
+                    // a Decimal with a Decimal or an Int (promoted exactly); `/` by a positive Int literal (floor)
+                    "+" | "-" | "*" if lt == "Decimal" || rt == "Decimal" => {
+                        if ![&lt, &rt].iter().all(|t| ["Decimal", "Int", ANY].contains(&t.as_str())) {
+                            self.err(place, &format!("`{}`: {} {} {}", code(e), lt, op, rt));
+                        }
+                        "Decimal".into()
+                    }
+                    "/" if lt == "Decimal" => {
+                        if !matches!(**r, Expr::Int(n) if n > 0) {
+                            self.err(place, &format!("`{}`: `/` needs a positive number on the right", code(e)));
+                        }
+                        "Decimal".into()
+                    }
+                    ">=" | "<=" | ">" | "<" | "=" | "!=" if (lt == "Decimal" && (rt == "Int" || rt == "Decimal")) || (rt == "Decimal" && lt == "Int") => {
+                        "Bool".into()
+                    }
                     "+" | "-" => self.need_types(place, op, &[&lt, &rt], &["Int", "Int"], "Int"),
                     "*" | "/" => {
                         // linear arithmetic only, so the prover stays decidable
@@ -120,6 +136,9 @@ impl<'a> Checker<'a> {
                 }
                 if name == "[]" {
                     return "List".into();
+                }
+                if name.starts_with(|c: char| c.is_ascii_digit()) && crate::syntax::decimal_value(name).is_ok() {
+                    return "Decimal".into();
                 }
                 self.apply(name, *primed, &[], scope, place, spec, primed_ok)
             }
@@ -235,6 +254,8 @@ impl<'a> Checker<'a> {
                     "Account"
                 } else if defs.list_states.iter().any(|t| Some(t.as_str()) == x) {
                     "List"
+                } else if defs.decimal_states.iter().any(|t| Some(t.as_str()) == x) {
+                    "Decimal"
                 } else {
                     "Int"
                 };
@@ -261,7 +282,8 @@ impl<'a> Checker<'a> {
                 self.err(place, &format!("`{}'`: only handler reads have an after-state", name));
             }
             let want: Vec<String> = callee.params.iter().map(|(_, t)| t.clone()).collect();
-            return self.check_args(place, name, &want, &arg_types, if fn_ { "Int" } else { "Unit" });
+            let ret = if callee.ret.as_deref() == Some("Decimal") { "Decimal" } else if fn_ { "Int" } else { "Unit" };
+            return self.check_args(place, name, &want, &arg_types, ret);
         }
         if name == "length" {
             // `length t`: the number of characters of a Text, or the number of elements of a List
@@ -302,7 +324,8 @@ impl<'a> Checker<'a> {
             return result.into();
         }
         for (i, (w, g)) in want.iter().zip(got).enumerate() {
-            if g != ANY && w != g {
+            // an Int where a Decimal is wanted is promoted exactly
+            if g != ANY && w != g && !(w == "Decimal" && g == "Int") {
                 self.err(place, &format!("argument {} of `{}` must be {}, got {}", i + 1, name, w, g));
             }
         }
@@ -335,8 +358,8 @@ impl<'a> Checker<'a> {
             self.err("header", "`length` is built in (the length of a Text); name the definition otherwise");
         }
         if let Some(r) = &d.ret {
-            if r != "Int" && !self.defs.records.contains_key(r) {
-                self.err("header", "a definition returns Int or a record (`-> Int`, `-> Point`)");
+            if r != "Int" && r != "Decimal" && !self.defs.records.contains_key(r) {
+                self.err("header", "a definition returns Int, Decimal or a record (`-> Int`, `-> Point`)");
             }
             // one that writes, emits or refuses is a procedure returning a value: inferred, not written
             // (DECISIONS.md, 2026-11-06)
@@ -349,7 +372,7 @@ impl<'a> Checker<'a> {
                     params.insert(format!("result.{f}"), t);
                 }
             } else {
-                params.insert("result".into(), "Int".into());
+                params.insert("result".into(), r.clone());
             }
         }
         if let Some(m) = &d.decreases {
@@ -372,7 +395,7 @@ impl<'a> Checker<'a> {
             self.expect(&place, &t, "Bool");
             for a in args {
                 let t = self.ty(a, &params, &place, true, false, false);
-                if t == "Text" || t == "List" {
+                if t == "Text" || t == "List" || t == "Decimal" {
                     self.err(&place, &format!("failure payload `{}` is {}; payloads are Int or Account", code(a), t));
                 }
             }
@@ -524,7 +547,7 @@ impl<'a> Checker<'a> {
                     if x == "result" {
                         if let Some(want) = &self.d.ret {
                             let got = rec.clone().unwrap_or_else(|| t.clone());
-                            if got != *want && got != ANY {
+                            if got != *want && got != ANY && !(want == "Decimal" && got == "Int") {
                                 self.err(&place, &format!("the result is declared {}, this is {}", want, got));
                             }
                         }
@@ -552,7 +575,7 @@ impl<'a> Checker<'a> {
                         if t == "Unit" {
                             self.err(&place, &format!("failure payload `{}` has no value (Unit)", code(a)));
                         }
-                        if t == "Text" || t == "List" {
+                        if t == "Text" || t == "List" || t == "Decimal" {
                             self.err(&place, &format!("failure payload `{}` is {}; payloads are Int or Account", code(a), t));
                         }
                     }

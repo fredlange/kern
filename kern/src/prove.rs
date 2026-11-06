@@ -121,6 +121,8 @@ enum SV {
     S(ZStr),
     /// a List (a sequence of Int)
     Q(Seq),
+    /// a Decimal: its scaled Int (a count of 0.0001s)
+    D(ZInt),
     Ev(String, Vec<SV>),
     Unit,
 }
@@ -128,7 +130,7 @@ enum SV {
 impl SV {
     fn i(&self) -> &ZInt {
         match self {
-            SV::I(x) => x,
+            SV::I(x) | SV::D(x) => x,
             other => panic!("prover: expected an Int term, got {other:?}"),
         }
     }
@@ -157,6 +159,7 @@ impl SV {
             SV::B(x) => Dynamic::from(x.clone()),
             SV::S(x) => Dynamic::from(x.clone()),
             SV::Q(x) => Dynamic::from(x.clone()),
+            SV::D(x) => Dynamic::from(x.clone()),
             other => panic!("prover: {other:?} is not a value"),
         }
     }
@@ -213,6 +216,8 @@ fn ev_eq(x: &SV, y: &SV) -> Bool {
         (SV::B(a), SV::B(b)) => zz::eq_bool(a, b),
         (SV::S(a), SV::S(b)) => zz::eq_text(a, b),
         (SV::Q(a), SV::Q(b)) => zz::eq_list(a, b),
+        (SV::D(a), SV::D(b)) => zz::eq_int(a, b),
+        (SV::D(a), SV::I(b)) | (SV::I(b), SV::D(a)) => zz::eq_int(a, &zz::mul(b, &zz::val(crate::syntax::UNIT))),
         _ => panic!("prover: can't compare {x:?} and {y:?}"),
     }
 }
@@ -318,6 +323,9 @@ pub struct Prover<'m> {
     pub witness_draws: IndexMap<String, Vec<Int>>,
     /// one recursive function per distinct sum (its text, the names it reads, whether it sees an after-state)
     sums: IndexMap<String, (z3::RecFuncDecl, Option<Int>, Option<Int>)>,
+    /// the sums (by memo key) whose terms are Decimals, and whether the last one built or looked up is
+    decimal_sums: BTreeSet<String>,
+    last_sum_decimal: bool,
     /// the definition's Text parameters, as String constants (counterexamples read them from the model)
     text_params: IndexMap<String, ZStr>,
     /// the Account parameters of the definition being proved (never `none`)
@@ -345,6 +353,38 @@ fn raises_goals(defs: &Module, e: &Expr) -> bool {
     crate::infer::walk(e)
         .iter()
         .any(|n| matches!(n, Expr::App(h, _, _) if h == "at" || !defs.account_states.is_empty()))
+}
+
+/// An argument as the parameter it binds: an Int at a Decimal parameter is that many units, as in the interpreter.
+fn as_param(t: &str, v: &SV) -> SV {
+    match (t, v) {
+        ("Decimal", SV::I(n)) => SV::D(zz::mul(n, &zz::val(crate::syntax::UNIT))),
+        _ => v.clone(),
+    }
+}
+
+/// Decimal arithmetic over scaled Ints, as the interpreter does it: an Int operand promoted exactly; Decimal ×
+/// Decimal and `/` floor (Z3's div by a positive numeral is floor division).
+fn decimal_op(op: &str, l: &SV, r: &SV) -> SV {
+    let unit = zz::val(crate::syntax::UNIT);
+    let (ld, rd) = (matches!(l, SV::D(_)), matches!(r, SV::D(_)));
+    let (x, y) = (l.i(), r.i());
+    let up = |n: &ZInt, d: bool| if d { n.clone() } else { zz::mul(n, &unit) };
+    let (sx, sy) = (up(x, ld), up(y, rd));
+    match op {
+        "+" => SV::D(zz::add(&sx, &sy)),
+        "-" => SV::D(zz::sub(&sx, &sy)),
+        "*" if ld && rd => SV::D(zz::div(&zz::mul(x, y), &unit)),
+        "*" => SV::D(zz::mul(x, y)),
+        "/" => SV::D(zz::div(x, y)),
+        "=" => SV::B(zz::eq_int(&sx, &sy)),
+        "!=" => SV::B(zz::ne_int(&sx, &sy)),
+        ">=" => SV::B(zz::ge(&sx, &sy)),
+        "<=" => SV::B(zz::le(&sx, &sy)),
+        ">" => SV::B(zz::gt(&sx, &sy)),
+        "<" => SV::B(zz::lt(&sx, &sy)),
+        other => panic!("prover: {other} on a Decimal"),
+    }
 }
 
 /// Marks a call-site goal raised by a definition's own spec (an `at` in an ensure): the call doesn't evaluate its
@@ -496,6 +536,8 @@ impl<'m> Prover<'m> {
             replay_draws: vec![],
             witness_draws: IndexMap::new(),
             sums: IndexMap::new(),
+            decimal_sums: BTreeSet::new(),
+            last_sum_decimal: false,
             text_params: IndexMap::new(),
             acct_params: BTreeSet::new(),
             list_params: IndexMap::new(),
@@ -560,6 +602,7 @@ impl<'m> Prover<'m> {
                 // the recursive function is built over formal constants: no goal can be stated there ...
                 self.quiet += 1;
                 let t = self.sum_term(j, body, cond.as_deref(), env, cur, post, &lo, &hi);
+                let dec_sum = self.last_sum_decimal;
                 self.quiet -= 1;
                 // ... so a body that raises one (an `at`) is gone over again for every j in the range
                 if [&**body].into_iter().chain(cond.as_deref()).any(|e| raises_goals(self.defs, e)) {
@@ -572,11 +615,18 @@ impl<'m> Prover<'m> {
                     self.sev(body, &e2, cur, post);
                     self.ranges.pop();
                 }
-                SV::I(t)
+                if dec_sum {
+                    SV::D(t)
+                } else {
+                    SV::I(t)
+                }
             }
             Expr::Bin(op, l, r) => {
                 let l = self.sev(l, env, cur, post);
                 let r = self.sev(r, env, cur, post);
+                if matches!(l, SV::D(_)) || matches!(r, SV::D(_)) {
+                    return decimal_op(op, &l, &r);
+                }
                 if let (SV::Q(a), SV::Q(b)) = (&l, &r) {
                     match *op {
                         "=" => return SV::B(zz::eq_list(a, b)),
@@ -624,6 +674,11 @@ impl<'m> Prover<'m> {
                 }
                 if n == "[]" {
                     return SV::Q(zz::list_empty());
+                }
+                if n.starts_with(|c: char| c.is_ascii_digit()) {
+                    if let Ok(v) = crate::syntax::decimal_value(n) {
+                        return SV::D(zz::val(v));
+                    }
                 }
                 if let Some(v) = self.field_of(env, n) {
                     return v;
@@ -683,6 +738,7 @@ impl<'m> Prover<'m> {
                         SV::B(_) => SV::B(Bool::new_const(name)),
                         SV::S(_) => SV::S(zz::text_const(&name)),
                         SV::Q(_) => SV::Q(zz::list_const(&name)),
+                        SV::D(_) => SV::D(zz::int(&name)),
                         _ => SV::I(zz::int(&name)),
                     };
                     (v.clone(), f)
@@ -692,7 +748,9 @@ impl<'m> Prover<'m> {
             let fpost = post.map(|s| formal_state(s, &format!("{p}_post")));
             let (flo, fhi) = (zz::int(&format!("{p}_from")), zz::int(&format!("{p}_to")));
             let env2 = env_with(&fenv, j, SV::I(zz::sub(&fhi, &zz::val(1))));
-            let x = self.sev(body, &env2, &fcur, fpost.as_ref()).i().clone();
+            let term = self.sev(body, &env2, &fcur, fpost.as_ref());
+            let dec = matches!(term, SV::D(_));
+            let x = term.i().clone();
             let step = match cond {
                 Some(c) => {
                     let keep = self.sev(c, &env2, &fcur, fpost.as_ref()).b().clone();
@@ -708,7 +766,8 @@ impl<'m> Prover<'m> {
             let f = zz::rec_sum(&p, &formals, &flo, &fhi, &step);
             // each term's bounds over every environment and state: interval arithmetic on the syntax (a filtered
             // term can also be 0), then a validity check of `step >= 0` / `step <= 0` where that is stronger
-            let (mut m, mut big_m) = term_bounds(body);
+            // (from the syntax, so not for Decimal terms, whose literals are scaled)
+            let (mut m, mut big_m) = if dec { (None, None) } else { term_bounds(body) };
             if cond.is_some() {
                 (m, big_m) = (m.map(|x| x.min(0)), big_m.map(|x| x.max(0)));
             }
@@ -724,7 +783,11 @@ impl<'m> Prover<'m> {
                 big_m = Some(0);
             }
             self.sums.insert(key.clone(), (f, m, big_m));
+            if dec {
+                self.decimal_sums.insert(key.clone());
+            }
         }
+        self.last_sum_decimal = self.decimal_sums.contains(&key);
         let mut args: Vec<Dynamic> = free.iter().map(|v| value(&env[v])).collect();
         args.extend(state_args(cur));
         if let Some(p) = post {
@@ -843,6 +906,12 @@ impl<'m> Prover<'m> {
     /// A fresh value of a definition's result: an Int, or a record's leaves as one constructor value.
     fn fresh_result(&self, d: &Def, make: &mut dyn FnMut(&str, bool) -> SV) -> Option<SV> {
         let r = d.ret.as_ref()?;
+        if r == "Decimal" {
+            return Some(match make("", false) {
+                SV::I(x) => SV::D(x),
+                v => v,
+            });
+        }
         if !self.defs.records.contains_key(r) {
             return Some(make("", false));
         }
@@ -883,6 +952,9 @@ impl<'m> Prover<'m> {
             }
             if zz::holds_list(&s.maps[x]) {
                 return SV::Q(zz::select_list(&s.maps[x], a[0].i()));
+            }
+            if self.defs.decimal_states.iter().any(|t| t == x) {
+                return SV::D(zz::select(&s.maps[x], a[0].i()));
             }
             return SV::I(zz::select(&s.maps[x], a[0].i()));
         }
@@ -935,6 +1007,9 @@ impl<'m> Prover<'m> {
             let m = match &a[1] {
                 SV::S(t) => zz::store_text(&s.maps[x], a[0].i(), t),
                 SV::Q(xs) => s.maps[x].store(a[0].i(), xs),
+                SV::I(n) if self.defs.decimal_states.iter().any(|t| t == x) => {
+                    zz::store(&s.maps[x], a[0].i(), &zz::mul(n, &zz::val(crate::syntax::UNIT)))
+                }
                 v => zz::store(&s.maps[x], a[0].i(), v.i()),
             };
             s.maps.insert(x.to_string(), m);
@@ -973,7 +1048,7 @@ impl<'m> Prover<'m> {
     fn modular_call(&mut self, callee: &Def, args: &[SV], s: &mut Sym) -> Option<SV> {
         self.measure_goal(callee, args);
         self.rely_on(&callee.name);
-        let mut env: Env = callee.params.iter().zip(args).map(|((p, _), v)| (p.clone(), v.clone())).collect();
+        let mut env: Env = callee.params.iter().zip(args).map(|((p, t), v)| (p.clone(), as_param(t, v))).collect();
         let base = format!("{}_result", callee.name);
         let result = self.fresh_result(callee, &mut |f, text| {
             let name = if f.is_empty() { base.clone() } else { format!("{base}_{}", f.replace('.', "_")) };
@@ -1187,7 +1262,7 @@ impl<'m> Prover<'m> {
                 }
             })
             .expect("a function returns a value");
-        let mut env: Env = f.params.iter().zip(args).map(|((p, _), v)| (p.clone(), v.clone())).collect();
+        let mut env: Env = f.params.iter().zip(args).map(|((p, t), v)| (p.clone(), as_param(t, v))).collect();
         env.insert("result".into(), r.clone());
         self.quiet += 1;
         for c in &f.ensures {
@@ -1716,14 +1791,17 @@ impl<'m> Prover<'m> {
                 let v = match t.as_str() {
                     "Text" => SV::S(zz::text_const(p)),
                     "List" => SV::Q(zz::list_const(p)),
+                    "Decimal" => SV::D(zz::int(p)),
                     _ => SV::I(zz::int(p)),
                 };
                 (p.clone(), v)
             })
             .collect();
         // Int and Account parameters; Text ones are kept apart (a model gives them as strings)
-        let params: IndexMap<String, ZInt> =
-            env.iter().filter_map(|(p, v)| if let SV::I(x) = v { Some((p.clone(), x.clone())) } else { None }).collect();
+        let params: IndexMap<String, ZInt> = env
+            .iter()
+            .filter_map(|(p, v)| if let SV::I(x) | SV::D(x) = v { Some((p.clone(), x.clone())) } else { None })
+            .collect();
         self.text_params =
             env.iter().filter_map(|(p, v)| if let SV::S(x) = v { Some((p.clone(), x.clone())) } else { None }).collect();
         self.list_params =
@@ -2133,6 +2211,8 @@ impl<'m> Prover<'m> {
                     world.insert(letter, (bal, owners[&o].clone()));
                 }
                 args.push(Value::Str(letters[&v].clone()));
+            } else if t == "Decimal" {
+                args.push(crate::run::decimal(v as Int));
             } else {
                 args.push(Value::Int(v));
             }
@@ -2268,8 +2348,11 @@ impl<'m> Prover<'m> {
             world_src += &format!(" now:{now}");
         }
         for (x, kv) in &maps {
+            let dec = self.defs.decimal_states.contains(x);
             for (k, v) in kv {
-                world_src += &format!(" {}.{}:{}", x, key_text(k), v);
+                // a Decimal state's entry with its point, so the line parses back to the same value
+                let shown = if dec { crate::syntax::decimal_text(*v) } else { v.to_string() };
+                world_src += &format!(" {}.{}:{}", x, key_text(k), shown);
             }
         }
         for (x, kv) in &texts {
@@ -2290,6 +2373,7 @@ impl<'m> Prover<'m> {
         let shown_args = args.iter().zip(&d.params).map(|(a, (_, t))| match a {
             Value::Str(v) if t == "Text" => crate::syntax::quote(v),
             Value::Ctor(_, xs) if t == "List" => list_text(&xs.iter().filter_map(Value::num).collect::<Vec<_>>()),
+            Value::Ctor(_, xs) if t == "Decimal" => crate::syntax::decimal_text(xs.first().and_then(Value::num).unwrap_or(0)),
             a => a.str(),
         });
         let call = std::iter::once(d.name.clone()).chain(shown_args).collect::<Vec<_>>().join(" ");
@@ -2338,7 +2422,8 @@ impl<'m> Prover<'m> {
             let got = after.maps.get(x).and_then(|kv| kv.get(k)).copied().unwrap_or(0);
             let was = maps.get(x).and_then(|kv| kv.get(k)).copied().unwrap_or(0);
             if got != was {
-                after_src += &format!(" {}.{}:{}", x, key_text(k), got);
+                let shown = if self.defs.decimal_states.contains(x) { crate::syntax::decimal_text(got) } else { got.to_string() };
+                after_src += &format!(" {}.{}:{}", x, key_text(k), shown);
             }
         }
         for (x, k) in &text_keys {

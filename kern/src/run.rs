@@ -396,6 +396,46 @@ pub fn handler(name: &str) -> Option<(usize, &'static str)> {
 }
 
 /// `X.get` / `X.set` for a module's `state X Key` declaration: (X, op, key type).
+/// A Decimal value: a constructor value of this name holding its scaled Int (DECISIONS.md, decimals).
+pub const DEC: &str = "Decimal";
+
+pub fn decimal(n: Int) -> Value {
+    Value::Ctor(DEC.into(), vec![Value::Int(n)])
+}
+
+/// (scaled value, is a Decimal) for a Decimal or an Int (an Int promoted exactly).
+fn decimal_or_int(v: &Value) -> Option<(Int, bool)> {
+    match v {
+        Value::Ctor(c, xs) if c == DEC => match xs.as_slice() {
+            [Value::Int(n)] => Some((*n, true)),
+            _ => None,
+        },
+        Value::Int(n) => Some((*n, false)),
+        _ => None,
+    }
+}
+
+/// Decimal arithmetic: `+ -` and comparisons exact (an Int promoted); Decimal × Int exact; Decimal × Decimal and
+/// `/` by an Int round down (floor), as Int `/` does.
+fn decimal_op(op: &str, (x, xd): (Int, bool), (y, yd): (Int, bool)) -> RResult<Value> {
+    let up = |n: Int, d: bool| if d { Ok(n) } else { checked(n.checked_mul(crate::syntax::UNIT)) };
+    let (sx, sy) = (up(x, xd)?, up(y, yd)?);
+    Ok(match op {
+        "+" => decimal(checked(sx.checked_add(sy))?),
+        "-" => decimal(checked(sx.checked_sub(sy))?),
+        "*" if xd && yd => decimal(floordiv(checked(x.checked_mul(y))?, crate::syntax::UNIT)?),
+        "*" => decimal(checked(x.checked_mul(y))?),
+        "/" if xd && !yd => decimal(floordiv(x, y)?),
+        "=" => Value::Bool(sx == sy),
+        "!=" => Value::Bool(sx != sy),
+        ">=" => Value::Bool(sx >= sy),
+        "<=" => Value::Bool(sx <= sy),
+        ">" => Value::Bool(sx > sy),
+        "<" => Value::Bool(sx < sy),
+        _ => return Err(RunError::Kern(format!("cannot evaluate operator {} on a Decimal", op))),
+    })
+}
+
 /// A list value: a constructor value of this name holding its Ints (DECISIONS.md, lists).
 pub const LIST: &str = "List";
 
@@ -408,7 +448,10 @@ pub fn example_args(ex: &crate::syntax::Example) -> Vec<Value> {
         .map(|(i, k)| match (ex.lists.get(&i), k) {
             (Some(xs), _) => Value::Ctor(LIST.into(), xs.iter().map(|x| Value::Int(*x)).collect()),
             (None, Key::Int(n)) => Value::Int(*n),
-            (None, Key::Str(s)) => Value::Str(s.clone()),
+            (None, Key::Str(s)) => match crate::syntax::decimal_value(s) {
+                Ok(v) => decimal(v),
+                Err(_) => Value::Str(s.clone()),
+            },
         })
         .collect()
 }
@@ -670,6 +713,11 @@ impl<'m, 'p> Interp<'m, 'p> {
                 if n == "[]" {
                     return Ok(Value::Ctor(LIST.into(), vec![]));
                 }
+                if n.starts_with(|c: char| c.is_ascii_digit()) {
+                    if let Ok(v) = crate::syntax::decimal_value(n) {
+                        return Ok(decimal(v));
+                    }
+                }
                 // `p.x` where p holds a record value (a constructor value, its leaves in order)
                 let mut at = n.len();
                 while let Some(i) = n[..at].rfind('.') {
@@ -816,6 +864,10 @@ impl<'m, 'p> Interp<'m, 'p> {
                 let v = v.or_else(|| world.backing.as_ref().and_then(|b| b.0.text_cell(x, &key)));
                 return Ok(Value::Str(v.filter(|v| !v.is_empty()).unwrap_or_else(|| NONE.into())));
             }
+            let dec = defs.decimal_states.iter().any(|t| t == x);
+            if op == "get" && dec {
+                return Ok(decimal(world.map_get(x, &key)));
+            }
             if op == "get" {
                 return Ok(if text { Value::Str(world.text_get(x, &key)) } else { Value::Int(world.map_get(x, &key)) });
             }
@@ -827,7 +879,13 @@ impl<'m, 'p> Interp<'m, 'p> {
                 world.text_set(x, key, t.clone());
                 return Ok(Value::None);
             }
-            let v = v.num().ok_or_else(|| RunError::Type(format!("state {} holds Int, got {}", x, v.repr())))?;
+            let v = if dec {
+                // a Decimal (an Int stored as that many units)
+                decimal_or_int(v).map(|(n, d)| if d { Ok(n) } else { checked(n.checked_mul(crate::syntax::UNIT)) }).transpose()?
+            } else {
+                v.num()
+            };
+            let v = v.ok_or_else(|| RunError::Type(format!("state {} holds {}, got {}", x, if dec { "Decimals" } else { "Int" }, args[1].repr())))?;
             world.map_set(x, key, v);
             return Ok(Value::None);
         }
@@ -896,6 +954,16 @@ impl<'m, 'p> Interp<'m, 'p> {
         if let Some((p, _)) = d.params.iter().zip(&args).find(|((_, t), a)| t == "Account" && **a == Value::Str(NONE.into())).map(|x| x.0) {
             return Err(RunError::Kern(format!("{NONE_USED}: {} got none for `{}`", d.name, p)).into());
         }
+        // an Int where a Decimal is wanted is that many units
+        let args: Vec<Value> = d
+            .params
+            .iter()
+            .zip(args)
+            .map(|((_, t), a)| match (&a, t.as_str()) {
+                (Value::Int(n), "Decimal") => n.checked_mul(crate::syntax::UNIT).map(decimal).ok_or_else(|| RunError::Kern("a Decimal past i128".into())),
+                _ => Ok(a),
+            })
+            .collect::<RResult<_>>()?;
         let mut env: Env = d.params.iter().map(|(p, _)| p.clone()).zip(args).collect();
         for n in &d.needs {
             if let Need::Need(c, ctor, cargs) = n {
@@ -1047,6 +1115,9 @@ impl<'m, 'p> Interp<'m, 'p> {
             }
             if t == "List" && !matches!(a, Value::Ctor(c, xs) if c == LIST && xs.iter().all(|x| matches!(x, Value::Int(_)))) {
                 return kern(format!("bad call: `{}` must be a List, got {}", p, a.repr()));
+            }
+            if t == "Decimal" && decimal_or_int(a).is_none() {
+                return kern(format!("bad call: `{}` must be a Decimal, got {}", p, a.repr()));
             }
         }
         for x in &defs.account_states {
@@ -1264,6 +1335,11 @@ fn floordiv(a: Int, b: Int) -> RResult<Int> {
 fn binop(op: &str, a: &Value, b: &Value) -> RResult<Value> {
     if let ("+", Value::Str(s), Value::Str(t)) = (op, a, b) {
         return Ok(Value::Str(format!("{s}{t}"))); // Text + Text joins them
+    }
+    if let (Some(x), Some(y)) = (decimal_or_int(a), decimal_or_int(b)) {
+        if x.1 || y.1 {
+            return decimal_op(op, x, y);
+        }
     }
     let (x, y) = (a.num(), b.num());
     match op {

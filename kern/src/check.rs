@@ -68,8 +68,16 @@ pub fn run_examples(defs: &Module, d: &Def) -> Result<Vec<ExampleResult>, Crash>
                 Value::Ctor(_, vs) => vs.clone(),
                 v => vec![v.clone()],
             };
-            if leaves != want.iter().map(|n| Value::Int(*n)).collect::<Vec<_>>() {
-                let shown: Vec<String> = leaves.iter().map(Value::str).collect();
+            // `ok 37` for a Decimal result is 37.0
+            let dec = matches!(&got, Value::Ctor(c, _) if c == crate::run::DEC);
+            let want: Vec<Value> = want
+                .iter()
+                .enumerate()
+                .map(|(i, n)| Value::Int(if dec && !ex.result_points.get(i).copied().unwrap_or(false) { n * crate::syntax::UNIT } else { *n }))
+                .collect();
+            if leaves != want {
+                let shown: Vec<String> =
+                    leaves.iter().map(|v| if dec { crate::syntax::decimal_text(v.num().unwrap_or(0)) } else { v.str() }).collect();
                 out.push(ExampleResult { src: ex.src.clone(), pass: false, got: format!("ok {}", shown.join(" ")) });
                 continue;
             }
@@ -216,6 +224,10 @@ fn rand_args(d: &Def, accts: &[&str], rnd: &mut Random) -> Vec<Value> {
             args.push(Value::Str(rnd.choice(accts).to_string()));
         } else if t == "Text" {
             args.push(Value::Str(rnd.choice(&TEXT_POOL).to_string()));
+        } else if t == "Decimal" {
+            // whole and fractional amounts, some negative
+            let opts = [rnd.randint(-50_000, 50_000), rnd.randint(0, 2_000_000), rnd.randint(0, 120_000_000)];
+            args.push(crate::run::decimal(*rnd.choice(&opts) as Int));
         } else if t == "List" {
             // 0 to 4 small Ints
             let n = rnd.randint(0, 4);

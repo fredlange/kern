@@ -106,6 +106,11 @@ pub struct Example {
     /// List state entries (`cart.4:[1 2]`), before and after
     pub list_maps: IndexMap<String, IndexMap<Key, Vec<Int>>>,
     pub after_lists: IndexMap<String, IndexMap<Key, Vec<Int>>>,
+    /// state entries written with a point (`price.4:12.5`), scaled; `normalize_decimals` merges them into the maps
+    pub decimal_maps: Maps,
+    pub after_decimals: Maps,
+    /// which `ok N …` values were written with a point
+    pub result_points: Vec<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -162,6 +167,8 @@ pub struct Module {
     pub account_states: Vec<String>,
     /// declared states whose values are lists of Ints (`state NAME KEY -> List`); an unset entry is `[]`
     pub list_states: Vec<String>,
+    /// declared states whose values are Decimals (`state NAME KEY -> Decimal`), held scaled (DECISIONS: decimals)
+    pub decimal_states: Vec<String>,
     /// set by the package loader (kern/package.py's `defs.package`)
     pub package: Option<crate::package::Package>,
 }
@@ -383,6 +390,42 @@ fn tok_repr(t: Option<&Tok>) -> String {
     }
 }
 
+/// Decimal places of every `Decimal` (DECISIONS.md, decimals): a value is an Int count of 10^-SCALE.
+pub const SCALE: u32 = 4;
+pub const UNIT: Int = 10_000;
+
+/// A Decimal literal's scaled value: `12.5` is 125000, `-0.0125` is -125. More than SCALE fraction digits, or a
+/// value past i64, is an error (never rounded).
+pub fn decimal_value(text: &str) -> Result<Int, String> {
+    let (neg, body) = match text.strip_prefix('-') {
+        Some(b) => (true, b),
+        None => (false, text),
+    };
+    let (whole, frac) = body.split_once('.').ok_or_else(|| format!("{text} is not a Decimal"))?;
+    if whole.is_empty() || frac.is_empty() || !whole.chars().chain(frac.chars()).all(|c| c.is_ascii_digit()) {
+        return Err(format!("{text} is not a Decimal"));
+    }
+    if frac.len() > SCALE as usize {
+        return Err(format!("{text} has more than {SCALE} decimal places (a Decimal is exact to 0.0001)"));
+    }
+    let digits = format!("{whole}{frac:0<4}");
+    let n: Int = digits.parse().map_err(|_| out_of_range(text))?;
+    let n = if neg { -n } else { n };
+    if !in_range(n) {
+        return Err(format!("{text}: a Decimal must fit i64 as a count of 0.0001s"));
+    }
+    Ok(n)
+}
+
+/// A scaled Decimal as written: 125000 is `12.5`, 120000 is `12.0`.
+pub fn decimal_text(n: Int) -> String {
+    let (sign, a) = if n < 0 { ("-", -n) } else { ("", n) };
+    let (w, f) = (a / UNIT, a % UNIT);
+    let f = format!("{f:04}");
+    let f = f.trim_end_matches('0');
+    format!("{sign}{w}.{}", if f.is_empty() { "0" } else { f })
+}
+
 fn is_name_start(c: char) -> bool {
     c.is_ascii_alphabetic() || c == '_'
 }
@@ -423,6 +466,18 @@ pub fn lex(s: &str, line: Option<usize>) -> PResult<Vec<Tok>> {
             let start = p;
             while p < chars.len() && chars[p].is_ascii_digit() {
                 p += 1;
+            }
+            if p + 1 < chars.len() && chars[p] == '.' && chars[p + 1].is_ascii_digit() {
+                // a Decimal literal, `12.5`: kept as written (a name-shaped token; `decimal_value` reads it)
+                p += 1;
+                while p < chars.len() && chars[p].is_ascii_digit() {
+                    p += 1;
+                }
+                let text: String = chars[start..p].iter().collect();
+                decimal_value(&text).map_err(|m| ParseError::at(m, line))?;
+                toks.push(Tok::Name(text));
+                pos = p;
+                continue;
             }
             let text: String = chars[start..p].iter().collect();
             let n: Int = text
@@ -900,6 +955,11 @@ pub type Maps = IndexMap<String, IndexMap<Key, Int>>;
 /// Text state entries: state -> {key: text}
 pub type Texts = IndexMap<String, IndexMap<Key, String>>;
 
+fn decimal_item() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    re(&R, r"^([a-z]\w*(?:\.[a-z]\w*)*)\.([A-Z]\w*|-?\d+):(-?\d+\.\d+)$")
+}
+
 fn account_item() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     re(&R, r"^([a-z]\w*(?:\.[a-z]\w*)*)\.([A-Z]\w*|-?\d+):([A-Z]\w*|none)$")
@@ -1045,7 +1105,23 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
     }
     // split_now / split_maps are line-free (the host parses worlds too): put the eg's line on their errors
     let at = |e: ParseError| ParseError::at(e.0, line);
-    let (world_src, list_maps) = split_lists(parts[0]);
+    let split_decimals = |src: &str| -> PResult<(String, Maps)> {
+        let (mut items, mut out): (Vec<&str>, Maps) = (vec![], Maps::new());
+        for item in src.split_whitespace() {
+            match decimal_item().captures(item) {
+                Some(m) => {
+                    let k = &m[2];
+                    let key = if k.chars().next().unwrap().is_alphabetic() { Key::Str(k.into()) } else { Key::Int(int(k, line)?) };
+                    let v = decimal_value(&m[3]).map_err(|e| ParseError::at(e, line))?;
+                    out.entry(m[1].to_string()).or_default().insert(key, v);
+                }
+                None => items.push(item),
+            }
+        }
+        Ok((items.join(" "), out))
+    };
+    let (world_src, decimal_maps) = split_decimals(parts[0])?;
+    let (world_src, list_maps) = split_lists(&world_src);
     let (world_src, texts) = split_texts(&world_src, line)?;
     let (world_src, now) = split_now(&world_src).map_err(at)?;
     let (world_src, maps) = split_maps(&world_src).map_err(at)?;
@@ -1083,17 +1159,24 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
     }
     let out: Vec<&str> = sides[1].split_whitespace().collect();
     let mut result = None;
+    let mut result_points = vec![];
     let outcome = if out == ["ok"] {
         Outcome::Ok
     } else if out.len() >= 2 && out[0] == "ok" {
         // `ok N` / `ok N M …`: the returned value (a record's leaves in order)
         let mut vals = vec![];
         for x in &out[1..] {
-            let n: Int = x.parse().map_err(|_| ParseError::at("want `ok` or `ok N …` (the Ints the call returns)", line))?;
+            if x.contains('.') {
+                vals.push(decimal_value(x).map_err(|e| ParseError::at(e, line))?);
+                result_points.push(true);
+                continue;
+            }
+            let n: Int = x.parse().map_err(|_| ParseError::at("want `ok` or `ok N …` (the values the call returns)", line))?;
             if !in_range(n) {
                 return Err(ParseError::at(out_of_range(x), line));
             }
             vals.push(n);
+            result_points.push(false);
         }
         result = Some(vals);
         Outcome::Ok
@@ -1108,7 +1191,8 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
         }
         Outcome::Fail(ctor.to_string(), vals.map_err(|_| usage())?)
     };
-    let (after_src, after_lists) = if parts.len() >= 3 { split_lists(parts[2]) } else { (String::new(), IndexMap::new()) };
+    let (after_src, after_decimals) = if parts.len() >= 3 { split_decimals(parts[2])? } else { (String::new(), Maps::new()) };
+    let (after_src, after_lists) = if parts.len() >= 3 { split_lists(&after_src) } else { (String::new(), IndexMap::new()) };
     let (after_src, after_texts) = if parts.len() >= 3 { split_texts(&after_src, line)? } else { (String::new(), Texts::new()) };
     let (after_src, after_maps) = if parts.len() >= 3 { split_maps(&after_src).map_err(at)? } else { (String::new(), Maps::new()) };
     let events = if parts.len() == 4 { Some(parse_eg_events(parts[3], line)?) } else { None };
@@ -1131,6 +1215,9 @@ pub fn parse_example(src: &str, line: Option<usize>) -> PResult<Example> {
         lists,
         list_maps,
         after_lists,
+        decimal_maps,
+        after_decimals,
+        result_points,
     })
 }
 
@@ -1325,6 +1412,7 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
                         Some("Text") => defs.text_states.push(m[1].to_string()),
                         Some("Account") => defs.account_states.push(m[1].to_string()),
                         Some("List") => defs.list_states.push(m[1].to_string()),
+                        Some("Decimal") => defs.decimal_states.push(m[1].to_string()),
                         Some("Int") | None => {}
                         // a record: one state per field, made by flatten_records
                         Some(r) => {
@@ -1451,6 +1539,7 @@ pub fn parse_module(text: &str, expand: bool) -> PResult<Module> {
         let consts = defs.consts.clone();
         resolve_consts(&mut defs, &consts, &IndexMap::new())?;
         flatten_records(&mut defs)?;
+        normalize_decimals(&mut defs)?;
         expand_refs(&mut defs)?;
     }
     Ok(defs)
@@ -2021,6 +2110,39 @@ impl Records<'_> {
     }
 }
 
+/// `eg` lines and Decimal states: an Int written at a Decimal state's entry means that many units (`price.4:12` is
+/// 12.0), so it is scaled; entries written with a point are merged in. A pointed entry for a state that isn't a
+/// Decimal state is an error.
+pub fn normalize_decimals(defs: &mut Module) -> PResult<()> {
+    let dec = defs.decimal_states.clone();
+    for d in defs.defs.values_mut() {
+        for ex in d.examples.iter_mut() {
+            normalize_example(&dec, ex).map_err(|e| ParseError(format!("{}: {}", d.name, e.0)))?;
+        }
+    }
+    Ok(())
+}
+
+/// One example (an `eg` line, or `kern run`'s call and world) against the module's Decimal states.
+pub fn normalize_example(dec: &[String], ex: &mut Example) -> PResult<()> {
+    for (maps, points) in [(&mut ex.maps, &ex.decimal_maps), (&mut ex.after_maps, &ex.after_decimals)] {
+        for x in dec {
+            if let Some(kv) = maps.get_mut(x) {
+                for v in kv.values_mut() {
+                    *v = v.checked_mul(UNIT).filter(|n| in_range(*n)).ok_or_else(|| ParseError(format!("{x}: past i64 as a Decimal")))?;
+                }
+            }
+        }
+        for (x, kv) in points {
+            if !dec.contains(x) {
+                return Err(ParseError(format!("`{x}.…` has a point, but state {x} doesn't hold Decimals")));
+            }
+            maps.entry(x.clone()).or_default().extend(kv.iter().map(|(k, v)| (k.clone(), *v)));
+        }
+    }
+    Ok(())
+}
+
 /// A record type's leaf fields in order, `(path, type)`: `a.x` for a field of a nested record (types validated by
 /// flatten_records, so no cycle).
 pub fn record_leaves(records: &IndexMap<String, Vec<(String, String)>>, r: &str) -> Vec<(String, String)> {
@@ -2046,7 +2168,7 @@ pub fn flatten_records(defs: &mut Module) -> PResult<IndexMap<String, Vec<String
         return Ok(IndexMap::new());
     }
     for (r, fields) in &defs.records {
-        if ["Int", "Account", "Owner", "Bool", "Event", "Unit", "Text", "List"].contains(&r.as_str()) {
+        if ["Int", "Account", "Owner", "Bool", "Event", "Unit", "Text", "List", "Decimal"].contains(&r.as_str()) {
             return Err(ParseError(format!("record {} has the name of a built-in type", r)));
         }
         for (i, (f, t)) in fields.iter().enumerate() {

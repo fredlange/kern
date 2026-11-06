@@ -113,7 +113,7 @@ see two instants (`clock.now` reads the current one; specs read the start).
 Text (`t:Text`, `state title Int -> Text`, `"…"`, `length`, `+`) is proven with Z3's strings. In `eg` lines,
 counterexamples and `kern run` a Text is quoted (`name_it 1 "a b"`, `title.1:"a b"`), so a literal may hold
 spaces and `|`. Random tests draw Text from a small pool (`""`, `"a"`, `"ab"`, `"hello world"`, `"Ω"`).
-`kern build` and the host's store don't carry Text yet (runtime's follow-up).
+`kern build` and the host carry Text too (parameters, state, events; docs/HOST.md).
 
 A sum (`sum j from A to B of E`) is proven through a Z3 recursive function, so a loop invariant like
 `ledger.balance' pool = ledger.balance pool + sum j from lo to k of hold.get j` is kept by one unfolding per
@@ -480,6 +480,28 @@ body
 A loop calling `pay_one i payer` for `i from 0 to n` proves its balance invariant; its `ok otherwise` needs the
 prover to go from "no employee in [0, n) is none" (a count, `0 = sum j from 0 to n of 1 where employee.get j =
 none`) to one index, which it can't yet (`?`). There is no loop over every account in the world.
+
+## Money with decimals
+
+`Decimal` is exact to 0.0001. Sums, differences and comparisons are exact; a price times a quantity (an Int) is
+exact; a Decimal times a Decimal (a rate) and `/` round down, so state what the rounding may lose:
+
+```kern clean
+with_vat amount:Decimal -> Decimal
+  ensure result = amount * 1.25
+  ensure result >= amount when amount >= 0
+body
+  result = amount * 1.25
+
+split amount:Decimal -> Decimal
+  ensure result * 3 <= amount
+  ensure amount - result * 3 < 0.0003
+  eg | split 10 -> ok 3.3333
+body
+  result = amount / 3
+```
+
+In `eg` lines a Decimal is written with its point (`12.5`, `price.4:2.25`); an Int there means that many units.
 
 ## Limits worth knowing
 

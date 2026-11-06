@@ -543,6 +543,74 @@ fn a_guarantee_that_rests_on_an_unproven_call_site_condition_is_conditional() {
     assert!(reps["total_bad"].guarantees.iter().all(|g| g.status != Status::Vacuous), "{:?}", reps["total_bad"].guarantees);
 }
 
+#[test]
+fn s5_decimals_check() {
+    // closed (S5, decimals, DECISIONS.md 2026-11-06): exact fixed-point to 0.0001; an Int promotes exactly;
+    // Decimal × Decimal and `/` floor; parameters, results, lets, state values; `eg` lines with points
+    must_check("gap S5 decimals", "state price Int -> Decimal
+state paid Int -> Decimal
+
+set_price k:Int p:Decimal
+  need p > 0 else BadPrice
+  ok otherwise
+  ensure price.get' k = p
+  eg | set_price 4 12.5 -> ok | price.4:12.5
+  eg | set_price 4 0 -> BadPrice
+body
+  price.set k p
+
+cost k:Int qty:Int -> Decimal
+  ensure result = price.get k * qty
+  eg price.4:12.5 | cost 4 3 -> ok
+body
+  result = price.get k * qty
+
+with_vat amount:Decimal -> Decimal
+  ensure result = amount * 1.25
+  ensure result >= amount when amount >= 0
+body
+  result = amount * 1.25
+
+split amount:Decimal -> Decimal
+  ensure result * 3 <= amount
+  ensure amount - result * 3 < 0.0003
+body
+  result = amount / 3
+
+pay k:Int qty:Int
+  need qty > 0 else BadQty
+  ok otherwise
+  ensure paid.get' k = paid.get k + price.get k * qty
+  eg price.4:2.25 paid.4:1 | pay 4 2 -> ok | paid.4:5.5
+body
+  c = cost k qty
+  paid.set k (paid.get k + c)
+");
+}
+
+#[test]
+fn s5_a_decimal_is_exact_and_rounds_down_and_its_counterexamples_replay() {
+    use kern::report::Status;
+    let src = "vat a:Decimal -> Decimal\n  ensure result = a * 1.2\n  eg | vat 10 -> ok 12.5\n  eg | vat 2.5 -> ok 3.125\nbody\n  result = a * 1.25\n";
+    let reps = reports(&parse(src));
+    let g = &reps["vat"].guarantees[0];
+    assert_eq!(g.status, Status::Refuted);
+    assert!(g.counterexample.as_ref().unwrap().confirmed_by_interpreter, "{:?}", g.counterexample);
+    assert!(reps["vat"].examples.iter().all(|e| e.pass), "{:?}", reps["vat"].examples);
+    // floor toward -inf, as Int `/`: -1 / 3 is -0.3334
+    let defs = parse("third a:Decimal -> Decimal\n  ensure result = 0 - 0.3334 when a = 0 - 1\nbody\n  result = a / 3\n");
+    assert!(reports(&defs)["third"].clean);
+    for (src, want) in [
+        ("f a:Decimal -> Decimal\nbody\n  result = a * 1.23456\n", "more than 4 decimal places"),
+        ("state n Int\n\nf k:Int\n  ok otherwise\n  eg n.1:1.5 | f 1 -> ok\nbody\n  n.set k 1\n", "doesn't hold Decimals"),
+    ] {
+        let e = parse_module(src, true).unwrap_err();
+        assert!(e.0.contains(want), "{src}: {}", e.0);
+    }
+    let e = analyse(&parse("f a:Decimal\n  need a > 0 else Bad a\nbody\n  need 1 = 1 else No\n"), false, None, None).unwrap_err();
+    assert!(e.message().contains("payloads are Int or Account"), "{}", e.message());
+}
+
 const RECORD_SRC: &str = "record Point x:Int y:Int
 
 state px Int

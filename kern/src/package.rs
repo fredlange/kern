@@ -341,6 +341,7 @@ pub fn load(path: &str, overrides: &IndexMap<String, String>) -> Result<Module, 
         merged.record_states.extend(defs.record_states.iter().map(|(a, b)| (a.clone(), b.clone())));
         merged.account_states.extend(defs.account_states.iter().cloned());
         merged.list_states.extend(defs.list_states.iter().cloned());
+        merged.decimal_states.extend(defs.decimal_states.iter().cloned());
         merged.channels.extend(defs.channels.iter().cloned());
         merged.invariants.extend(defs.invariants.iter().cloned());
         for d in defs.defs.values_mut().chain(defs.handlers.values_mut()) {
@@ -371,6 +372,7 @@ pub fn load(path: &str, overrides: &IndexMap<String, String>) -> Result<Module, 
         }
     }
     let record_uses = crate::syntax::flatten_records(&mut merged).map_err(|e| load_error(&path, &e.0, None))?;
+    crate::syntax::normalize_decimals(&mut merged).map_err(|e| load_error(&path, &e.0, None))?;
     // a stored record's field states (`order.qty`) belong to the module that declares `order`
     for x in merged.record_states.keys() {
         let owner = origin["state"].get(x).cloned();

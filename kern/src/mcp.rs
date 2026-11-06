@@ -528,8 +528,9 @@ pub fn kern_run(file: &str, call: &str, world: &str) -> T<Value> {
     let (_, defs) = load(file)?;
     let pe = |e: crate::syntax::ParseError| ToolError("ParseError", e.0);
     // Text in the call or the world: parse both as an `eg` line does (quote-aware)
-    let (mut w, name, args): (World, String, Vec<V>) = if call.contains('"') || world.contains('"') || call.contains('[') || world.contains('[') || !defs.account_states.is_empty() {
-        let ex = crate::syntax::parse_call(world, call).map_err(pe)?;
+    let (mut w, name, args): (World, String, Vec<V>) = if call.contains('"') || world.contains('"') || call.contains('[') || world.contains('[') || !defs.account_states.is_empty() || !defs.decimal_states.is_empty() {
+        let mut ex = crate::syntax::parse_call(world, call).map_err(pe)?;
+        crate::syntax::normalize_example(&defs.decimal_states, &mut ex).map_err(pe)?;
         need_def(&defs, &ex.call.0)?;
         let args: Vec<V> = crate::run::example_args(&ex);
         (World::of_example(&ex), ex.call.0.clone(), args)
