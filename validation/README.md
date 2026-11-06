@@ -56,6 +56,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 | `--accts N` | Accounts as state values (`gen_acct`, default 100, own stream): join, pay through a stored member with the `!= none` guard sometimes dropped, move, leave, a boss chain. The oracle draws Account-valued entries from the world's accounts and `none`; a 'none is not an account' run contradicts the page only if every "is an account, not none" goal of the definition is proven |
 | `--lists N` | lists (`gen_list`, default 100; was 0 until f3af834 fixed a "Never succeeds" label): appends to a list state, reads near both ends guarded or not, totals by `sum`, equality. An `at` outside the list contradicts the page only if every "is inside the list" goal is proven |
 | `--decs N` | decimals (`gen_dec`, default 100, own stream): products and quotients of literals (negatives too) claimed equal to their floor value or to a near miss (toward zero, ceiling, half up), an accumulating Decimal state, Int promotion, a floor bound on `x / n` |
+| `--lemmas N` | sums under `invariant o:Int price.get o >= 0` (`gen_lemma`, default 100, own stream): a total, a zero count, a sum after a write that may break the invariant, a body that breaks and restores it, sometimes another definition breaking it |
 | `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`), a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`) a package variant (`agg` in a package `lib` the program's package `use`s), a nested-record variant (`Span` inside `record Wrap s:Span tag:Int`, `w.s` passed whole) and a record-state variant (`hold`/`flag` as the fields of `state cell Int -> Cell`). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (fatal since 7d011af fixed the record counterexamples) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
@@ -140,6 +141,11 @@ succeeds: the label bug sent to lang, fixed in f3af834 (0 contradictions since; 
 **2026-11-06, decimals** (1bdc8b2; `--decs`). Teeth: Decimal × Decimal planted to round half up (prove.rs, not
 committed) gives 3,000 contradictions in 10 of 100; claims written with `*` alone agree with any consistent rounding,
 so the generator computes each literal product's floor value itself. Host and compiled decimals since 60f4588: difftest writes them as the binary does (`12.5`, `price.4:12.5`), fuzzdiff compiles gen_dec, and a sensitivity plant truncates the Decimal product toward zero.
+
+**2026-11-06, sum lemmas** (df05911; `--lemmas`). Teeth: the lemma's premise ("the invariants hold in the state the
+sum reads") planted as true gives 202 contradictions in 24 of 100, all from a body that breaks the invariant, sums,
+and restores it; a definition that leaves it broken can't show the bug, since its other claims are `!` anyway.
+Planting the sign check's premise as true instead makes the prover weaker (31 -> 9 proven), not unsound.
 
 **2026-11-06, short-circuit guards** (9e0c650). `gen_list` also emits `and`/`or` guards in the right and the wrong
 order around an `at`. Teeth: an `or` guarded by its left side instead of its negation (prove.rs, not committed) gives

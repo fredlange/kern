@@ -790,10 +790,13 @@ fn s5_constant_errors_are_reported_not_shadowed() {
         let e = wf_error(&format!("{head}{body}"));
         assert!(e.contains(want), "{body:?}: want {want:?}, got {e:?}");
     }
-    for bad in ["const fee -5", "const fee 2 + 3", "const fee other", "const Fee 5", "const fee", "const fee 5 6",
-                "const need 5", "const result 5"] {
+    // since a884adb a constant may be an expression of literals and other constants (>= 0, no cycle)
+    for bad in ["const fee -5", "const fee 2 - 3", "const fee other", "const Fee 5", "const fee", "const fee 5 6",
+                "const need 5", "const result 5", "const fee bar + 1\nconst bar fee"] {
         assert!(!wf_error(&format!("{bad}\nstate hold Int\n")).is_empty(), "{bad} was accepted");
     }
+    let five = parse("const fee 2 + 3\nstate hold Int\n\nf k:Int\n  ok otherwise\n  ensure hold.get' k = 5\nbody\n  hold.set k fee\n");
+    assert_eq!(five.consts["fee"], 5);
     let e = wf_error("const hold 5\nstate hold Int\n");
     assert!(e.contains("name of a state"), "{e}");
     let e = wf_error("const console 5\nchannel console\n");

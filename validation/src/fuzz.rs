@@ -1317,6 +1317,68 @@ pub fn dec_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         .collect()
 }
 
+// ---------------------------------------------------------------- sum lemmas under invariants (df05911)
+
+/// Sums over a state with `invariant o:Int price.get o >= 0`: a total claimed non-negative, a zero count claimed to
+/// mean no match at an index in range, and a definition that writes price (non-negative, guarded, or possibly
+/// negative, i.e. breaking the invariant) before or after summing. The lemma may be used only where the invariant
+/// holds. Own stream (`lemma_jobs`).
+pub fn gen_lemma(rnd: &mut Random) -> String {
+    let mut lines: Vec<String> = vec!["state price Int".into(), "state flag Int".into(), "invariant o:Int price.get o >= 0".into(), String::new()];
+    let value = choice_str(rnd, &["v", "5", "(0 - 5)", "(v - 3)"]);
+    let guard = rnd.random() < 0.5;
+    match choice_str(rnd, &["after", "spec", "count", "total", "restore", "restore"]) {
+        "restore" => {
+            // the invariant is broken in the middle of the body and restored before the end, so it holds after the
+            // call (✔) while the sum read a state where it didn't: the lemma must not apply to that read
+            lines.extend(["f lo:Int hi:Int k:Int".to_string(), "  ok otherwise".into(), "  ensure flag.get' 0 >= 0".into(), "body".into(),
+                          "  price.set k (0 - 5)".into(), "  flag.set 0 (sum j from lo to hi of price.get j)".into(), "  price.set k 0".into()]);
+        }
+        "after" => {
+            // write, then read the sum of the post-state
+            lines.extend(["f lo:Int hi:Int k:Int v:Int".to_string()]);
+            if guard {
+                lines.push("  need v >= 0 else Neg".into());
+            }
+            lines.extend(["  ok otherwise".to_string(), "  ensure flag.get' 0 >= 0".into(), "body".into()]);
+            if guard {
+                lines.push("  need v >= 0 else Neg".into());
+            }
+            lines.extend([format!("  price.set k {value}"), "  flag.set 0 (sum j from lo to hi of price.get j)".into()]);
+        }
+        "spec" => {
+            lines.extend(["f lo:Int hi:Int k:Int v:Int".to_string(), "  ok otherwise".into(), "  ensure (sum j from lo to hi of price.get' j) >= 0".into(),
+                          "body".into(), format!("  price.set k {value}")]);
+        }
+        "count" => {
+            lines.extend(["f lo:Int hi:Int k:Int".to_string(), "  need lo <= k and k < hi else Out".into(), "  ok otherwise".into(),
+                          format!("  ensure flag.get' 0 = 0 when (sum j from lo to hi of 1 where price.get j = {}) = 0", choice_str(rnd, &["7", "0"])),
+                          "body".into(), "  need lo <= k and k < hi else Out".into(), format!("  if price.get k = {}", choice_str(rnd, &["7", "0", "7"])),
+                          "    flag.set 0 1".into(), "  else".into(), "    flag.set 0 0".into()]);
+        }
+        _ => {
+            lines.extend(["total lo:Int hi:Int -> Int".to_string(), format!("  ensure result {}", choice_str(rnd, &[">= 0", ">= 0", "> 0"])),
+                          "body".into(), "  result = sum j from lo to hi of price.get j".into()]);
+        }
+    }
+    // sometimes another definition in the module breaks the invariant: then nothing may rest on it
+    if rnd.random() < 0.3 {
+        lines.extend([String::new(), "g k:Int".to_string(), "  ok otherwise".into(), "body".into(), "  price.set k (0 - 1)".into()]);
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `n` lemma programs from their own stream, labelled `lemma#i`.
+pub fn lemma_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
+    let mut rnd = Random::from_int(seed * 1_000_003 + 95);
+    (0..n)
+        .map(|i| {
+            let src = gen_lemma(&mut rnd);
+            Job { label: format!("lemma#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------- random assumed-handler programs
 
 /// fuzz.py's gen_handler.
@@ -1938,7 +2000,7 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
         "nested_record_variant_well_formed": fam("sumn#"), "state_record_variant_well_formed": fam("sums#"),
         "frame_record_well_formed": fam("framer#"), "ret_record_well_formed": fam("retr#"),
-        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"), "acct_well_formed": fam("acct#"), "list_well_formed": fam("list#"), "dec_well_formed": fam("dec#"),
+        "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"), "acct_well_formed": fam("acct#"), "list_well_formed": fam("list#"), "dec_well_formed": fam("dec#"), "lemma_well_formed": fam("lemma#"),
         "variant_mismatches": variant_mismatches(results),
     })
 }
@@ -1951,12 +2013,12 @@ pub fn main(argv: &[String]) -> i32 {
         let a = argv[i].as_str();
         match a {
             "--no-mutants" => no_mutants = true,
-            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--rets" | "--accts" | "--lists" | "--decs" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
+            "--seed" | "--loops" | "--handlers" | "--sums" | "--variants" | "--texts" | "--nests" | "--matches" | "--ticks" | "--frames" | "--ckeys" | "--recs" | "--lits" | "--rets" | "--accts" | "--lists" | "--decs" | "--lemmas" | "--runs" | "--jobs" | "--fault" | "--save" if i + 1 < argv.len() => {
                 opt.insert(&a[2..], argv[i + 1].clone());
                 i += 1;
             }
             _ => {
-                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--rets N] [--accts N] [--lists N] [--decs N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
+                eprintln!("usage: fuzz [--seed N] [--loops N] [--handlers N] [--sums N] [--variants N] [--texts N] [--nests N] [--matches N] [--ticks N] [--frames N] [--ckeys N] [--recs N] [--lits N] [--rets N] [--accts N] [--lists N] [--decs N] [--lemmas N] [--runs N] [--no-mutants] [--jobs N] [--fault a|b|c] [--save FILE]");
                 return 2;
             }
         }
@@ -1997,6 +2059,7 @@ pub fn main(argv: &[String]) -> i32 {
     js.extend(acct_jobs(num("seed", 1) as i128, num("accts", 100) as usize, num("runs", 300)));
     js.extend(list_jobs(num("seed", 1) as i128, num("lists", 100) as usize, num("runs", 300)));
     js.extend(dec_jobs(num("seed", 1) as i128, num("decs", 100) as usize, num("runs", 300)));
+    js.extend(lemma_jobs(num("seed", 1) as i128, num("lemmas", 100) as usize, num("runs", 300)));
     let results = run_all(&js, threads as usize);
     let mut s = summarise(&results);
     s["seed"] = json!(num("seed", 1));
