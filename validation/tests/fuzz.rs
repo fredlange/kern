@@ -344,3 +344,44 @@ fn a_small_returning_procedure_fuzz_run_is_clean() {
     let e = &s["tiers"]["ensure"];
     assert!(e["proven"].as_u64().unwrap_or(0) > 20 && e["refuted"].as_u64().unwrap_or(0) > 3, "{e}");
 }
+
+#[test]
+fn record_equality_and_whole_record_sets_are_their_field_expansions() {
+    // 00fedb4 / 6506a42: `p = q` on records means every field equal, `p != q` some field different, nested too; a
+    // whole-record set writes every field. Each must parse to exactly the definitions of its written-out form.
+    let head = "record Point x:Int y:Int\nrecord Line a:Point b:Point\nrecord Cell hold:Int note:Text\nstate cell Int -> Cell\nstate out Int\n\n";
+    let pairs = [
+        ("f p:Point q:Point\n  need p = q else Differ\n  ok otherwise\nbody\n  need p = q else Differ\n  out.set 0 1\n",
+         "f p:Point q:Point\n  need p.x = q.x and p.y = q.y else Differ\n  ok otherwise\nbody\n  need p.x = q.x and p.y = q.y else Differ\n  out.set 0 1\n"),
+        ("f p:Point q:Point\n  ok otherwise\n  ensure out.get' 0 = 1 when p != q\nbody\n  if p != q\n    out.set 0 1\n",
+         "f p:Point q:Point\n  ok otherwise\n  ensure out.get' 0 = 1 when p.x != q.x or p.y != q.y\nbody\n  if p.x != q.x or p.y != q.y\n    out.set 0 1\n"),
+        ("f l:Line m:Line\n  ok otherwise\nbody\n  if l = m\n    out.set 0 1\n",
+         "f l:Line m:Line\n  ok otherwise\nbody\n  if l.a.x = m.a.x and l.a.y = m.a.y and l.b.x = m.b.x and l.b.y = m.b.y\n    out.set 0 1\n"),
+        ("f k:Int h:Int t:Text\n  ok otherwise\nbody\n  cell.set k (Cell h t)\n",
+         "f k:Int h:Int t:Text\n  ok otherwise\nbody\n  cell.hold.set k h\n  cell.note.set k t\n"),
+    ];
+    for (i, (short, long)) in pairs.iter().enumerate() {
+        let (a, b) = (parse_module(&format!("{head}{short}"), true).unwrap_or_else(|e| panic!("{i}: {}", e.0)),
+                      parse_module(&format!("{head}{long}"), true).unwrap_or_else(|e| panic!("{i} long: {}", e.0)));
+        check_module(&a).unwrap_or_else(|e| panic!("{i}: {}", e.message()));
+        assert_eq!(format!("{:?}", (&a.defs["f"].needs, &a.defs["f"].ensures, &a.defs["f"].body)),
+                   format!("{:?}", (&b.defs["f"].needs, &b.defs["f"].ensures, &b.defs["f"].body)), "{i}\n{short}");
+    }
+}
+
+#[test]
+fn a_nested_record_argument_is_positional_in_declaration_order() {
+    // 00fedb4: `w:Wrap` (Wrap s:Span tag:Int, Span lo:Int hi:Int) is the positional arguments w.s.lo w.s.hi w.tag.
+    // Verdicts can't see the order (fields are matched by name), so an eg pins it; a reversed leaf order (planted in
+    // syntax.rs's leaves, 2026-11-06) fails this and passes every fuzz variant.
+    let src = "record Span lo:Int hi:Int\nrecord Wrap s:Span tag:Int\nstate hold Int\n\n\
+               g w:Wrap\n  ok otherwise\n  eg | g 10 20 30 -> ok | hold.1:10 hold.2:20 hold.3:30\nbody\n  hold.set 1 w.s.lo\n  hold.set 2 w.s.hi\n  hold.set 3 w.tag\n\n\
+               h s:Span t:Int\n  ok otherwise\n  eg | h 4 5 6 -> ok | hold.1:4 hold.2:5 hold.3:6\nbody\n  g (Wrap s t)\n";
+    let defs = parse_module(src, true).unwrap();
+    check_module(&defs).unwrap();
+    let reps = kern::report::analyse(&defs, false, None, None).unwrap();
+    for n in ["g", "h"] {
+        let e = &reps[n].examples;
+        assert!(e.len() == 1 && e[0].pass, "{n}: {:?}", e.iter().map(|x| (&x.src, x.pass, &x.got)).collect::<Vec<_>>());
+    }
+}

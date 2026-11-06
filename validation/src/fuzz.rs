@@ -390,6 +390,47 @@ pub fn record_variant(src: &str) -> Option<String> {
     Some(blocks.join("\n\n"))
 }
 
+/// The record-state variant of a program (6506a42, records as state values): two Int maps over the same keys become
+/// the fields of one record state, `record Cell A:Int B:Int` + `state cell Int -> Cell`, read and written as the field
+/// states `cell.A.get k` / `cell.A.set k v` (and `keep cell.A except …`). Flattened at load, so the same verdicts.
+pub fn state_record_variant(src: &str, a: &str, b: &str) -> Option<String> {
+    let (sa, sb) = (format!("state {a} Int\n"), format!("state {b} Int\n"));
+    if !src.contains(&sa) || !src.contains(&sb) {
+        return None;
+    }
+    let mut out = src.replacen(&sa, &format!("record Cell {a}:Int {b}:Int\nstate cell Int -> Cell\n"), 1).replacen(&sb, "", 1);
+    for x in [a, b] {
+        for op in ["get'", "get", "set"] {
+            out = out.replace(&format!("{x}.{op} "), &format!("cell.{x}.{op} "));
+        }
+        out = out.replace(&format!("keep {x}"), &format!("keep cell.{x}"));
+    }
+    Some(out)
+}
+
+/// The nested-record variant of a record variant (00fedb4): `Span` moves inside `record Wrap s:Span tag:Int`; `f`
+/// takes `w:Wrap`, reads `w.s.lo`, and passes `w.s` whole to `agg`. Flattened at load, so the same verdicts.
+pub fn nested_record_variant(record_src: &str) -> Option<String> {
+    if !record_src.contains("record Span lo:Int hi:Int") {
+        return None;
+    }
+    let blocks: Vec<String> = record_src.split("\n\n").map(String::from).collect();
+    let mut out = vec![];
+    for b in blocks {
+        if b.starts_with("state ") {
+            out.push(b.replace("record Span lo:Int hi:Int", "record Span lo:Int hi:Int\nrecord Wrap s:Span tag:Int"));
+        } else if b.starts_with("f ") {
+            let mut t = b.replacen("s:Span", "w:Wrap", 1).replace("agg s", "agg w.s");
+            t = rename_tokens(&t, "s.lo", "w.s.lo");
+            t = rename_tokens(&t, "s.hi", "w.s.hi");
+            out.push(t);
+        } else {
+            out.push(b);
+        }
+    }
+    Some(out.join("\n\n"))
+}
+
 /// For each of the first `n` sum programs, its const and record variants (labels `sumc#i`, `sumr#i`), with the base
 /// program's seed so the oracle draws the same worlds.
 pub fn variant_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
@@ -399,7 +440,13 @@ pub fn variant_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
         let i = job.label.trim_start_matches("sum#");
         out.push(Job { label: format!("sumc#{i}"), src: Some(const_variant(&src)), ..job.clone() });
         if let Some(r) = record_variant(&src) {
+            if let Some(n) = nested_record_variant(&r) {
+                out.push(Job { label: format!("sumn#{i}"), src: Some(n), ..job.clone() });
+            }
             out.push(Job { label: format!("sumr#{i}"), src: Some(r), ..job.clone() });
+        }
+        if let Some(c) = state_record_variant(&src, "hold", "flag") {
+            out.push(Job { label: format!("sums#{i}"), src: Some(c), ..job.clone() });
         }
         let dir = std::env::temp_dir().join(format!("kern-fuzz-pkg-{}-{seed}-{i}", std::process::id()));
         if let Some(m) = package_variant(&src, &dir) {
@@ -412,13 +459,19 @@ pub fn variant_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
 
 /// Variants whose verdict counts differ from their base program's (`sum#i`): each should be empty.
 pub fn variant_mismatches(results: &[Outcome1]) -> Vec<String> {
-    let base: BTreeMap<&str, &Outcome1> =
-        results.iter().filter(|r| r.label.starts_with("sum#")).map(|r| (r.label.trim_start_matches("sum#"), r)).collect();
+    let base: BTreeMap<String, &Outcome1> = results
+        .iter()
+        .filter(|r| r.label.starts_with("sum#") || r.label.starts_with("frame#"))
+        .map(|r| (r.label.replace("sum#", "s").replace("frame#", "f"), r))
+        .collect();
     results
         .iter()
         .filter_map(|r| {
-            let i = r.label.strip_prefix("sumc#").or_else(|| r.label.strip_prefix("sumr#")).or_else(|| r.label.strip_prefix("sump#"))?;
-            let b = base.get(i)?;
+            let key = ["sumc#", "sumr#", "sump#", "sumn#", "sums#"]
+                .iter()
+                .find_map(|p| r.label.strip_prefix(p).map(|i| format!("s{i}")))
+                .or_else(|| r.label.strip_prefix("framer#").map(|i| format!("f{i}")))?;
+            let b = base.get(&key)?;
             (b.wf != r.wf || b.tiers != r.tiers || b.found.len() != r.found.len()).then(|| r.label.clone())
         })
         .collect()
@@ -782,15 +835,26 @@ pub fn gen_frame(rnd: &mut Random) -> String {
     lines.join("\n") + "\n"
 }
 
-/// `n` frame programs from their own stream, labelled `frame#i`.
+const FRAME_FIELD_VARIANTS: bool = false;
+
+/// `n` frame programs from their own stream, labelled `frame#i`, each followed (when FRAME_FIELD_VARIANTS) by its record-state variant
+/// (`hold`/`other` as fields of one stored record), labelled `framer#i`.
 pub fn frame_jobs(seed: i128, n: usize, runs: u64) -> Vec<Job> {
     let mut rnd = Random::from_int(seed * 1_000_003 + 48);
-    (0..n)
-        .map(|i| {
-            let src = gen_frame(&mut rnd);
-            Job { label: format!("frame#{i}"), src: Some(src), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs }
-        })
-        .collect()
+    let mut out = vec![];
+    for i in 0..n {
+        let src = gen_frame(&mut rnd);
+        let job = Job { label: format!("frame#{i}"), src: Some(src.clone()), module: None, seed: rnd.randrange(0, 1_000_000_000) as i128, runs };
+        // the record-state variant of a frame program needs a frame on one field (`keep cell.hold except …`), which
+        // isn't accepted yet (2026-11-06, sent to lang): off until it is
+        if FRAME_FIELD_VARIANTS {
+            if let Some(v) = state_record_variant(&src, "hold", "other") {
+                out.push(Job { label: format!("framer#{i}"), src: Some(v), ..job.clone() });
+            }
+        }
+        out.push(job);
+    }
+    out
 }
 
 // ---------------------------------------------------------------- computed-key invariants (4b44b2f)
@@ -1559,6 +1623,8 @@ pub fn summarise(results: &[Outcome1]) -> J {
         "tiers": tiers, "runs": runs, "ok_runs": ok, "skipped": skipped, "unmapped": unmapped, "unmapped_kinds": unmapped_kinds,
         "loop_well_formed": fam("loop#"), "handler_well_formed": fam("handler#"), "sum_well_formed": fam("sum#"), "text_well_formed": fam("text#"), "nest_well_formed": fam("nest#"), "match_well_formed": fam("match#"),
         "const_variant_well_formed": fam("sumc#"), "record_variant_well_formed": fam("sumr#"), "package_variant_well_formed": fam("sump#"),
+        "nested_record_variant_well_formed": fam("sumn#"), "state_record_variant_well_formed": fam("sums#"),
+        "frame_record_well_formed": fam("framer#"),
         "tick_well_formed": fam("tick#"), "frame_well_formed": fam("frame#"), "ckey_well_formed": fam("ckey#"), "rec_well_formed": fam("rec#"), "lit_well_formed": fam("lit#"), "ret_well_formed": fam("ret#"),
         "variant_mismatches": variant_mismatches(results),
     })

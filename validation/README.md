@@ -53,7 +53,7 @@ a run breaks. Exit 1 if there is any contradiction or crash.
 | `--recs N` | recursion (`gen_rec`, default 100, own stream): a counting-down function, a mutual pair, a recursive procedure; the recursive argument decreases or not, claims right or near misses. A depth-limit error contradicts the page only if every measure the call can reach is proven |
 | `--lits N` | literal-range claims (`gen_lit`, default 100, own stream): `for j from A to A + W`, W 1..17, sometimes `when`, over a body writing every key, all but the first or last, or one more |
 | `--rets N` | returning procedures (`gen_ret`, default 100, own stream): an allocator `alloc -> Int` (spec exact or loose), its id used as a key, two calls chained, calls in a loop, a returning procedure that refuses; claims right, off by one, or true only if the value were 0 |
-| `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`), a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`) and a package variant (`agg` in a package `lib` the program's package `use`s). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (fatal since 7d011af fixed the record counterexamples) |
+| `--variants N` | for the first N sum programs (default 50), a const variant (every literal a `const`), a record variant (`lo`, `hi` as a `Span` record, passed whole to `agg`) a package variant (`agg` in a package `lib` the program's package `use`s), a nested-record variant (`Span` inside `record Wrap s:Span tag:Int`, `w.s` passed whole) and a record-state variant (`hold`/`flag` as the fields of `state cell Int -> Cell`). Both are flattened at load, so each must get its base program's verdicts: differences are listed as `variant_mismatches` (fatal since 7d011af fixed the record counterexamples) |
 | `--runs N` | interpreter runs per definition (default 300) |
 | `--no-mutants` | skip the template mutants |
 | `--jobs N` | worker threads (each program runs on a fresh thread) |
@@ -115,4 +115,11 @@ committed) gives 3,060 contradictions in 14 of 100 (each a depth-limit error und
 **2026-11-06, returning procedures** (700e189; `--rets`). Teeth: a modular call handing the caller 0 instead of the
 result the callee's ensures constrain (prove.rs, not committed) gives 5,350 contradictions in 21 of 100; it needed
 claims that hold only if the value were 0 (a claim comparing the value with the callee's own formula only fails).
+
+**2026-11-06, nested records and records in state** (00fedb4, 6506a42). Two more variants per sum program, compared
+verdict for verdict: 0 mismatches. A reversed leaf order for nested records (planted in syntax.rs) changes no verdict,
+since fields are matched by name; it changes positional arguments, which `validation/tests/fuzz.rs`
+`a_nested_record_argument_is_positional_in_declaration_order` pins with an `eg` (the plant fails it). Record equality
+and whole-record sets are checked against their field expansions (same AST). Not yet: a record-state variant of the
+frame programs, since a frame on one field (`keep cell.hold except …`) isn't accepted (sent to lang).
 
